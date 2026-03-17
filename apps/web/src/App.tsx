@@ -473,6 +473,7 @@ export function App() {
         peerId={liveState.localPeerId ?? localPeerId ?? getCurrentDevice().peerId}
         userName={account.displayName}
         localPeerStatus={localPeerStatus}
+        linkedWallets={account.linkedEthAddresses}
         onCreateChat={handleCreateChat}
         onDeleteConversation={(id) => void deleteConversation(id)}
         onOpenSelectedContact={openSelectedContact}

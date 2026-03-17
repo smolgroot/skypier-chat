@@ -33,6 +33,7 @@ import { useState } from 'react';
 import type { Conversation } from '@skypier/protocol';
 import { reachabilityColor, reachabilityLabel } from '@skypier/network';
 import { UserAvatar } from './UserAvatar';
+import { useENS } from '../hooks/useENS';
 import { ChatList } from './ChatList';
 
 const SIDEBAR_WIDTH = 320;
@@ -53,6 +54,7 @@ interface MainLayoutProps {
   onDeleteConversation?: (conversationId: string) => void;
   onBack?: () => void; // New prop for mobile navigation back
   onOpenSelectedContact?: () => void;
+  linkedWallets?: { address: string; chainId: number }[];
 }
 
 export function MainLayout(props: MainLayoutProps) {
@@ -66,13 +68,17 @@ export function MainLayout(props: MainLayoutProps) {
     mode, 
     toggleColorMode,
     peerId,
-    userName,
-    localPeerStatus,
-    onCreateChat,
+    userName, 
+    localPeerStatus, 
+    onCreateChat, 
     onDeleteConversation,
     onBack,
     onOpenSelectedContact,
+    linkedWallets = []
   } = props;
+
+  const firstWallet = linkedWallets[0]?.address;
+  const { name: ensName, avatar: ensAvatar } = useENS(firstWallet);
 
   const localPeerStatusLabel =
     localPeerStatus === 'online'
@@ -122,11 +128,20 @@ export function MainLayout(props: MainLayoutProps) {
     <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%', bgcolor: 'transparent' }}>
       {isMobile && <Toolbar sx={{ pt: 'env(safe-area-inset-top)' }} />}
       <Box sx={{ p: 2, display: 'flex', alignItems: 'center', gap: 2 }}>
-        <UserAvatar seed={peerId} size={40} />
-        <Box sx={{ flexGrow: 1 }}>
-          <Typography variant="subtitle1" noWrap sx={{ fontWeight: 'bold' }}>{userName}</Typography>
+        <UserAvatar seed={peerId} size={40} src={ensAvatar} />
+        <Box sx={{ flexGrow: 1, minWidth: 0 }}>
+          <Typography variant="subtitle1" noWrap sx={{ fontWeight: 'bold' }}>
+            {ensName || userName}
+          </Typography>
+          {ensName && (
+            <Typography variant="caption" noWrap sx={{ display: 'block', mt: -0.5, opacity: 0.7 }}>
+              {userName}
+            </Typography>
+          )}
           <Typography
             variant="caption"
+            noWrap
+            sx={{ display: 'block' }}
             color={localPeerStatus === 'online' ? 'success.main' : localPeerStatus === 'connecting' ? 'warning.main' : 'error.main'}
           >
             {localPeerStatusLabel}
