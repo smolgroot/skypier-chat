@@ -544,12 +544,27 @@ export function createBrowserLiveSession(options: CreateBrowserLiveSessionOption
         }
 
         console.log('[skypier:session] dialPeerById: found', addrs.length, 'addresses via DHT, dialing…');
-        const connection = await node.dial(addrs);
-        const peerId = connection.remotePeer.toString();
-        console.log('[skypier:session] dialPeerById: ✓ connected to', peerId, 'via DHT');
-        emitState();
-        await this.flushQueue();
-        return peerId;
+
+        // Dial each address individually — relay circuit addresses embed
+        // different relay peer IDs, so passing them all to a single dial()
+        // triggers "Multiaddrs must all have the same peer id".
+        let lastErr: unknown;
+        for (const addr of addrs) {
+          try {
+            console.log('[skypier:session] dialPeerById: trying', addr.toString());
+            const connection = await node.dial(addr);
+            const peerId = connection.remotePeer.toString();
+            console.log('[skypier:session] dialPeerById: ✓ connected to', peerId, 'via DHT');
+            emitState();
+            await this.flushQueue();
+            return peerId;
+          } catch (addrErr) {
+            console.warn('[skypier:session] dialPeerById: addr failed:', addr.toString(), addrErr instanceof Error ? addrErr.message : addrErr);
+            lastErr = addrErr;
+          }
+        }
+
+        throw lastErr ?? new Error('All DHT addresses failed');
       } catch (routingErr) {
         const msg = routingErr instanceof Error ? routingErr.message : 'Unknown error';
         console.error('[skypier:session] dialPeerById: ✗ all dial attempts failed for', peerIdString, msg);

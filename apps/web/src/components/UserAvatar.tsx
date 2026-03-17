@@ -5,16 +5,18 @@ interface UserAvatarProps {
   seed: string;
   size?: number;
   displayName?: string;
+  src?: string | null;
   sx?: any;
 }
 
-export function UserAvatar({ seed, size = 40, displayName, sx }: UserAvatarProps) {
+export function UserAvatar({ seed, size = 40, displayName, src, sx }: UserAvatarProps) {
   // Use a hash of the seed if it's not a valid address-like string
   // jsNumberForAddress works well for generating a seed for Jazzicon
   const avatarSeed = jsNumberForAddress(seed.slice(-8));
 
   return (
     <Avatar
+      src={src || undefined}
       sx={{
         width: size,
         height: size,
@@ -23,11 +25,7 @@ export function UserAvatar({ seed, size = 40, displayName, sx }: UserAvatarProps
         ...sx,
       }}
     >
-      <Jazzicon diameter={size} seed={avatarSeed} />
-      {/* 
-        If Jazzicon fails or we want a fallback initial, we could overlay it, 
-        but Jazzicon is standard for web3 apps.
-      */}
+      {!src && <Jazzicon diameter={size} seed={avatarSeed} />}
     </Avatar>
   );
 }

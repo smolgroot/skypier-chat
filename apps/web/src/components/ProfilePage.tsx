@@ -3,6 +3,7 @@ import { QRCodeSVG } from 'qrcode.react';
 import ContentCopyIcon from '@mui/icons-material/ContentCopy';
 import ShareIcon from '@mui/icons-material/Share';
 import { UserAvatar } from './UserAvatar';
+import { useENS } from '../hooks/useENS';
 
 interface ProfilePageProps {
   peerId: string;
@@ -11,6 +12,9 @@ interface ProfilePageProps {
 }
 
 export function ProfilePage({ peerId, displayName, linkedWallets }: ProfilePageProps) {
+  const firstWallet = linkedWallets[0]?.address;
+  const { name: ensName, avatar: ensAvatar } = useENS(firstWallet);
+
   const copyToClipboard = (text: string) => {
     void navigator.clipboard.writeText(text);
   };
@@ -52,13 +56,19 @@ export function ProfilePage({ peerId, displayName, linkedWallets }: ProfilePageP
         <UserAvatar 
           seed={peerId} 
           size={120} 
+          src={ensAvatar}
           sx={{ boxShadow: '0 8px 32px rgba(142, 45, 226, 0.3)' }} 
         />
 
         <Box sx={{ textAlign: 'center', width: '100%' }}>
           <Typography variant="h2" gutterBottom>
-            {displayName}
+            {ensName || displayName}
           </Typography>
+          {ensName && (
+            <Typography variant="subtitle1" color="text.secondary" sx={{ mb: 1 }}>
+              ({displayName})
+            </Typography>
+          )}
           <Typography variant="body2" color="text.secondary" sx={{ wordBreak: 'break-all', mb: 1 }}>
             Peer ID: {peerId}
           </Typography>
