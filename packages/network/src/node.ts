@@ -4,6 +4,7 @@ import { yamux } from '@chainsafe/libp2p-yamux';
 import { autoNAT } from '@libp2p/autonat';
 import { bootstrap } from '@libp2p/bootstrap';
 import { circuitRelayTransport } from '@libp2p/circuit-relay-v2';
+import { privateKeyFromProtobuf } from '@libp2p/crypto/keys';
 import { dcutr } from '@libp2p/dcutr';
 import { identify } from '@libp2p/identify';
 import { kadDHT, removePrivateAddressesMapper } from '@libp2p/kad-dht';
@@ -36,11 +37,13 @@ export async function createNativeSkypierNode(options: CreateNativeSkypierNodeOp
 
   if (options.identityProtobuf != null) {
     const peerId = await createFromProtobuf(options.identityProtobuf);
-    privateKey = (peerId as { privateKey?: unknown }).privateKey;
+    const rawPrivateKeyBytes = (peerId as unknown as { privateKey?: Uint8Array }).privateKey;
 
-    if (privateKey == null) {
+    if (rawPrivateKeyBytes == null) {
       throw new Error('The provided identity protobuf does not contain a private key.');
     }
+
+    privateKey = privateKeyFromProtobuf(rawPrivateKeyBytes);
   }
 
   const listenAddresses = options.listenAddresses ?? [

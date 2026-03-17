@@ -11,9 +11,11 @@ import { MainLayout } from './components/MainLayout';
 import { ChatThread } from './components/ChatThread';
 import { ProfilePage } from './components/ProfilePage';
 import { SettingsPage } from './components/SettingsPage';
+import { NetworkStatusPage } from './components/NetworkStatusPage';
 import { SplashScreen } from './components/SplashScreen';
 import { OnboardingWizard } from './components/OnboardingWizard';
 import { BiometricUnlock } from './components/BiometricUnlock';
+import { ContactDetailPage } from './components/ContactDetailPage';
 
 export function App() {
   const {
@@ -43,7 +45,7 @@ export function App() {
     localPeerId,
   } = useChatController();
 
-  const [activeView, setActiveView] = useState<'chat' | 'profile' | 'settings'>('chat');
+  const [activeView, setActiveView] = useState<'chat' | 'profile' | 'settings' | 'contact' | 'network'>('chat');
   const [colorMode, setColorMode] = useState<'light' | 'dark'>('dark');
   const [peerIdInput, setPeerIdInput] = useState('');
   const [dialError, setDialError] = useState<string | undefined>();
@@ -52,6 +54,9 @@ export function App() {
   const [networkAlertDismissed, setNetworkAlertDismissed] = useState(false);
   const [showBiometricUnlock, setShowBiometricUnlock] = useState(false);
   const [biometricSessionUnlocked, setBiometricSessionUnlocked] = useState(false);
+  const [contactDialBusy, setContactDialBusy] = useState(false);
+  const [contactDialError, setContactDialError] = useState<string | undefined>();
+  const [contactDialSuccess, setContactDialSuccess] = useState<string | undefined>();
 
   const currentTheme = useMemo(() => theme(colorMode), [colorMode]);
 
@@ -158,6 +163,43 @@ export function App() {
     }
   }, [createConversationWithPeer, dialPeerById, liveState.status, updateConversationConnection]);
 
+  const openSelectedContact = useCallback(() => {
+    if (!selectedConversation) {
+      return;
+    }
+    setContactDialError(undefined);
+    setContactDialSuccess(undefined);
+    setActiveView('contact');
+  }, [selectedConversation]);
+
+  const handleContactDial = useCallback(async (peerId: string) => {
+    setContactDialBusy(true);
+    setContactDialError(undefined);
+    setContactDialSuccess(undefined);
+
+    try {
+      if (liveState.status !== 'running') {
+        await startSession();
+      }
+
+      const connectedPeerId = await dialPeerById(peerId);
+      setContactDialSuccess(`Dial succeeded: ${connectedPeerId.slice(0, 14)}…`);
+      await updateConversationConnection(peerId, {
+        reachability: 'direct',
+        lastMessagePreview: 'Peer reachable from contact page.',
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Dial failed';
+      setContactDialError(message);
+      await updateConversationConnection(peerId, {
+        reachability: 'offline',
+        lastMessagePreview: 'Dial test failed from contact page.',
+      });
+    } finally {
+      setContactDialBusy(false);
+    }
+  }, [dialPeerById, liveState.status, startSession, updateConversationConnection]);
+
   // Reset network alert when status changes to avoid persistent dismissals blocking important info
   useEffect(() => {
     if (liveState.status !== 'idle' && liveState.status !== 'error') {
@@ -200,6 +242,13 @@ export function App() {
         ? 'warning'
         : 'info';
 
+  const localPeerStatus: 'online' | 'connecting' | 'offline' =
+    liveState.status === 'running' && !!liveState.localPeerId
+      ? 'online'
+      : liveState.status === 'starting' || liveState.status === 'idle'
+        ? 'connecting'
+        : 'offline';
+
   const renderContent = () => {
     if (activeView === 'profile') {
       return (
@@ -240,6 +289,26 @@ export function App() {
       );
     }
 
+    if (activeView === 'network') {
+      return (
+        <NetworkStatusPage sessionState={liveState} />
+      );
+    }
+
+    if (activeView === 'contact' && selectedConversation) {
+      return (
+        <ContactDetailPage
+          conversation={selectedConversation}
+          localPeerId={liveState.localPeerId ?? localPeerId ?? getCurrentDevice().peerId}
+          isDialing={contactDialBusy}
+          dialError={contactDialError}
+          dialSuccess={contactDialSuccess}
+          onDialPeer={(peerId) => { void handleContactDial(peerId); }}
+          onOpenChat={() => setActiveView('chat')}
+        />
+      );
+    }
+
     if (selectedConversation) {
       return (
         <ChatThread 
@@ -248,6 +317,7 @@ export function App() {
           currentUserDisplayName={account.displayName}
           composerValue={composerValue}
           replyTarget={replyTarget}
+          onOpenContact={openSelectedContact}
           onComposerChange={setComposerValue}
           onReplyClear={clearReplyTarget}
           onToggleReaction={toggleReaction}
@@ -331,8 +401,16 @@ export function App() {
         toggleColorMode={toggleColorMode}
         peerId={liveState.localPeerId ?? localPeerId ?? getCurrentDevice().peerId}
         userName={account.displayName}
+        localPeerStatus={localPeerStatus}
         onCreateChat={handleCreateChat}
-        onBack={() => setSelectedConversationId('')}
+        onOpenSelectedContact={openSelectedContact}
+        onBack={() => {
+          if (activeView === 'contact') {
+            setActiveView('chat');
+            return;
+          }
+          setSelectedConversationId('');
+        }}
       >
         {renderContent()}
       </MainLayout>

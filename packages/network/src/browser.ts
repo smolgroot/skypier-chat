@@ -2,6 +2,7 @@ import { noise } from '@chainsafe/libp2p-noise';
 import { yamux } from '@chainsafe/libp2p-yamux';
 import { bootstrap } from '@libp2p/bootstrap';
 import { circuitRelayTransport } from '@libp2p/circuit-relay-v2';
+import { privateKeyFromProtobuf } from '@libp2p/crypto/keys';
 import { dcutr } from '@libp2p/dcutr';
 import { identify } from '@libp2p/identify';
 import { kadDHT, removePrivateAddressesMapper } from '@libp2p/kad-dht';
@@ -26,16 +27,45 @@ export async function createBrowserSkypierNode(options: CreateBrowserSkypierNode
 
   if (options.identityProtobuf != null) {
     const peerId = await createFromProtobuf(options.identityProtobuf);
-    importedPrivateKey = (peerId as { privateKey?: unknown }).privateKey;
+    // peerId.privateKey from the old peer-id-factory is raw marshalled bytes (Uint8Array).
+    // libp2p v3 expects a PrivateKey *object* with .type / .publicKey,
+    // so we must convert via privateKeyFromProtobuf.
+    const rawPrivateKeyBytes = (peerId as unknown as { privateKey?: Uint8Array }).privateKey;
 
-    if (importedPrivateKey == null) {
+    if (rawPrivateKeyBytes == null) {
       throw new Error('The provided identity protobuf does not contain a private key.');
     }
+
+    importedPrivateKey = privateKeyFromProtobuf(rawPrivateKeyBytes);
   }
 
   const peerDiscovery = options.bootstrapMultiaddrs != null && options.bootstrapMultiaddrs.length > 0
     ? [bootstrap({ list: options.bootstrapMultiaddrs })]
     : [];
+
+  const transports = [
+    safelyCreate(() => webSockets()),
+    safelyCreate(() => webRTC()),
+    safelyCreate(() => circuitRelayTransport()),
+  ].filter((transport): transport is NonNullable<typeof transport> => transport != null);
+
+  if (transports.length === 0) {
+    throw new Error('No browser transport could be initialized for libp2p.');
+  }
+
+  const peerRouters = [
+    safelyCreate(() => kadDHT({
+      clientMode: true,
+      alpha: 2,
+      peerInfoMapper: removePrivateAddressesMapper,
+    }) as any),
+  ].filter((router): router is NonNullable<typeof router> => router != null);
+
+  const services = {
+    identify: safelyCreate(() => identify()),
+    ping: safelyCreate(() => ping()),
+    dcutr: safelyCreate(() => dcutr()),
+  };
 
   return await createLibp2p({
     start: options.start ?? false,
@@ -48,11 +78,7 @@ export async function createBrowserSkypierNode(options: CreateBrowserSkypierNode
       maxParallelDials: 2,
       dialTimeout: 10_000,
     },
-    transports: [
-      webSockets(),
-      webRTC(),
-      circuitRelayTransport(),
-    ],
+    transports,
     connectionGater: {
       denyDialMultiaddr: () => false,
     },
@@ -66,17 +92,16 @@ export async function createBrowserSkypierNode(options: CreateBrowserSkypierNode
       }),
     ],
     peerDiscovery,
-    peerRouters: [
-      kadDHT({
-        clientMode: true,
-        alpha: 2,
-        peerInfoMapper: removePrivateAddressesMapper,
-      }) as any,
-    ],
-    services: {
-      identify: identify(),
-      ping: ping(),
-      dcutr: dcutr(),
-    },
+    ...(peerRouters.length > 0 ? { peerRouters } : {}),
+    services: Object.fromEntries(Object.entries(services).filter(([, value]) => value != null)) as any,
   });
+}
+
+function safelyCreate<T>(factory: () => T): T | undefined {
+  try {
+    const value = factory();
+    return value ?? undefined;
+  } catch {
+    return undefined;
+  }
 }

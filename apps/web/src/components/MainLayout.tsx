@@ -24,6 +24,7 @@ import {
 import ChatIcon from '@mui/icons-material/Chat';
 import AccountCircleIcon from '@mui/icons-material/AccountCircle';
 import SettingsIcon from '@mui/icons-material/Settings';
+import SignalWifi4BarIcon from '@mui/icons-material/SignalWifi4Bar';
 import MenuIcon from '@mui/icons-material/Menu';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import DarkModeIcon from '@mui/icons-material/DarkMode';
@@ -40,15 +41,17 @@ interface MainLayoutProps {
   conversations: Conversation[];
   selectedConversationId?: string;
   onSelectConversation: (id: string) => void;
-  activeView: 'chat' | 'profile' | 'settings';
-  setActiveView: (view: 'chat' | 'profile' | 'settings') => void;
+  activeView: 'chat' | 'profile' | 'settings' | 'contact' | 'network';
+  setActiveView: (view: 'chat' | 'profile' | 'settings' | 'contact' | 'network') => void;
   children: React.ReactNode;
   mode: 'light' | 'dark';
   toggleColorMode: () => void;
   peerId: string;
   userName: string;
+  localPeerStatus: 'online' | 'connecting' | 'offline';
   onCreateChat: (peerId: string, displayName?: string) => Promise<void> | void;
   onBack?: () => void; // New prop for mobile navigation back
+  onOpenSelectedContact?: () => void;
 }
 
 export function MainLayout(props: MainLayoutProps) {
@@ -63,9 +66,18 @@ export function MainLayout(props: MainLayoutProps) {
     toggleColorMode,
     peerId,
     userName,
+    localPeerStatus,
     onCreateChat,
-    onBack
+    onBack,
+    onOpenSelectedContact,
   } = props;
+
+  const localPeerStatusLabel =
+    localPeerStatus === 'online'
+      ? 'Local peer online'
+      : localPeerStatus === 'connecting'
+        ? 'Local peer connecting…'
+        : 'Local peer offline';
   
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down('md'));
@@ -78,7 +90,7 @@ export function MainLayout(props: MainLayoutProps) {
 
   // Determine if we should show the back button on mobile.
   // We show it if we're on mobile and a conversation is selected while in chat view.
-  const showBackButton = isMobile && activeView === 'chat' && !!selectedConversationId;
+  const showBackButton = isMobile && (activeView === 'contact' || (activeView === 'chat' && !!selectedConversationId));
 
   const handleDrawerToggle = () => {
     setMobileOpen(!mobileOpen);
@@ -111,7 +123,12 @@ export function MainLayout(props: MainLayoutProps) {
         <UserAvatar seed={peerId} size={40} />
         <Box sx={{ flexGrow: 1 }}>
           <Typography variant="subtitle1" noWrap sx={{ fontWeight: 'bold' }}>{userName}</Typography>
-          <Typography variant="caption" color="text.secondary">Online</Typography>
+          <Typography
+            variant="caption"
+            color={localPeerStatus === 'online' ? 'success.main' : localPeerStatus === 'connecting' ? 'warning.main' : 'error.main'}
+          >
+            {localPeerStatusLabel}
+          </Typography>
         </Box>
         <IconButton onClick={toggleColorMode}>
           {mode === 'dark' ? <LightModeIcon /> : <DarkModeIcon />}
@@ -147,6 +164,16 @@ export function MainLayout(props: MainLayoutProps) {
           >
             <ListItemIcon><SettingsIcon color={activeView === 'settings' ? 'primary' : 'inherit'} /></ListItemIcon>
             <ListItemText primary="Settings" />
+          </ListItemButton>
+        </ListItem>
+        <ListItem disablePadding>
+          <ListItemButton 
+            selected={activeView === 'network'} 
+            onClick={() => { setActiveView('network'); if(isMobile) setMobileOpen(false); }}
+            sx={{ borderRadius: 2 }}
+          >
+            <ListItemIcon><SignalWifi4BarIcon color={activeView === 'network' ? 'primary' : 'inherit'} /></ListItemIcon>
+            <ListItemText primary="P2P Status" />
           </ListItemButton>
         </ListItem>
       </List>
@@ -280,7 +307,14 @@ export function MainLayout(props: MainLayoutProps) {
             <Typography variant="h6" noWrap component="div" sx={{ flexGrow: 1 }}>
               {activeView === 'chat' && selectedConversationId ? (
                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
-                  <UserAvatar seed={selectedConversationId} size={32} />
+                  <IconButton
+                    onClick={onOpenSelectedContact}
+                    size="small"
+                    sx={{ p: 0 }}
+                    aria-label="Open contact details"
+                  >
+                    <UserAvatar seed={selectedConversationId} size={32} />
+                  </IconButton>
                   <Box sx={{ display: 'flex', flexDirection: 'column' }}>
                     <Typography variant="subtitle1" sx={{ fontWeight: 'bold', lineHeight: 1.2 }}>
                       {conversations.find(c => c.id === selectedConversationId)?.title || 'Chat'}
@@ -291,7 +325,10 @@ export function MainLayout(props: MainLayoutProps) {
                   </Box>
                 </Box>
               ) : (
-                activeView === 'chat' ? 'Skypier Chat' : activeView.charAt(0).toUpperCase() + activeView.slice(1)
+                activeView === 'chat' ? 'Skypier Chat' : 
+                activeView === 'network' ? 'P2P Status' :
+                activeView === 'contact' ? 'Contact Details' :
+                activeView.charAt(0).toUpperCase() + activeView.slice(1)
               )}
             </Typography>
           </Toolbar>
