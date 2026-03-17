@@ -15,37 +15,30 @@ const BubbleContainer = styled(Box, {
 const StyledBubble = styled(Paper, {
   shouldForwardProp: (prop) => prop !== 'isSelf',
 })<{ isSelf?: boolean }>(({ theme, isSelf }) => ({
-  padding: theme.spacing(1, 1.5),
-  maxWidth: '70%',
+  padding: theme.spacing(1.2, 2),
+  maxWidth: '75%',
   position: 'relative',
-  borderRadius: isSelf ? '18px 18px 4px 18px' : '18px 18px 18px 4px',
+  borderRadius: isSelf ? '20px 20px 4px 20px' : '20px 20px 20px 4px',
   background: isSelf 
     ? (theme.palette.mode === 'dark' 
-        ? 'linear-gradient(135deg, #8e2de2, #4a00e0)' 
-        : theme.palette.primary.main)
+        ? 'linear-gradient(135deg, rgba(142, 45, 226, 0.4), rgba(74, 0, 224, 0.4))' 
+        : 'linear-gradient(135deg, rgba(142, 45, 226, 0.7), rgba(74, 0, 224, 0.7))')
     : (theme.palette.mode === 'dark' 
-        ? '#1a1325' 
-        : '#ffffff'),
-  color: isSelf && theme.palette.mode === 'light' ? '#fff' : theme.palette.text.primary,
-  boxShadow: '0 2px 4px rgba(0,0,0,0.1)',
-  '&::after': {
-    content: '""',
-    position: 'absolute',
-    bottom: 0,
-    width: 0,
-    height: 0,
-    border: '10px solid transparent',
-    ...(isSelf 
-      ? {
-          right: -10,
-          borderLeftColor: theme.palette.mode === 'dark' ? '#4a00e0' : theme.palette.primary.main,
-          borderBottom: 0,
-        }
-      : {
-          left: -10,
-          borderRightColor: theme.palette.mode === 'dark' ? '#1a1325' : '#ffffff',
-          borderBottom: 0,
-        })
+        ? 'rgba(30, 20, 50, 0.3)' 
+        : 'rgba(255, 255, 255, 0.4)'),
+  color: isSelf ? '#fff' : theme.palette.text.primary,
+  backdropFilter: 'blur(20px) saturate(190%) url(#liquid-glass-refraction)',
+  WebkitBackdropFilter: 'blur(20px) saturate(190%) url(#liquid-glass-refraction)',
+  filter: 'url(#liquid-glass-gloss)',
+  border: (theme.palette.mode === 'dark' 
+      ? '1px solid rgba(171, 110, 255, 0.2)' 
+      : '1px solid rgba(0, 0, 0, 0.05)'),
+  boxShadow: theme.palette.mode === 'dark'
+    ? '0 4px 15px rgba(0,0,0,0.3)'
+    : '0 4px 15px rgba(31, 38, 135, 0.07)',
+  transition: 'transform 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275)',
+  '&:active': {
+    transform: 'scale(0.98)',
   }
 }));
 

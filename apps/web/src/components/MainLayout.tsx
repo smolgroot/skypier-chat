@@ -214,13 +214,14 @@ export function MainLayout(props: MainLayoutProps) {
           sx: {
             bgcolor: (theme) => 
               theme.palette.mode === 'dark' 
-                ? 'rgba(14, 8, 28, 0.4)' 
-                : 'rgba(255, 255, 255, 0.4)',
-            backdropFilter: 'blur(30px) saturate(190%)',
-            WebkitBackdropFilter: 'blur(30px) saturate(190%)',
+                ? 'rgba(14, 8, 28, 0.3)' 
+                : 'rgba(255, 255, 255, 0.3)',
+            backdropFilter: 'blur(30px) saturate(190%) url(#liquid-glass-refraction)',
+            WebkitBackdropFilter: 'blur(30px) saturate(190%) url(#liquid-glass-refraction)',
+            filter: 'url(#liquid-glass-gloss)',
             border: (theme) => 
               theme.palette.mode === 'dark' 
-                ? '1px solid rgba(171, 110, 255, 0.2)' 
+                ? '1px solid rgba(171, 110, 255, 0.25)' 
                 : '1px solid rgba(0, 0, 0, 0.08)',
             borderRadius: 4,
             backgroundImage: 'none',
@@ -269,13 +270,14 @@ export function MainLayout(props: MainLayoutProps) {
           sx={{ 
             bgcolor: (theme) => 
                theme.palette.mode === 'dark' 
-                ? 'rgba(14, 8, 28, 0.35)' 
-                : 'rgba(255, 255, 255, 0.4)',
-            backdropFilter: 'blur(30px) saturate(190%)',
-            WebkitBackdropFilter: 'blur(30px) saturate(190%)',
+                ? 'rgba(14, 8, 28, 0.3)' 
+                : 'rgba(255, 255, 255, 0.35)',
+            backdropFilter: 'blur(30px) saturate(190%) url(#liquid-glass-refraction)',
+            WebkitBackdropFilter: 'blur(30px) saturate(190%) url(#liquid-glass-refraction)',
+            filter: 'url(#liquid-glass-gloss)',
             border: (theme) => 
                theme.palette.mode === 'dark' 
-                ? '1px solid rgba(171, 110, 255, 0.3)' 
+                ? '1px solid rgba(171, 110, 255, 0.25)' 
                 : '1px solid rgba(0, 0, 0, 0.08)',
             color: 'text.primary',
             borderRadius: 100, 
@@ -352,10 +354,11 @@ export function MainLayout(props: MainLayoutProps) {
                 position: 'static',
                 bgcolor: (theme) => 
                   theme.palette.mode === 'dark' 
-                    ? 'rgba(10, 5, 20, 0.25)' 
-                    : 'rgba(255, 255, 255, 0.25)',
-                backdropFilter: 'blur(30px) saturate(190%)',
-                WebkitBackdropFilter: 'blur(30px) saturate(190%)',
+                    ? 'rgba(10, 5, 20, 0.2)' 
+                    : 'rgba(255, 255, 255, 0.2)',
+                backdropFilter: 'blur(30px) saturate(190%) url(#liquid-glass-refraction)',
+                WebkitBackdropFilter: 'blur(30px) saturate(190%) url(#liquid-glass-refraction)',
+                filter: 'url(#liquid-glass-gloss)',
                 borderRight: (theme) => 
                   theme.palette.mode === 'dark' 
                     ? '1px solid rgba(171, 110, 255, 0.15)' 
@@ -383,10 +386,11 @@ export function MainLayout(props: MainLayoutProps) {
               zIndex: 1201,
               bgcolor: (theme) => 
                 theme.palette.mode === 'dark' 
-                  ? 'rgba(10, 5, 20, 0.25)' 
-                  : 'rgba(255, 255, 255, 0.25)',
-              backdropFilter: 'blur(30px) saturate(190%)',
-              WebkitBackdropFilter: 'blur(30px) saturate(190%)',
+                  ? 'rgba(10, 5, 20, 0.2)' 
+                  : 'rgba(255, 255, 255, 0.2)',
+              backdropFilter: 'blur(30px) saturate(190%) url(#liquid-glass-refraction)',
+              WebkitBackdropFilter: 'blur(30px) saturate(190%) url(#liquid-glass-refraction)',
+              filter: 'url(#liquid-glass-gloss)',
               borderRight: (theme) => 
                 theme.palette.mode === 'dark' 
                   ? '1px solid rgba(171, 110, 255, 0.15)' 
@@ -409,16 +413,17 @@ export function MainLayout(props: MainLayoutProps) {
           position: 'relative',
           bgcolor: 'transparent',
           display: 'flex',
-          flexDirection: 'column',
-          pt: isMobile ? 'calc(env(safe-area-inset-top) + 80px)' : 0
+          flexDirection: 'column'
         }}
       >
         {isMobile && activeView === 'chat' && !selectedConversationId ? (
-          <ChatList 
-            conversations={conversations}
-            onSelectConversation={onSelectConversation}
-            onNewChat={() => setNewChatOpen(true)}
-          />
+          <Box sx={{ pt: 'calc(env(safe-area-inset-top) + 68px)' }}>
+            <ChatList 
+              conversations={conversations}
+              onSelectConversation={onSelectConversation}
+              onNewChat={() => setNewChatOpen(true)}
+            />
+          </Box>
         ) : children}
       </Box>
     </Box>

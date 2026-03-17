@@ -10,6 +10,28 @@
   </head>
   <body>
     <div id="root"></div>
+    <svg style="display: none;">
+      <defs>
+        <!-- High-End Liquid Refraction -->
+        <filter id="liquid-glass-refraction" x="-30%" y="-30%" width="160%" height="160%">
+          <feTurbulence type="fractalNoise" baseFrequency="0.01 0.01" numOctaves="2" result="noise" seed="2" />
+          <feColorMatrix in="noise" type="matrix" values="1 0 0 0 0  0 1 0 0 0  0 0 1 0 0  0 0 0 0.5 0" result="faint_noise" />
+          <feDisplacementMap in="SourceGraphic" in2="faint_noise" scale="35" xChannelSelector="R" yChannelSelector="G" result="refracted" />
+          <feGaussianBlur in="refracted" stdDeviation="0.8" result="soft" />
+          <feBlend in="SourceGraphic" in2="soft" mode="screen" opacity="0.3" />
+        </filter>
+
+        <!-- Signature Gloss / Chrome Specular -->
+        <filter id="liquid-glass-gloss" x="-20%" y="-20%" width="140%" height="140%">
+          <feGaussianBlur in="SourceAlpha" stdDeviation="6" result="blur" />
+          <feSpecularLighting in="blur" surfaceScale="8" specularConstant="1.2" specularExponent="45" lighting-color="#ffffff" result="spec">
+            <fePointLight x="-100" y="-150" z="300" />
+          </feSpecularLighting>
+          <feComposite in="spec" in2="SourceAlpha" operator="in" result="gloss" />
+          <feComposite in="SourceGraphic" in2="gloss" operator="over" />
+        </filter>
+      </defs>
+    </svg>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

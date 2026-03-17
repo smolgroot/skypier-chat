@@ -101,7 +101,10 @@ export function ChatThread(props: ChatThreadProps) {
         sx={{
           flexGrow: 1,
           overflowY: 'auto',
-          p: 2,
+          px: 2,
+          pb: 2,
+          // On mobile, extend scroll area behind the glass AppBar
+          pt: isMobile ? 'calc(env(safe-area-inset-top) + 80px)' : 2,
           display: 'flex',
           flexDirection: 'column',
           gap: 1,
