@@ -244,17 +244,42 @@ export function createBrowserLiveSession(options: CreateBrowserLiveSessionOption
       }
 
       const targetPeerId = peerIdFromString(peerIdString.trim());
-      const peerInfo = await node.peerRouting.findPeer(targetPeerId);
 
-      if (peerInfo.multiaddrs.length === 0) {
-        throw new Error('No dialable addresses found for this peer ID.');
+      // First try: dial by PeerId directly (works if peer is already in the address book
+      // or discovered via mDNS / bootstrap / previous connection)
+      try {
+        console.log('[skypier:session] dialPeerById: attempting direct dial to', peerIdString);
+        const connection = await node.dial(targetPeerId);
+        const peerId = connection.remotePeer.toString();
+        console.log('[skypier:session] dialPeerById: ✓ connected to', peerId);
+        emitState();
+        await this.flushQueue();
+        return peerId;
+      } catch (directErr) {
+        console.warn('[skypier:session] dialPeerById: direct dial failed, trying peer routing…', directErr instanceof Error ? directErr.message : directErr);
       }
 
-      const connection = await node.dial(peerInfo.multiaddrs);
-      const peerId = connection.remotePeer.toString();
-      emitState();
-      await this.flushQueue();
-      return peerId;
+      // Second try: use peer routing (KadDHT) to find the peer's addresses
+      try {
+        const peerInfo = await node.peerRouting.findPeer(targetPeerId);
+        const addrs = peerInfo?.multiaddrs ?? [];
+
+        if (addrs.length === 0) {
+          throw new Error('Peer was found in DHT but has no dialable addresses.');
+        }
+
+        console.log('[skypier:session] dialPeerById: found', addrs.length, 'addresses via DHT, dialing…');
+        const connection = await node.dial(addrs);
+        const peerId = connection.remotePeer.toString();
+        console.log('[skypier:session] dialPeerById: ✓ connected to', peerId, 'via DHT');
+        emitState();
+        await this.flushQueue();
+        return peerId;
+      } catch (routingErr) {
+        const msg = routingErr instanceof Error ? routingErr.message : 'Unknown error';
+        console.error('[skypier:session] dialPeerById: ✗ all dial attempts failed for', peerIdString, msg);
+        throw new Error(`Could not reach peer ${peerIdString.slice(0, 16)}…: ${msg}`);
+      }
     },
 
     async sendEnvelopeToConnected(envelope: WireEnvelope) {

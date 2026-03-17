@@ -74,6 +74,7 @@ export function App() {
     connectedPeers,
     startSession,
     stopSession,
+    dialPeer,
     dialPeerById,
     broadcastChatMessage,
     sendChatMessageToPeer,
@@ -275,7 +276,7 @@ export function App() {
           presence={presence}
           peerMultiaddr={peerIdInput}
           setPeerMultiaddr={setPeerIdInput}
-          dialPeer={dialPeerById}
+          dialPeer={dialPeer}
           startSession={startSession}
           stopSession={stopSession}
           exportBackup={exportBackup}

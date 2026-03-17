@@ -198,10 +198,10 @@ export function MainLayout(props: MainLayoutProps) {
         overflow: 'hidden',
         bgcolor: mode === 'dark' ? '#030105' : '#ffffff',
         backgroundImage: mode === 'dark'
-          ? `linear-gradient(to bottom, #030105, transparent, #030105), url("/pattern.png"), radial-gradient(circle, #281f3ab6 0%, #000 100%)`
-          : `linear-gradient(to bottom, #ffffff, transparent, #ffffff), url("/pattern.png"), radial-gradient(circle, transparent 0%, #ffffff 70%)`,
-        backgroundSize: '100% 100%, 300px, cover',
-        backgroundRepeat: 'no-repeat, repeat, no-repeat',
+          ? 'linear-gradient(to bottom, #030105, transparent, #030105), radial-gradient(circle, #281f3ab6 0%, #000 100%)'
+          : 'linear-gradient(to bottom, #ffffff, transparent, #ffffff), radial-gradient(circle, transparent 0%, #ffffff 70%)',
+        backgroundSize: '100% 100%, cover',
+        backgroundRepeat: 'no-repeat, no-repeat',
         backgroundPosition: 'center'
       }}
     >
