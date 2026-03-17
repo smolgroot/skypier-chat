@@ -42,7 +42,7 @@ export function SplashScreen() {
           SKYPIER
         </Typography>
         <Typography variant="caption" sx={{ color: '#ab6eff', letterSpacing: '0.3em', mt: 1 }}>
-          SECURE CHAT
+          dMessaging
         </Typography>
       </Box>
       

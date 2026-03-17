@@ -50,6 +50,7 @@ interface MainLayoutProps {
   userName: string;
   localPeerStatus: 'online' | 'connecting' | 'offline';
   onCreateChat: (peerId: string, displayName?: string) => Promise<void> | void;
+  onDeleteConversation?: (conversationId: string) => void;
   onBack?: () => void; // New prop for mobile navigation back
   onOpenSelectedContact?: () => void;
 }
@@ -68,6 +69,7 @@ export function MainLayout(props: MainLayoutProps) {
     userName,
     localPeerStatus,
     onCreateChat,
+    onDeleteConversation,
     onBack,
     onOpenSelectedContact,
   } = props;
@@ -184,6 +186,7 @@ export function MainLayout(props: MainLayoutProps) {
           selectedConversationId={selectedConversationId}
           onSelectConversation={onSelectConversation}
           onNewChat={() => setNewChatOpen(true)}
+          onDeleteConversation={onDeleteConversation}
           dense
         />
       )}
@@ -425,6 +428,7 @@ export function MainLayout(props: MainLayoutProps) {
               conversations={conversations}
               onSelectConversation={onSelectConversation}
               onNewChat={() => setNewChatOpen(true)}
+              onDeleteConversation={onDeleteConversation}
             />
           </Box>
         ) : children}

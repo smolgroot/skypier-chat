@@ -40,7 +40,7 @@ export function ContactDetailPage(props: ContactDetailPageProps) {
       }} />
 
       <Stack spacing={3} alignItems="center" sx={{ width: '100%' }}>
-        <UserAvatar seed={remoteParticipant.peerId} size={100} sx={{ boxShadow: (theme) => `0 8px 32px ${theme.palette.primary.main}44` }} />
+        <UserAvatar seed={remoteParticipant.peerId} size={100} sx={{ boxShadow: (theme: import('@mui/material').Theme) => `0 8px 32px ${theme.palette.primary.main}44` }} />
         
         <Box sx={{ textAlign: 'center' }}>
           <Typography variant="h4" sx={{ fontWeight: 'bold' }}>{remoteParticipant.displayName}</Typography>

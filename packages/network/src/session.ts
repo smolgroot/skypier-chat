@@ -143,6 +143,14 @@ export function createBrowserLiveSession(options: CreateBrowserLiveSessionOption
   }
 
   function enqueue(peerId: string, envelope: WireEnvelope, retryCount = 0) {
+    // Skip self-targeted messages
+    if (peerId === state.localPeerId) return;
+
+    // Deduplicate: don't queue the same messageId+peerId twice
+    if (envelope.messageId && queue.some((q) => q.peerId === peerId && q.envelope.messageId === envelope.messageId)) {
+      return;
+    }
+
     const delay = computeNextRetryDelay(retryCount);
     queue.push({
       peerId,
@@ -157,17 +165,20 @@ export function createBrowserLiveSession(options: CreateBrowserLiveSessionOption
   // ─── Send one envelope via length-prefixed stream ──────────────────────
 
   async function sendEnvelopeToPeer(peerId: string, envelope: WireEnvelope): Promise<boolean> {
+    // Guard: never send to ourselves
+    if (peerId === state.localPeerId) {
+      return true; // treat as "sent" — nothing to do
+    }
+
     if (!node) {
-      console.warn('[skypier:session] sendEnvelopeToPeer: node not ready, queueing for', peerId);
-      enqueue(peerId, envelope);
+      console.warn('[skypier:session] sendEnvelopeToPeer: node not ready for', peerId);
       return false;
     }
 
     const connection = node.getConnections().find((c) => c.remotePeer.toString() === peerId);
 
     if (!connection) {
-      console.warn('[skypier:session] sendEnvelopeToPeer: no connection to', peerId, '— queueing.');
-      enqueue(peerId, envelope);
+      console.warn('[skypier:session] sendEnvelopeToPeer: no connection to', peerId);
       return false;
     }
 
@@ -403,6 +414,17 @@ export function createBrowserLiveSession(options: CreateBrowserLiveSessionOption
           lastError: undefined,
         };
 
+        // Purge any queued items targeting our own peerId (seeded/stale data)
+        const selfId = state.localPeerId!;
+        const before = queue.length;
+        for (let i = queue.length - 1; i >= 0; i--) {
+          if (queue[i].peerId === selfId) queue.splice(i, 1);
+        }
+        if (queue.length !== before) {
+          console.log('[skypier:session] purged', before - queue.length, 'self-targeted queue entries');
+          persistQueue();
+        }
+
         console.log('[skypier:session] ✓ node started — localPeerId:', node.peerId.toString());
         console.log('[skypier:session]   listen addrs:', node.getMultiaddrs().map((ma) => ma.toString()));
         emitState();
@@ -494,7 +516,8 @@ export function createBrowserLiveSession(options: CreateBrowserLiveSessionOption
     },
 
     async sendEnvelopeToConnected(envelope: WireEnvelope) {
-      const targets = node?.getConnections().map((c) => c.remotePeer.toString()) ?? [];
+      const targets = (node?.getConnections().map((c) => c.remotePeer.toString()) ?? [])
+        .filter((pid) => pid !== state.localPeerId); // never send to self
       console.log('[skypier:session] broadcasting envelope to', targets.length, 'connected peers:', targets);
 
       for (const peerId of targets) {

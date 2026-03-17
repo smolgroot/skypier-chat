@@ -114,7 +114,7 @@ export function ChatBubble({ message, isSelf, onReplySelect, onToggleReaction, o
             const { label, color } = deliveryIndicator(message.delivery);
             const isFailed = message.delivery === 'local-only';
             return (
-              <>
+              <Box component="span" sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
                 <Typography variant="caption" sx={{ color, fontSize: '0.7rem', fontWeight: 600 }}>
                   {label}
                 </Typography>
@@ -133,7 +133,7 @@ export function ChatBubble({ message, isSelf, onReplySelect, onToggleReaction, o
                     Retry
                   </Typography>
                 )}
-              </>
+              </Box>
             );
           })()}
         </Box>

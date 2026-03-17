@@ -410,6 +410,25 @@ export function useChatController() {
     }
   }, [persistState]);
 
+  const deleteConversation = useCallback(async (conversationId: string) => {
+    const snap = stateRef.current;
+    const nextConversations = snap.conversations.filter((c) => c.id !== conversationId);
+    const { [conversationId]: _removed, ...nextMessagesByConversation } = snap.messagesByConversation;
+
+    const nextState: PersistedChatState = {
+      ...snap,
+      conversations: nextConversations,
+      messagesByConversation: nextMessagesByConversation,
+    };
+
+    await persistState(nextState);
+
+    // If the deleted conversation was selected, deselect it
+    if (selectedConversationIdRef.current === conversationId) {
+      setSelectedConversationId('');
+    }
+  }, [persistState]);
+
   return {
     account: state.account,
     conversations: state.conversations,
@@ -426,6 +445,7 @@ export function useChatController() {
     selectReplyTarget,
     clearReplyTarget: () => setReplyTargetId(undefined),
     toggleReaction,
+    deleteConversation,
     ingestIncomingEnvelope,
     updateMessageDeliveryStatus,
     linkEthAddress,

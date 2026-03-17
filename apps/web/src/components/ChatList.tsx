@@ -7,10 +7,17 @@ import {
   Typography, 
   Box,
   Divider,
-  Button
+  Button,
+  IconButton,
+  Menu,
+  MenuItem,
+  ListItemIcon as MenuItemIcon,
 } from '@mui/material';
+import MoreVertIcon from '@mui/icons-material/MoreVert';
+import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline';
 import { reachabilityColor } from '@skypier/network';
 import type { Conversation } from '@skypier/protocol';
+import { useState } from 'react';
 import { UserAvatar } from './UserAvatar';
 
 interface ChatListProps {
@@ -18,10 +25,32 @@ interface ChatListProps {
   selectedConversationId?: string;
   onSelectConversation: (id: string) => void;
   onNewChat: () => void;
+  onDeleteConversation?: (conversationId: string) => void;
   dense?: boolean;
 }
 
-export function ChatList({ conversations, selectedConversationId, onSelectConversation, onNewChat, dense = false }: ChatListProps) {
+export function ChatList({ conversations, selectedConversationId, onSelectConversation, onNewChat, onDeleteConversation, dense = false }: ChatListProps) {
+  const [menuAnchor, setMenuAnchor] = useState<HTMLElement | null>(null);
+  const [menuConvId, setMenuConvId] = useState<string | null>(null);
+
+  const handleMenuOpen = (event: React.MouseEvent<HTMLElement>, conversationId: string) => {
+    event.stopPropagation();
+    setMenuAnchor(event.currentTarget);
+    setMenuConvId(conversationId);
+  };
+
+  const handleMenuClose = () => {
+    setMenuAnchor(null);
+    setMenuConvId(null);
+  };
+
+  const handleDelete = () => {
+    if (menuConvId && onDeleteConversation) {
+      onDeleteConversation(menuConvId);
+    }
+    handleMenuClose();
+  };
+
   return (
     <Box sx={{ flexGrow: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column' }}>
       <Box sx={{ px: 2, py: 1.5, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -33,13 +62,30 @@ export function ChatList({ conversations, selectedConversationId, onSelectConver
       <Divider />
       <List sx={{ px: 1, py: 1 }}>
         {conversations.map((conv) => (
-          <ListItem key={conv.id} disablePadding sx={{ mb: 0.5 }}>
+          <ListItem
+            key={conv.id}
+            disablePadding
+            sx={{ mb: 0.5 }}
+            secondaryAction={
+              onDeleteConversation ? (
+                <IconButton
+                  edge="end"
+                  size="small"
+                  onClick={(e) => handleMenuOpen(e, conv.id)}
+                  sx={{ opacity: 0, '.MuiListItem-root:hover &': { opacity: 1 }, transition: 'opacity 0.2s' }}
+                >
+                  <MoreVertIcon fontSize="small" />
+                </IconButton>
+              ) : undefined
+            }
+          >
             <ListItemButton 
               selected={selectedConversationId === conv.id}
               onClick={() => onSelectConversation(conv.id)}
               sx={{ 
                 borderRadius: 3, 
                 py: dense ? 1 : 1.5,
+                pr: onDeleteConversation ? 5 : 2,
                 transition: 'all 0.2s',
                 '&.Mui-selected': {
                   bgcolor: (theme) => theme.palette.mode === 'dark' ? 'rgba(171, 110, 255, 0.15)' : 'rgba(142, 45, 226, 0.08)',
@@ -103,6 +149,22 @@ export function ChatList({ conversations, selectedConversationId, onSelectConver
           </ListItem>
         ))}
       </List>
+
+      <Menu
+        anchorEl={menuAnchor}
+        open={Boolean(menuAnchor)}
+        onClose={handleMenuClose}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
+        transformOrigin={{ vertical: 'top', horizontal: 'right' }}
+        slotProps={{ paper: { sx: { borderRadius: 2, minWidth: 160 } } }}
+      >
+        <MenuItem onClick={handleDelete} sx={{ color: 'error.main' }}>
+          <MenuItemIcon sx={{ color: 'inherit' }}>
+            <DeleteOutlineIcon fontSize="small" />
+          </MenuItemIcon>
+          Delete chat
+        </MenuItem>
+      </Menu>
     </Box>
   );
 }

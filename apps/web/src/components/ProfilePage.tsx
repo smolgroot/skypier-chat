@@ -33,7 +33,7 @@ export function ProfilePage({ peerId, displayName, linkedWallets }: ProfilePageP
           bgcolor: (theme) => 
             theme.palette.mode === 'dark' 
               ? 'rgba(14, 8, 28, 0.2)' 
-              : 'rgba(255, 255, 255, 0.4)',
+              : 'rgba(255, 255, 255, 0.2)',
           backdropFilter: (theme) => `blur(30px) saturate(190%) url(#liquid-glass-refraction-${theme.palette.mode})`,
           WebkitBackdropFilter: (theme) => `blur(30px) saturate(190%) url(#liquid-glass-refraction-${theme.palette.mode})`,
           filter: (theme) => `url(#liquid-glass-gloss-${theme.palette.mode})`,
@@ -104,7 +104,7 @@ export function ProfilePage({ peerId, displayName, linkedWallets }: ProfilePageP
                 bgcolor: (theme) => 
                   theme.palette.mode === 'dark' 
                     ? 'rgba(14, 8, 28, 0.5)' 
-                    : 'rgba(255, 255, 255, 0.5)',
+                    : 'rgba(255, 255, 255, 0.3)',
                 backdropFilter: 'blur(10px) saturate(180%)',
                 WebkitBackdropFilter: 'blur(10px) saturate(180%)',
                 border: (theme) => 

@@ -84,9 +84,10 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
           bgcolor: (theme) => 
             theme.palette.mode === 'dark' 
               ? 'rgba(14, 8, 28, 0.4)' 
-              : 'rgba(255, 255, 255, 0.4)',
-          backdropFilter: 'blur(30px) saturate(190%)',
-          WebkitBackdropFilter: 'blur(30px) saturate(190%)',
+              : 'rgba(255, 255, 255, 0.2)',
+          backdropFilter: (theme) => `blur(30px) saturate(190%) url(#liquid-glass-refraction-${theme.palette.mode})`,
+          WebkitBackdropFilter: (theme) => `blur(30px) saturate(190%) url(#liquid-glass-refraction-${theme.palette.mode})`,
+          filter: (theme) => `url(#liquid-glass-gloss-${theme.palette.mode})`,
           border: (theme) => 
             theme.palette.mode === 'dark' 
               ? '1px solid rgba(171, 110, 255, 0.2)' 
