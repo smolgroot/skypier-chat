@@ -16,7 +16,7 @@ export function SplashScreen() {
         flexDirection: 'column',
         alignItems: 'center',
         justifyContent: 'center',
-        bgcolor: '#070d18',
+        bgcolor: '#050308',
         color: 'white',
       }}
     >
@@ -41,7 +41,7 @@ export function SplashScreen() {
         <Typography variant="h4" sx={{ fontWeight: 'bold', letterSpacing: '0.1em' }}>
           SKYPIER
         </Typography>
-        <Typography variant="caption" sx={{ color: '#42c6ff', letterSpacing: '0.3em', mt: 1 }}>
+        <Typography variant="caption" sx={{ color: '#ab6eff', letterSpacing: '0.3em', mt: 1 }}>
           SECURE CHAT
         </Typography>
       </Box>
@@ -49,7 +49,7 @@ export function SplashScreen() {
       <CircularProgress 
         size={24} 
         thickness={4} 
-        sx={{ color: '#42c6ff' }} 
+        sx={{ color: '#ab6eff' }} 
       />
       
       <Typography variant="subtitle2" sx={{ mt: 4, opacity: 0.5 }}>

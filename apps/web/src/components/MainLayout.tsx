@@ -106,6 +106,7 @@ export function MainLayout(props: MainLayoutProps) {
 
   const drawerContent = (
     <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%', bgcolor: 'background.paper' }}>
+      {isMobile && <Toolbar sx={{ pt: 'env(safe-area-inset-top)' }} />}
       <Box sx={{ p: 2, display: 'flex', alignItems: 'center', gap: 2 }}>
         <UserAvatar seed={peerId} size={40} />
         <Box sx={{ flexGrow: 1 }}>
@@ -163,7 +164,7 @@ export function MainLayout(props: MainLayoutProps) {
   );
 
   return (
-    <Box sx={{ display: 'flex', height: '100vh', overflow: 'hidden' }}>
+    <Box sx={{ display: 'flex', height: '100dvh', overflow: 'hidden' }}>
       <Dialog open={newChatOpen} onClose={() => setNewChatOpen(false)} fullWidth maxWidth="sm">
         <DialogTitle>Start New Chat</DialogTitle>
         <DialogContent sx={{ pt: '8px !important', display: 'grid', gap: 2 }}>
@@ -193,7 +194,15 @@ export function MainLayout(props: MainLayoutProps) {
       </Dialog>
 
       {isMobile && (
-        <AppBar position="fixed" sx={{ zIndex: (theme) => theme.zIndex.drawer + 1, bgcolor: 'background.paper', color: 'text.primary' }}>
+        <AppBar 
+          position="fixed" 
+          sx={{ 
+            bgcolor: 'background.paper', 
+            color: 'text.primary',
+            pt: 'env(safe-area-inset-top)',
+            zIndex: (theme) => theme.zIndex.drawer - 1 // Ensure it's below the temporary drawer
+          }}
+        >
           <Toolbar>
             {showBackButton ? (
               <IconButton edge="start" onClick={onBack} sx={{ mr: 2 }}>
@@ -252,7 +261,8 @@ export function MainLayout(props: MainLayoutProps) {
           onClose={handleDrawerToggle}
           ModalProps={{ keepMounted: true }}
           sx={{
-            '& .MuiDrawer-paper': { boxSizing: 'border-box', width: SIDEBAR_WIDTH },
+            '& .MuiDrawer-paper': { boxSizing: 'border-box', width: SIDEBAR_WIDTH, zIndex: 1201 },
+            zIndex: 1201
           }}
         >
           {drawerContent}
@@ -266,13 +276,14 @@ export function MainLayout(props: MainLayoutProps) {
           flexGrow: 1, 
           height: '100%', 
           overflow: 'hidden', 
-          pt: isMobile ? '64px' : 0,
           position: 'relative',
-          bgcolor: mode === 'dark' ? '#070d18' : '#f0f2f5',
+          bgcolor: mode === 'dark' ? '#050308' : '#f0f2f5',
           display: 'flex',
-          flexDirection: 'column'
+          flexDirection: 'column',
+          pt: isMobile ? 'env(safe-area-inset-top)' : 0
         }}
       >
+        {isMobile && <Toolbar />}
         {isMobile && activeView === 'chat' && !selectedConversationId ? (
           <ChatList 
             conversations={conversations}

@@ -14,6 +14,7 @@ interface ChatThreadProps {
   messages: ChatMessage[];
   composerValue: string;
   replyTarget?: ChatMessage;
+  currentUserDisplayName: string;
   onComposerChange: (val: string) => void;
   onReplyClear: () => void;
   onToggleReaction: (messageId: string, emoji: string) => void;
@@ -26,6 +27,7 @@ export function ChatThread(props: ChatThreadProps) {
     messages,
     composerValue,
     replyTarget,
+    currentUserDisplayName,
     onComposerChange,
     onReplyClear,
     onToggleReaction,
@@ -102,7 +104,7 @@ export function ChatThread(props: ChatThreadProps) {
           // Add a background pattern similar to Telegram
           backgroundImage: (theme) => 
             theme.palette.mode === 'dark' 
-              ? 'radial-gradient(circle at 50% 50%, rgba(66, 198, 255, 0.05) 0%, transparent 100%)' 
+              ? 'radial-gradient(circle at 50% 50%, rgba(142, 45, 226, 0.08) 0%, transparent 100%)' 
               : 'none'
         }}
       >
@@ -124,6 +126,7 @@ export function ChatThread(props: ChatThreadProps) {
               )}
               <ChatBubble 
                 message={msg} 
+                isSelf={msg.senderDisplayName === currentUserDisplayName}
                 onToggleReaction={onToggleReaction}
               />
             </Box>
@@ -163,17 +166,17 @@ export function ChatThread(props: ChatThreadProps) {
           elevation={0}
           sx={{ 
             display: 'flex', 
-            alignItems: 'flex-end', 
-            p: '4px 8px', 
-            borderRadius: '24px',
-            bgcolor: (theme) => theme.palette.mode === 'dark' ? 'rgba(0,0,0,0.2)' : 'rgba(0,0,0,0.05)',
-            border: '1px solid rgba(0,0,0,0.1)'
+            alignItems: 'center', // Changed from flex-end for better placeholder alignment
+            p: '2px 8px', 
+            borderRadius: '8px', // Removed the 24px rounded corners
+            bgcolor: (theme) => theme.palette.mode === 'dark' ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.03)',
+            border: '1px solid rgba(136, 175, 224, 0.1)'
           }}
         >
-          <IconButton size="small" sx={{ mb: 0.5 }}>
+          <IconButton size="small">
             <EmojiEmotionsIcon color="action" />
           </IconButton>
-          <IconButton size="small" sx={{ mb: 0.5 }}>
+          <IconButton size="small">
             <AttachFileIcon color="action" />
           </IconButton>
           <TextField
@@ -187,7 +190,14 @@ export function ChatThread(props: ChatThreadProps) {
             variant="standard"
             InputProps={{ 
               disableUnderline: true,
-              sx: { py: 1, px: 1 }
+              sx: { 
+                py: 1.5, 
+                px: 1.5,
+                fontSize: '0.95rem',
+                '& .MuiInputBase-input::placeholder': {
+                  opacity: 0.6
+                }
+              }
             }}
           />
           <IconButton 

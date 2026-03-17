@@ -70,7 +70,7 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
-        bgcolor: '#070d18',
+        bgcolor: '#050308',
         p: 2
       }}
     >

@@ -184,6 +184,7 @@ export function App() {
         <ChatThread 
           conversation={selectedConversation}
           messages={messages}
+          currentUserDisplayName={account.displayName}
           composerValue={composerValue}
           replyTarget={replyTarget}
           onComposerChange={setComposerValue}

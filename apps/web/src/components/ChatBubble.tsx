@@ -21,10 +21,10 @@ const StyledBubble = styled(Paper, {
   borderRadius: isSelf ? '18px 18px 4px 18px' : '18px 18px 18px 4px',
   background: isSelf 
     ? (theme.palette.mode === 'dark' 
-        ? 'linear-gradient(135deg, rgba(34, 118, 255, 0.48), rgba(66, 198, 255, 0.24))' 
+        ? 'linear-gradient(135deg, #8e2de2, #4a00e0)' 
         : theme.palette.primary.main)
     : (theme.palette.mode === 'dark' 
-        ? 'rgba(19, 31, 52, 0.95)' 
+        ? '#1a1325' 
         : '#ffffff'),
   color: isSelf && theme.palette.mode === 'light' ? '#fff' : theme.palette.text.primary,
   boxShadow: '0 2px 4px rgba(0,0,0,0.1)',
@@ -38,12 +38,12 @@ const StyledBubble = styled(Paper, {
     ...(isSelf 
       ? {
           right: -10,
-          borderLeftColor: theme.palette.mode === 'dark' ? 'rgba(66, 198, 255, 0.24)' : theme.palette.primary.main,
+          borderLeftColor: theme.palette.mode === 'dark' ? '#4a00e0' : theme.palette.primary.main,
           borderBottom: 0,
         }
       : {
           left: -10,
-          borderRightColor: theme.palette.mode === 'dark' ? 'rgba(19, 31, 52, 0.95)' : '#ffffff',
+          borderRightColor: theme.palette.mode === 'dark' ? '#1a1325' : '#ffffff',
           borderBottom: 0,
         })
   }
@@ -60,12 +60,12 @@ const ReplyBox = styled(Box)(({ theme }) => ({
 
 interface ChatBubbleProps {
   message: ChatMessage;
+  isSelf: boolean;
   onReplySelect?: (message: ChatMessage) => void;
   onToggleReaction?: (messageId: string, emoji: string) => void;
 }
 
-export function ChatBubble({ message, onReplySelect, onToggleReaction }: ChatBubbleProps) {
-  const isSelf = message.senderDisplayName === 'You';
+export function ChatBubble({ message, isSelf, onReplySelect, onToggleReaction }: ChatBubbleProps) {
   
   return (
     <BubbleContainer isSelf={isSelf}>
@@ -109,8 +109,8 @@ export function ChatBubble({ message, onReplySelect, onToggleReaction }: ChatBub
                 key={reaction.emoji}
                 onClick={() => onToggleReaction?.(message.id, reaction.emoji)}
                 sx={{
-                  bgcolor: 'rgba(66, 198, 255, 0.14)',
-                  color: '#8ed8ff',
+                  bgcolor: (theme) => theme.palette.mode === 'dark' ? 'rgba(171, 110, 255, 0.15)' : 'rgba(142, 45, 226, 0.1)',
+                  color: (theme) => theme.palette.mode === 'dark' ? '#d4b3ff' : '#8e2de2',
                   borderRadius: '12px',
                   px: 0.8,
                   py: 0.2,

@@ -22,20 +22,20 @@ const getDesignTokens = (mode: 'light' | 'dark'): ThemeOptions => ({
         },
       }
       : {
-        // Dark mode colors (Skypier VPN theme)
+        // Dark mode colors (Skypier VPN deep purple theme)
         primary: {
-          main: '#1f7cff',
+          main: '#8e2de2', // Deep Purple
         },
         secondary: {
-          main: '#42c6ff',
+          main: '#ab6eff', // Lighter Purple
         },
         background: {
-          default: '#070d18',
-          paper: '#0a1322',
+          default: '#050308', // Nearly Black
+          paper: '#0e081c',   // Deepest Purple
         },
         text: {
-          primary: '#e5eefc',
-          secondary: '#8db4df',
+          primary: '#f3eeff', // Soft White
+          secondary: '#a994c7', // Muted Purple
         },
       }),
   },
