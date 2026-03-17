@@ -101,11 +101,7 @@ export function ChatThread(props: ChatThreadProps) {
           display: 'flex', 
           flexDirection: 'column', 
           gap: 1,
-          // Add a background pattern similar to Telegram
-          backgroundImage: (theme) => 
-            theme.palette.mode === 'dark' 
-              ? 'radial-gradient(circle at 50% 50%, rgba(142, 45, 226, 0.08) 0%, transparent 100%)' 
-              : 'none'
+          bgcolor: 'transparent'
         }}
       >
         <Box sx={{ flexGrow: 1 }} /> {/* Push messages to bottom */}

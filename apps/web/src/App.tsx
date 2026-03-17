@@ -164,7 +164,7 @@ export function App() {
     if (isLoaded && account.biometricUnlockEnabled && !showBiometricUnlock) {
       setShowBiometricUnlock(true);
     }
-  }, [isLoaded, account.biometricUnlockEnabled]);
+  }, [isLoaded, account.biometricUnlockEnabled, account.displayName, showBiometricUnlock]);
 
   const showNetworkAlert =
     !networkAlertDismissed &&
@@ -181,13 +181,6 @@ export function App() {
       : liveState.status === 'stopped'
         ? 'warning'
         : 'info';
-
-  useEffect(() => {
-    // Show biometric unlock on first app load if enabled
-    if (isLoaded && account.biometricUnlockEnabled && !showBiometricUnlock) {
-      setShowBiometricUnlock(true);
-    }
-  }, [isLoaded, account.biometricUnlockEnabled]);
 
   const renderContent = () => {
     if (activeView === 'profile') {
@@ -288,6 +281,11 @@ export function App() {
       <CssBaseline />
       <BiometricUnlock
         open={showBiometricUnlock}
+        passkeyCredentialId={account.biometricCredentialId}
+        userDisplayName={account.displayName}
+        onPasskeyCreated={(credentialId) => {
+          void updateAccount({ biometricCredentialId: credentialId });
+        }}
         onUnlocked={handleBiometricUnlocked}
         onCancel={handleBiometricUnlocked}
       />

@@ -32,16 +32,20 @@ export function ProfilePage({ peerId, displayName, linkedWallets }: ProfilePageP
           mb: 4,
           bgcolor: (theme) => 
             theme.palette.mode === 'dark' 
-              ? 'rgba(14, 8, 28, 0.65)' 
-              : 'rgba(255, 255, 255, 0.7)',
-          backdropFilter: 'blur(20px) saturate(180%)',
-          WebkitBackdropFilter: 'blur(20px) saturate(180%)',
+              ? 'rgba(14, 8, 28, 0.3)' 
+              : 'rgba(255, 255, 255, 0.35)',
+          backdropFilter: 'blur(30px) saturate(190%)',
+          WebkitBackdropFilter: 'blur(30px) saturate(190%)',
           border: (theme) => 
             theme.palette.mode === 'dark' 
-              ? '1px solid rgba(171, 110, 255, 0.15)' 
-              : '1px solid rgba(0, 0, 0, 0.05)',
+              ? '1px solid rgba(171, 110, 255, 0.2)' 
+              : '1px solid rgba(0, 0, 0, 0.08)',
           borderRadius: 4,
-          backgroundImage: 'none'
+          backgroundImage: 'none',
+          boxShadow: (theme) => 
+            theme.palette.mode === 'dark'
+              ? '0 4px 20px 0 rgba(0, 0, 0, 0.6)'
+              : '0 4px 20px 0 rgba(0, 0, 0, 0.05)'
         }}
       >
         <UserAvatar 

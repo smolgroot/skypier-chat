@@ -4,12 +4,15 @@ import { useEffect, useState } from 'react';
 
 interface BiometricUnlockProps {
   open: boolean;
+  passkeyCredentialId?: string;
+  userDisplayName?: string;
+  onPasskeyCreated?: (credentialId: string) => void;
   onUnlocked: () => void;
   onCancel: () => void;
 }
 
 export function BiometricUnlock(props: BiometricUnlockProps) {
-  const { open, onUnlocked, onCancel } = props;
+  const { open, passkeyCredentialId, userDisplayName, onPasskeyCreated, onUnlocked, onCancel } = props;
   const [isAttempting, setIsAttempting] = useState(false);
   const [error, setError] = useState<string | undefined>();
   const [biometricAvailable, setBiometricAvailable] = useState(false);
@@ -48,18 +51,27 @@ export function BiometricUnlock(props: BiometricUnlockProps) {
     setError(undefined);
 
     try {
-      // Use WebAuthn to verify biometric (simplified: just verify presence)
+      if (!passkeyCredentialId) {
+        const createdCredentialId = await createPasskey(userDisplayName);
+        onPasskeyCreated?.(createdCredentialId);
+      }
+
       const result = await navigator.credentials.get({
         publicKey: {
-          challenge: new Uint8Array(32),
+          challenge: crypto.getRandomValues(new Uint8Array(32)),
           timeout: 30000,
-          userVerification: 'preferred',
+          userVerification: 'required',
           rpId: window.location.hostname,
+          ...(passkeyCredentialId ? {
+            allowCredentials: [{
+              id: toArrayBuffer(base64ToBytes(passkeyCredentialId)),
+              type: 'public-key',
+            }],
+          } : {}),
         },
       });
 
       if (result && result.type === 'public-key') {
-        // Successfully authenticated
         onUnlocked();
       } else {
         setError('Biometric authentication was not completed.');
@@ -92,16 +104,20 @@ export function BiometricUnlock(props: BiometricUnlockProps) {
         sx: {
           bgcolor: (theme) => 
             theme.palette.mode === 'dark' 
-              ? 'rgba(14, 8, 28, 0.7)' 
-              : 'rgba(255, 255, 255, 0.7)',
-          backdropFilter: 'blur(20px) saturate(180%)',
-          WebkitBackdropFilter: 'blur(20px) saturate(180%)',
+              ? 'rgba(14, 8, 28, 0.4)' 
+              : 'rgba(255, 255, 255, 0.4)',
+          backdropFilter: 'blur(30px) saturate(190%)',
+          WebkitBackdropFilter: 'blur(30px) saturate(190%)',
           border: (theme) => 
             theme.palette.mode === 'dark' 
-              ? '1px solid rgba(171, 110, 255, 0.15)' 
-              : '1px solid rgba(0, 0, 0, 0.05)',
+              ? '1px solid rgba(171, 110, 255, 0.2)' 
+              : '1px solid rgba(0, 0, 0, 0.08)',
           borderRadius: 4,
-          backgroundImage: 'none'
+          backgroundImage: 'none',
+          boxShadow: (theme) => 
+            theme.palette.mode === 'dark'
+              ? '0 8px 32px 0 rgba(0, 0, 0, 0.8)'
+              : '0 8px 32px 0 rgba(31, 38, 135, 0.15)'
         }
       }}
     >
@@ -118,7 +134,9 @@ export function BiometricUnlock(props: BiometricUnlockProps) {
           </Box>
           <Typography variant="body1" align="center" sx={{ opacity: 0.9 }}>
             {biometricAvailable
-              ? 'Skypier is locked. Please use biometrics to continue.'
+              ? passkeyCredentialId
+                ? 'Skypier is locked. Please use your passkey (biometrics) to continue.'
+                : 'No passkey found for this device. Create one to enable biometric unlock.'
               : 'Biometric authentication is not available on this device.'}
           </Typography>
         </Box>
@@ -138,7 +156,7 @@ export function BiometricUnlock(props: BiometricUnlockProps) {
             disabled={!biometricAvailable || isAttempting}
             size="large"
           >
-            {isAttempting ? 'Unlocking…' : 'Unlock Now'}
+            {isAttempting ? 'Processing…' : passkeyCredentialId ? 'Unlock Now' : 'Create Passkey'}
           </Button>
           <Button variant="text" onClick={handleManualUnlock} disabled={isAttempting} fullWidth>
             Manual Skip
@@ -147,4 +165,58 @@ export function BiometricUnlock(props: BiometricUnlockProps) {
       </DialogContent>
     </Dialog>
   );
+}
+
+async function createPasskey(userDisplayName?: string): Promise<string> {
+  const userId = crypto.getRandomValues(new Uint8Array(16));
+  const challenge = crypto.getRandomValues(new Uint8Array(32));
+
+  const credential = await navigator.credentials.create({
+    publicKey: {
+      challenge,
+      rp: {
+        id: window.location.hostname,
+        name: 'Skypier Chat',
+      },
+      user: {
+        id: toArrayBuffer(userId),
+        name: `skypier-${window.location.hostname}`,
+        displayName: userDisplayName?.trim() || 'Skypier User',
+      },
+      pubKeyCredParams: [
+        { type: 'public-key', alg: -7 },
+        { type: 'public-key', alg: -257 },
+      ],
+      timeout: 60_000,
+      authenticatorSelection: {
+        authenticatorAttachment: 'platform',
+        residentKey: 'preferred',
+        userVerification: 'required',
+      },
+      attestation: 'none',
+    },
+  });
+
+  if (!(credential instanceof PublicKeyCredential)) {
+    throw new Error('Passkey creation failed.');
+  }
+
+  return bytesToBase64(new Uint8Array(credential.rawId));
+}
+
+function bytesToBase64(bytes: Uint8Array): string {
+  let binary = '';
+  bytes.forEach((byte) => {
+    binary += String.fromCharCode(byte);
+  });
+  return btoa(binary);
+}
+
+function base64ToBytes(value: string): Uint8Array {
+  const binary = atob(value);
+  return Uint8Array.from(binary, (character) => character.charCodeAt(0));
+}
+
+function toArrayBuffer(bytes: Uint8Array): ArrayBuffer {
+  return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
 }

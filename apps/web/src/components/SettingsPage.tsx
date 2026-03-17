@@ -88,6 +88,12 @@ export function SettingsPage(props: SettingsPageProps) {
                   <ListItemText primary="Biometrics available" secondary="yes" />
                 </ListItem>
                 <ListItem>
+                  <ListItemText
+                    primary="Passkey status"
+                    secondary={account.biometricCredentialId ? 'Configured on this device' : 'Not configured yet'}
+                  />
+                </ListItem>
+                <ListItem>
                   <ListItemText primary="Secure hardware available" secondary="no in browser MVP" />
                 </ListItem>
               </List>
@@ -195,15 +201,18 @@ export function SettingsPage(props: SettingsPageProps) {
               borderRadius: 4,
               bgcolor: (theme) => 
                 theme.palette.mode === 'dark' 
-                  ? 'rgba(14, 8, 28, 0.6)' 
-                  : 'rgba(255, 255, 255, 0.7)',
-              backdropFilter: 'blur(20px) saturate(180%)',
-              WebkitBackdropFilter: 'blur(20px) saturate(180%)',
+                  ? 'rgba(14, 8, 28, 0.25)' 
+                  : 'rgba(255, 255, 255, 0.3)',
+              backdropFilter: 'blur(30px) saturate(190%)',
+              WebkitBackdropFilter: 'blur(30px) saturate(190%)',
               border: (theme) => 
                 theme.palette.mode === 'dark' 
-                  ? '1px solid rgba(171, 110, 255, 0.15)' 
-                  : '1px solid rgba(0, 0, 0, 0.05)',
-              boxShadow: '0 8px 32px rgba(0,0,0,0.2)'
+                  ? '1px solid rgba(171, 110, 255, 0.2)' 
+                  : '1px solid rgba(0, 0, 0, 0.08)',
+              boxShadow: (theme) => 
+                theme.palette.mode === 'dark'
+                  ? '0 8px 32px 0 rgba(0, 0, 0, 0.4)'
+                  : '0 8px 32px 0 rgba(31, 38, 135, 0.07)'
             }}
           >
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2 }}>

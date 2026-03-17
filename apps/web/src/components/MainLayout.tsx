@@ -169,12 +169,13 @@ export function MainLayout(props: MainLayoutProps) {
         display: 'flex', 
         height: '100dvh', 
         overflow: 'hidden',
-        bgcolor: mode === 'dark' ? '#030105' : '#f0f2f5', 
-        backgroundImage: mode === 'dark' 
-          ? `radial-gradient(circle at 10% 10%, rgba(142, 45, 226, 0.2) 0%, transparent 50%), 
-             radial-gradient(circle at 90% 90%, rgba(74, 0, 224, 0.15) 0%, transparent 50%),
-             radial-gradient(circle at 50% 50%, rgba(171, 110, 255, 0.05) 0%, transparent 80%)`
-          : 'none'
+        bgcolor: mode === 'dark' ? '#030105' : '#e0e2e5',
+        backgroundImage: mode === 'dark'
+          ? 'linear-gradient(to bottom, #030105, transparent, #030105), radial-gradient(circle, #281f3ab6 0%, #000 100%)'
+          : 'linear-gradient(to bottom, #e0e2e5, transparent, #e0e2e5), radial-gradient(circle, transparent 0%, #e0e2e5 70%)',
+        backgroundSize: '100% 100%, cover',
+        backgroundRepeat: 'no-repeat, no-repeat',
+        backgroundPosition: 'center'
       }}
     >
       <Dialog 
@@ -186,15 +187,20 @@ export function MainLayout(props: MainLayoutProps) {
           sx: {
             bgcolor: (theme) => 
               theme.palette.mode === 'dark' 
-                ? 'rgba(14, 8, 28, 0.7)' 
-                : 'rgba(255, 255, 255, 0.7)',
-            backdropFilter: 'blur(20px) saturate(180%)',
+                ? 'rgba(14, 8, 28, 0.4)' 
+                : 'rgba(255, 255, 255, 0.4)',
+            backdropFilter: 'blur(30px) saturate(190%)',
+            WebkitBackdropFilter: 'blur(30px) saturate(190%)',
             border: (theme) => 
               theme.palette.mode === 'dark' 
-                ? '1px solid rgba(171, 110, 255, 0.15)' 
-                : '1px solid rgba(0, 0, 0, 0.05)',
+                ? '1px solid rgba(171, 110, 255, 0.2)' 
+                : '1px solid rgba(0, 0, 0, 0.08)',
             borderRadius: 4,
-            backgroundImage: 'none'
+            backgroundImage: 'none',
+            boxShadow: (theme) => 
+              theme.palette.mode === 'dark'
+                ? '0 8px 32px 0 rgba(0, 0, 0, 0.8)'
+                : '0 8px 32px 0 rgba(31, 38, 135, 0.15)'
           }
         }}
       >
@@ -236,13 +242,14 @@ export function MainLayout(props: MainLayoutProps) {
           sx={{ 
             bgcolor: (theme) => 
                theme.palette.mode === 'dark' 
-                ? 'rgba(14, 8, 28, 0.75)' 
-                : 'rgba(255, 255, 255, 0.8)',
-            backdropFilter: 'blur(20px) saturate(180%)',
+                ? 'rgba(14, 8, 28, 0.3)' 
+                : 'rgba(255, 255, 255, 0.35)',
+            backdropFilter: 'blur(30px) saturate(190%)',
+            WebkitBackdropFilter: 'blur(30px) saturate(190%)',
             borderBottom: (theme) => 
                theme.palette.mode === 'dark' 
-                ? '1px solid rgba(171, 110, 255, 0.15)' 
-                : '1px solid rgba(0, 0, 0, 0.05)',
+                ? '1px solid rgba(171, 110, 255, 0.2)' 
+                : '1px solid rgba(0, 0, 0, 0.08)',
             color: 'text.primary',
             pt: 'env(safe-area-inset-top)',
             zIndex: (theme) => theme.zIndex.drawer - 1
@@ -296,10 +303,10 @@ export function MainLayout(props: MainLayoutProps) {
                 position: 'static',
                 bgcolor: (theme) => 
                   theme.palette.mode === 'dark' 
-                    ? 'rgba(10, 5, 20, 0.6)' 
-                    : 'rgba(255, 255, 255, 0.6)',
-                backdropFilter: 'blur(20px) saturate(180%)',
-                WebkitBackdropFilter: 'blur(20px) saturate(180%)',
+                    ? 'rgba(10, 5, 20, 0.25)' 
+                    : 'rgba(255, 255, 255, 0.25)',
+                backdropFilter: 'blur(30px) saturate(190%)',
+                WebkitBackdropFilter: 'blur(30px) saturate(190%)',
                 borderRight: (theme) => 
                   theme.palette.mode === 'dark' 
                     ? '1px solid rgba(171, 110, 255, 0.15)' 
@@ -327,10 +334,10 @@ export function MainLayout(props: MainLayoutProps) {
               zIndex: 1201,
               bgcolor: (theme) => 
                 theme.palette.mode === 'dark' 
-                  ? 'rgba(10, 5, 20, 0.6)' 
-                  : 'rgba(255, 255, 255, 0.6)',
-              backdropFilter: 'blur(20px) saturate(180%)',
-              WebkitBackdropFilter: 'blur(20px) saturate(180%)',
+                  ? 'rgba(10, 5, 20, 0.25)' 
+                  : 'rgba(255, 255, 255, 0.25)',
+              backdropFilter: 'blur(30px) saturate(190%)',
+              WebkitBackdropFilter: 'blur(30px) saturate(190%)',
               borderRight: (theme) => 
                 theme.palette.mode === 'dark' 
                   ? '1px solid rgba(171, 110, 255, 0.15)' 
@@ -351,7 +358,7 @@ export function MainLayout(props: MainLayoutProps) {
           height: '100%', 
           overflow: 'hidden', 
           position: 'relative',
-          bgcolor: mode === 'dark' ? '#050308' : '#f0f2f5',
+          bgcolor: 'transparent', // Allow root background to show through
           display: 'flex',
           flexDirection: 'column',
           pt: isMobile ? 'env(safe-area-inset-top)' : 0

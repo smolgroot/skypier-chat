@@ -186,6 +186,7 @@ export function createInitialChatState(): PersistedChatState {
       userId: 'user-1',
       displayName: '',
       linkedEthAddresses: [],
+      biometricUnlockEnabled: false,
     },
     conversations: [],
     messagesByConversation: {},
@@ -384,11 +385,21 @@ async function decryptPayload(payload: string): Promise<PersistedChatState> {
 }
 
 function normalizePersistedState(raw: PersistedChatState): PersistedChatState {
+  const account = raw.account ?? {
+    userId: 'user-1',
+    displayName: 'You',
+    linkedEthAddresses: [],
+  };
+
   return {
-    account: raw.account ?? {
-      userId: 'user-1',
-      displayName: 'You',
-      linkedEthAddresses: [],
+    account: {
+      userId: account.userId ?? 'user-1',
+      displayName: account.displayName ?? 'You',
+      linkedEthAddresses: account.linkedEthAddresses ?? [],
+      biometricUnlockEnabled: account.biometricUnlockEnabled ?? false,
+      biometricCredentialId: account.biometricCredentialId,
+      localPeerId: account.localPeerId,
+      identityProtobuf: account.identityProtobuf,
     },
     conversations: raw.conversations ?? [],
     messagesByConversation: raw.messagesByConversation ?? {},
