@@ -78,7 +78,33 @@ export async function createBrowserSkypierNode(options: CreateBrowserSkypierNode
     },
     transports,
     connectionGater: {
-      denyDialMultiaddr: () => false,
+      denyDialMultiaddr: (addr) => {
+        const addrStr = addr.toString();
+
+        // Block plain-text ws:// — browsers enforce mixed-content policy anyway
+        if (addrStr.includes('/ws/') || addrStr.endsWith('/ws')) {
+          if (!addrStr.includes('/tls/') && !addrStr.includes('/wss')) {
+            return true;
+          }
+        }
+
+        // Block IPv6-encoded .libp2p.direct hostnames — many browsers / networks
+        // can't resolve these (e.g. "2605-a141-2252-9259--1.k51q…libp2p.direct")
+        const ipv6DnsPattern = /\/dns[46]?\/[\da-f]+-[\da-f]+-[\da-f]+-[\da-f]+-.*\.libp2p\.direct/i;
+        if (ipv6DnsPattern.test(addrStr)) {
+          // IPv4-encoded ones look like "141-95-145-190.k51q…" (4 groups)
+          // IPv6-encoded ones have 5+ hyphen-separated hex groups
+          const hostMatch = addrStr.match(/\/dns[46]?\/([\da-f-]+)\./i);
+          if (hostMatch) {
+            const groups = hostMatch[1].split('-');
+            if (groups.length > 4) {
+              return true; // IPv6-encoded, skip
+            }
+          }
+        }
+
+        return false;
+      },
     },
     connectionEncrypters: [noise()],
     streamMuxers: [
