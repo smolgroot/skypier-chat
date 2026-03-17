@@ -1,0 +1,17 @@
+{
+  "name": "Skypier Chat",
+  "short_name": "SkypierChat",
+  "description": "Privacy-first peer-to-peer messaging over libp2p.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#08111f",
+  "theme_color": "#08111f",
+  "icons": [
+    {
+      "src": "/icons/app-icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

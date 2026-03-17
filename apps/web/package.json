@@ -1,0 +1,36 @@
+{
+  "name": "@skypier/web",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -p tsconfig.json && vite build",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@emotion/react": "^11.14.0",
+    "@emotion/styled": "^11.14.1",
+    "@mui/icons-material": "^7.3.9",
+    "@mui/material": "^7.3.9",
+    "@skypier/backup": "workspace:*",
+    "@skypier/crypto": "workspace:*",
+    "@skypier/network": "workspace:*",
+    "@skypier/protocol": "workspace:*",
+    "@skypier/storage": "workspace:*",
+    "@skypier/ui": "workspace:*",
+    "@types/qrcode.react": "^3.0.0",
+    "qrcode.react": "^4.2.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "react-jazzicon": "^1.0.4",
+    "viem": "^2.47.4"
+  },
+  "devDependencies": {
+    "@types/react": "^19.0.10",
+    "@types/react-dom": "^19.0.4",
+    "@vitejs/plugin-react": "^4.4.1",
+    "typescript": "^5.8.2",
+    "vite": "^6.2.2"
+  }
+}

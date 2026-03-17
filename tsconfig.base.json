@@ -1,0 +1,25 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "useDefineForClassFields": true,
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "module": "ESNext",
+    "skipLibCheck": true,
+    "moduleResolution": "Bundler",
+    "allowImportingTsExtensions": false,
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "noEmit": true,
+    "jsx": "react-jsx",
+    "strict": true,
+    "baseUrl": ".",
+    "paths": {
+      "@skypier/protocol": ["packages/protocol/src/index.ts"],
+      "@skypier/crypto": ["packages/crypto/src/index.ts"],
+      "@skypier/storage": ["packages/storage/src/index.ts"],
+      "@skypier/network": ["packages/network/src/index.ts"],
+      "@skypier/backup": ["packages/backup/src/index.ts"],
+      "@skypier/ui": ["packages/ui/src/index.ts"]
+    }
+  }
+}
