@@ -10,5 +10,9 @@
     "dev": "pnpm --filter @skypier/web dev",
     "build": "pnpm -r build",
     "typecheck": "pnpm -r typecheck"
+  },
+  "dependencies": {
+    "@react-spring/web": "^10.0.3",
+    "@use-gesture/react": "^10.3.1"
   }
 }

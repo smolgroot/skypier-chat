@@ -2,6 +2,9 @@ import { Box, Paper, Typography, Badge, IconButton } from '@mui/material';
 import { styled } from '@mui/material/styles';
 import { reachabilityLabel } from '@skypier/network';
 import type { ChatMessage } from '@skypier/protocol';
+import { useDrag } from '@use-gesture/react';
+import { animated, useSpring } from '@react-spring/web';
+import ReplyIcon from '@mui/icons-material/Reply';
 
 const BubbleContainer = styled(Box, {
   shouldForwardProp: (prop) => prop !== 'isSelf',
@@ -10,7 +13,19 @@ const BubbleContainer = styled(Box, {
   justifyContent: isSelf ? 'flex-end' : 'flex-start',
   padding: theme.spacing(0.5, 2),
   width: '100%',
+  position: 'relative',
+  overflow: 'hidden',
 }));
+
+const ReplyIndicator = styled(Box)({
+  position: 'absolute',
+  top: 0,
+  bottom: 0,
+  left: 0,
+  display: 'flex',
+  alignItems: 'center',
+  paddingLeft: '20px',
+});
 
 const StyledBubble = styled(Paper, {
   shouldForwardProp: (prop) => prop !== 'isSelf',
@@ -81,86 +96,117 @@ function deliveryIndicator(delivery: ChatMessage['delivery']): { label: string; 
 }
 
 export function ChatBubble({ message, isSelf, onReplySelect, onToggleReaction, onRetryMessage }: ChatBubbleProps) {
-  
+  const [{ x }, api] = useSpring(() => ({ x: 0 }));
+
+  const bind = useDrag(({ down, movement: [mx], cancel, active }) => {
+    if (!onReplySelect) return;
+
+    // Only allow right-swipe
+    if (mx < 0) mx = 0;
+
+    if (active && mx > 80) {
+      cancel();
+      onReplySelect(message);
+      // Haptic feedback
+      if (navigator.vibrate) {
+        navigator.vibrate(50);
+      }
+    }
+    
+    api.start({ x: down ? mx : 0, immediate: down });
+  }, {
+    axis: 'x',
+    from: () => [x.get(), 0],
+    rubberband: true,
+    pointer: { touch: true },
+  });
+
   return (
     <BubbleContainer isSelf={isSelf}>
-      <StyledBubble isSelf={isSelf} elevation={1}>
-        {!isSelf && (
-          <Typography variant="caption" sx={{ fontWeight: 'bold', color: 'secondary.main', display: 'block', mb: 0.5 }}>
-            {message.senderDisplayName}
-          </Typography>
-        )}
-        
-        {message.replyTo && (
-          <ReplyBox onClick={() => {/* Scroll to reply logic could be here */}}>
-            <Typography variant="caption" sx={{ fontWeight: 'bold' }}>
-              {message.replyTo.authorDisplayName}
+      {!isSelf && onReplySelect && (
+        <ReplyIndicator>
+          <ReplyIcon sx={{ opacity: 0.5 }} />
+        </ReplyIndicator>
+      )}
+      <animated.div {...(isSelf ? {} : bind())} style={{ x, touchAction: 'pan-y' }}>
+        <StyledBubble isSelf={isSelf} elevation={1}>
+          {!isSelf && (
+            <Typography variant="caption" sx={{ fontWeight: 'bold', color: 'secondary.main', display: 'block', mb: 0.5 }}>
+              {message.senderDisplayName}
             </Typography>
-            <Typography variant="body2" noWrap sx={{ opacity: 0.8 }}>
-              {message.replyTo.excerpt}
-            </Typography>
-          </ReplyBox>
-        )}
+          )}
+          
+          {message.replyTo && (
+            <ReplyBox onClick={() => {/* Scroll to reply logic could be here */}}>
+              <Typography variant="caption" sx={{ fontWeight: 'bold' }}>
+                {message.replyTo.authorDisplayName}
+              </Typography>
+              <Typography variant="body2" noWrap sx={{ opacity: 0.8 }}>
+                {message.replyTo.excerpt}
+              </Typography>
+            </ReplyBox>
+          )}
 
-        <Typography variant="body1" sx={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
-          {message.previewText}
-        </Typography>
-
-        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 1, mt: 0.5 }}>
-          <Typography variant="caption" sx={{ opacity: 0.6, fontSize: '0.7rem' }}>
-            {new Date(message.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+          <Typography variant="body1" sx={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
+            {message.previewText}
           </Typography>
-          {isSelf && (() => {
-            const { label, color } = deliveryIndicator(message.delivery);
-            const isFailed = message.delivery === 'local-only';
-            return (
-              <Box component="span" sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                <Typography variant="caption" sx={{ color, fontSize: '0.7rem', fontWeight: 600 }}>
-                  {label}
-                </Typography>
-                {isFailed && onRetryMessage && (
-                  <Typography
-                    variant="caption"
-                    onClick={() => onRetryMessage(message.id)}
-                    sx={{
-                      color: 'error.main',
-                      fontSize: '0.65rem',
-                      cursor: 'pointer',
-                      textDecoration: 'underline',
-                      '&:hover': { opacity: 0.8 },
-                    }}
-                  >
-                    Retry
+
+          <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 1, mt: 0.5 }}>
+            <Typography variant="caption" sx={{ opacity: 0.6, fontSize: '0.7rem' }}>
+              {new Date(message.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+            </Typography>
+            {isSelf && (() => {
+              const { label, color } = deliveryIndicator(message.delivery);
+              const isFailed = message.delivery === 'local-only';
+              return (
+                <Box component="span" sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                  <Typography variant="caption" sx={{ color, fontSize: '0.7rem', fontWeight: 600 }}>
+                    {label}
                   </Typography>
-                )}
-              </Box>
-            );
-          })()}
-        </Box>
-
-        {message.reactions.length > 0 && (
-          <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5, mt: 1 }}>
-            {message.reactions.map((reaction) => (
-              <Box
-                key={reaction.emoji}
-                onClick={() => onToggleReaction?.(message.id, reaction.emoji)}
-                sx={{
-                  bgcolor: (theme) => theme.palette.mode === 'dark' ? 'rgba(171, 110, 255, 0.15)' : 'rgba(142, 45, 226, 0.1)',
-                  color: (theme) => theme.palette.mode === 'dark' ? '#d4b3ff' : '#8e2de2',
-                  borderRadius: '12px',
-                  px: 0.8,
-                  py: 0.2,
-                  fontSize: '0.75rem',
-                  cursor: 'pointer',
-                  '&:hover': { bgcolor: 'rgba(66, 198, 255, 0.24)' }
-                }}
-              >
-                {reaction.emoji} {reaction.authors.length}
-              </Box>
-            ))}
+                  {isFailed && onRetryMessage && (
+                    <Typography
+                      variant="caption"
+                      onClick={() => onRetryMessage(message.id)}
+                      sx={{
+                        color: 'error.main',
+                        fontSize: '0.65rem',
+                        cursor: 'pointer',
+                        textDecoration: 'underline',
+                        '&:hover': { opacity: 0.8 },
+                      }}
+                    >
+                      Retry
+                    </Typography>
+                  )}
+                </Box>
+              );
+            })()}
           </Box>
-        )}
-      </StyledBubble>
+
+          {message.reactions.length > 0 && (
+            <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5, mt: 1 }}>
+              {message.reactions.map((reaction) => (
+                <Box
+                  key={reaction.emoji}
+                  onClick={() => onToggleReaction?.(message.id, reaction.emoji)}
+                  sx={{
+                    bgcolor: (theme) => theme.palette.mode === 'dark' ? 'rgba(171, 110, 255, 0.15)' : 'rgba(142, 45, 226, 0.1)',
+                    color: (theme) => theme.palette.mode === 'dark' ? '#d4b3ff' : '#8e2de2',
+                    borderRadius: '12px',
+                    px: 0.8,
+                    py: 0.2,
+                    fontSize: '0.75rem',
+                    cursor: 'pointer',
+                    '&:hover': { bgcolor: 'rgba(66, 198, 255, 0.24)' }
+                  }}
+                >
+                  {reaction.emoji} {reaction.authors.length}
+                </Box>
+              ))}
+            </Box>
+          )}
+        </StyledBubble>
+      </animated.div>
     </BubbleContainer>
   );
 }
