@@ -1,9 +1,10 @@
-import { Box, Typography, TextField, IconButton, Paper, Divider, Stack, useTheme, useMediaQuery } from '@mui/material';
+import { Box, Typography, TextField, IconButton, Paper, Divider, Stack, useTheme, useMediaQuery, Popover } from '@mui/material';
 import SendIcon from '@mui/icons-material/Send';
 import EmojiEmotionsIcon from '@mui/icons-material/EmojiEmotions';
 import AttachFileIcon from '@mui/icons-material/AttachFile';
 import CloseIcon from '@mui/icons-material/Close';
-import { useRef, useEffect } from 'react';
+import { useRef, useEffect, useState } from 'react';
+import EmojiPicker, { Theme as EmojiTheme } from 'emoji-picker-react';
 import type { ChatMessage, Conversation } from '@skypier/protocol';
 import { reachabilityLabel, reachabilityColor } from '@skypier/network';
 import { ChatBubble } from './ChatBubble';
@@ -42,6 +43,21 @@ export function ChatThread(props: ChatThreadProps) {
   const isMobile = useMediaQuery(theme.breakpoints.down('md'));
 
   const scrollRef = useRef<HTMLDivElement>(null);
+  
+  const [emojiAnchorEl, setEmojiAnchorEl] = useState<HTMLButtonElement | null>(null);
+  const showEmojiPicker = Boolean(emojiAnchorEl);
+
+  const handleEmojiClick = (event: React.MouseEvent<HTMLButtonElement>) => {
+    setEmojiAnchorEl(event.currentTarget);
+  };
+
+  const handleEmojiClose = () => {
+    setEmojiAnchorEl(null);
+  };
+
+  const onEmojiSelect = (emojiData: any) => {
+    onComposerChange(composerValue + emojiData.emoji);
+  };
 
   useEffect(() => {
     if (scrollRef.current) {
@@ -184,9 +200,49 @@ export function ChatThread(props: ChatThreadProps) {
             border: '1px solid rgba(136, 175, 224, 0.1)'
           }}
         >
-          <IconButton size="small">
+          <IconButton size="small" onClick={handleEmojiClick}>
             <EmojiEmotionsIcon color="action" />
           </IconButton>
+          <Popover
+            open={showEmojiPicker}
+            anchorEl={emojiAnchorEl}
+            onClose={handleEmojiClose}
+            anchorOrigin={{
+              vertical: 'top',
+              horizontal: 'left',
+            }}
+            transformOrigin={{
+              vertical: 'bottom',
+              horizontal: 'left',
+            }}
+            PaperProps={{
+              sx: {
+                bgcolor: (theme) => theme.palette.mode === 'dark' ? 'rgba(10, 5, 20, 0.4)' : 'rgba(255, 255, 255, 0.4)',
+                backdropFilter: (theme) => `blur(30px) saturate(190%) url(#liquid-glass-refraction-${theme.palette.mode})`,
+                WebkitBackdropFilter: (theme) => `blur(30px) saturate(190%) url(#liquid-glass-refraction-${theme.palette.mode})`,
+                filter: (theme) => `url(#liquid-glass-gloss-${theme.palette.mode})`,
+                borderRadius: '16px',
+                border: (theme) => 
+                  theme.palette.mode === 'dark' 
+                    ? '1px solid rgba(171, 110, 255, 0.25)' 
+                    : '1px solid rgba(0, 0, 0, 0.08)',
+                mb: 1,
+                // Make the internal EmojiPicker transparent so our glass background shows through
+                '& .EmojiPickerReact': {
+                  '--epr-bg-color': 'transparent',
+                  '--epr-category-label-bg-color': 'transparent',
+                  '--epr-search-input-bg-color': theme.palette.mode === 'dark' ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.05)',
+                  border: 'none',
+                }
+              }
+            }}
+          >
+            <EmojiPicker
+              onEmojiClick={onEmojiSelect}
+              theme={theme.palette.mode === 'dark' ? EmojiTheme.DARK : EmojiTheme.LIGHT}
+              lazyLoadEmojis
+            />
+          </Popover>
           <IconButton size="small">
             <AttachFileIcon color="action" />
           </IconButton>

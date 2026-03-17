@@ -15,6 +15,21 @@ const BubbleContainer = styled(Box, {
   width: '100%',
   position: 'relative',
   overflow: 'hidden',
+  alignItems: 'center',
+  '&:hover .bubble-actions': {
+    opacity: 1,
+  }
+}));
+
+const BubbleActions = styled(Box, {
+  shouldForwardProp: (prop) => prop !== 'isSelf',
+})<{ isSelf?: boolean }>(({ theme, isSelf }) => ({
+  display: 'flex',
+  alignItems: 'center',
+  opacity: 0,
+  transition: 'opacity 0.2s',
+  padding: theme.spacing(0, 1),
+  order: isSelf ? -1 : 1, // Show before bubble if self, after bubble if not self
 }));
 
 const ReplyIndicator = styled(Box)({
@@ -128,7 +143,7 @@ export function ChatBubble({ message, isSelf, onReplySelect, onToggleReaction, o
           <ReplyIcon sx={{ opacity: 0.5 }} />
         </ReplyIndicator>
       )}
-      <animated.div {...(isSelf ? {} : bind())} style={{ x, touchAction: 'pan-y' }}>
+      <animated.div {...(isSelf ? {} : bind())} style={{ x, touchAction: 'pan-y', display: 'flex', maxWidth: '100%' }}>
         <StyledBubble isSelf={isSelf} elevation={1}>
           {!isSelf && (
             <Typography variant="caption" sx={{ fontWeight: 'bold', color: 'secondary.main', display: 'block', mb: 0.5 }}>
@@ -207,6 +222,21 @@ export function ChatBubble({ message, isSelf, onReplySelect, onToggleReaction, o
           )}
         </StyledBubble>
       </animated.div>
+      {onReplySelect && (
+        <BubbleActions className="bubble-actions" isSelf={isSelf}>
+          <IconButton
+            size="small"
+            onClick={() => onReplySelect(message)}
+            title="Reply"
+            sx={{
+              color: 'text.secondary',
+              '&:hover': { color: 'primary.main', bgcolor: 'rgba(0,0,0,0.05)' }
+            }}
+          >
+            <ReplyIcon fontSize="small" />
+          </IconButton>
+        </BubbleActions>
+      )}
     </BubbleContainer>
   );
 }
