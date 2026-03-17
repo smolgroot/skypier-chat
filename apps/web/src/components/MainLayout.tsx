@@ -215,10 +215,10 @@ export function MainLayout(props: MainLayoutProps) {
             bgcolor: (theme) => 
               theme.palette.mode === 'dark' 
                 ? 'rgba(14, 8, 28, 0.3)' 
-                : 'rgba(255, 255, 255, 0.3)',
-            backdropFilter: 'blur(30px) saturate(190%) url(#liquid-glass-refraction)',
-            WebkitBackdropFilter: 'blur(30px) saturate(190%) url(#liquid-glass-refraction)',
-            filter: 'url(#liquid-glass-gloss)',
+                : 'rgba(235, 238, 245, 0.3)',
+            backdropFilter: (theme) => `blur(30px) saturate(190%) url(#liquid-glass-refraction-${theme.palette.mode})`,
+            WebkitBackdropFilter: (theme) => `blur(30px) saturate(190%) url(#liquid-glass-refraction-${theme.palette.mode})`,
+            filter: (theme) => `url(#liquid-glass-gloss-${theme.palette.mode})`,
             border: (theme) => 
               theme.palette.mode === 'dark' 
                 ? '1px solid rgba(171, 110, 255, 0.25)' 
@@ -271,10 +271,10 @@ export function MainLayout(props: MainLayoutProps) {
             bgcolor: (theme) => 
                theme.palette.mode === 'dark' 
                 ? 'rgba(14, 8, 28, 0.3)' 
-                : 'rgba(255, 255, 255, 0.35)',
-            backdropFilter: 'blur(30px) saturate(190%) url(#liquid-glass-refraction)',
-            WebkitBackdropFilter: 'blur(30px) saturate(190%) url(#liquid-glass-refraction)',
-            filter: 'url(#liquid-glass-gloss)',
+                : 'rgba(235, 238, 245, 0.35)',
+            backdropFilter: (theme) => `blur(30px) saturate(190%) url(#liquid-glass-refraction-${theme.palette.mode})`,
+            WebkitBackdropFilter: (theme) => `blur(30px) saturate(190%) url(#liquid-glass-refraction-${theme.palette.mode})`,
+            filter: (theme) => `url(#liquid-glass-gloss-${theme.palette.mode})`,
             border: (theme) => 
                theme.palette.mode === 'dark' 
                 ? '1px solid rgba(171, 110, 255, 0.25)' 
@@ -355,10 +355,10 @@ export function MainLayout(props: MainLayoutProps) {
                 bgcolor: (theme) => 
                   theme.palette.mode === 'dark' 
                     ? 'rgba(10, 5, 20, 0.2)' 
-                    : 'rgba(255, 255, 255, 0.2)',
-                backdropFilter: 'blur(30px) saturate(190%) url(#liquid-glass-refraction)',
-                WebkitBackdropFilter: 'blur(30px) saturate(190%) url(#liquid-glass-refraction)',
-                filter: 'url(#liquid-glass-gloss)',
+                    : 'rgba(235, 238, 245, 0.2)',
+                backdropFilter: (theme) => `blur(30px) saturate(190%) url(#liquid-glass-refraction-${theme.palette.mode})`,
+                WebkitBackdropFilter: (theme) => `blur(30px) saturate(190%) url(#liquid-glass-refraction-${theme.palette.mode})`,
+                filter: (theme) => `url(#liquid-glass-gloss-${theme.palette.mode})`,
                 borderRight: (theme) => 
                   theme.palette.mode === 'dark' 
                     ? '1px solid rgba(171, 110, 255, 0.15)' 
@@ -387,10 +387,10 @@ export function MainLayout(props: MainLayoutProps) {
               bgcolor: (theme) => 
                 theme.palette.mode === 'dark' 
                   ? 'rgba(10, 5, 20, 0.2)' 
-                  : 'rgba(255, 255, 255, 0.2)',
-              backdropFilter: 'blur(30px) saturate(190%) url(#liquid-glass-refraction)',
-              WebkitBackdropFilter: 'blur(30px) saturate(190%) url(#liquid-glass-refraction)',
-              filter: 'url(#liquid-glass-gloss)',
+                  : 'rgba(235, 238, 245, 0.2)',
+              backdropFilter: (theme) => `blur(30px) saturate(190%) url(#liquid-glass-refraction-${theme.palette.mode})`,
+              WebkitBackdropFilter: (theme) => `blur(30px) saturate(190%) url(#liquid-glass-refraction-${theme.palette.mode})`,
+              filter: (theme) => `url(#liquid-glass-gloss-${theme.palette.mode})`,
               borderRight: (theme) => 
                 theme.palette.mode === 'dark' 
                   ? '1px solid rgba(171, 110, 255, 0.15)' 

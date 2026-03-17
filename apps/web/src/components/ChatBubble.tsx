@@ -27,9 +27,9 @@ const StyledBubble = styled(Paper, {
         ? 'rgba(30, 20, 50, 0.3)' 
         : 'rgba(255, 255, 255, 0.4)'),
   color: isSelf ? '#fff' : theme.palette.text.primary,
-  backdropFilter: 'blur(20px) saturate(190%) url(#liquid-glass-refraction)',
-  WebkitBackdropFilter: 'blur(20px) saturate(190%) url(#liquid-glass-refraction)',
-  filter: 'url(#liquid-glass-gloss)',
+  backdropFilter: `blur(20px) saturate(190%) url(#liquid-glass-refraction-${theme.palette.mode})`,
+  WebkitBackdropFilter: `blur(20px) saturate(190%) url(#liquid-glass-refraction-${theme.palette.mode})`,
+  filter: `url(#liquid-glass-gloss-${theme.palette.mode})`,
   border: (theme.palette.mode === 'dark' 
       ? '1px solid rgba(171, 110, 255, 0.2)' 
       : '1px solid rgba(0, 0, 0, 0.05)'),
