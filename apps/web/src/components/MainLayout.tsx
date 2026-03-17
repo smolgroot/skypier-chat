@@ -223,7 +223,7 @@ export function MainLayout(props: MainLayoutProps) {
         overflow: 'hidden',
         bgcolor: mode === 'dark' 
           ? '#030105' 
-          : (activeView === 'chat' && !isMobile ? '#cad7b8' : (activeView === 'chat' && isMobile && selectedConversationId ? '#cad7b8' : '#ffffff')),
+          : (activeView === 'chat' && !isMobile ? '#EEE' : (activeView === 'chat' && isMobile && selectedConversationId ? '#EEE' : '#ffffff')),
         backgroundImage: mode === 'dark'
           ? 'linear-gradient(to bottom, #030105, transparent, #030105), radial-gradient(circle, #281f3ab6 0%, #000 100%)'
           : (activeView === 'chat' 
@@ -383,7 +383,7 @@ export function MainLayout(props: MainLayoutProps) {
                 bgcolor: (theme) => 
                   theme.palette.mode === 'dark' 
                     ? 'rgba(10, 5, 20, 0.2)' 
-                    : 'rgba(255, 255, 255, 0.2)',
+                    : 'rgba(255, 255, 255, 0.65)',
                 backdropFilter: 'blur(30px) saturate(190%)',
                 WebkitBackdropFilter: 'blur(30px) saturate(190%)',
                 '@supports (backdrop-filter: url(#test)) or (-webkit-backdrop-filter: url(#test))': {
@@ -394,7 +394,7 @@ export function MainLayout(props: MainLayoutProps) {
                 borderRight: (theme) => 
                   theme.palette.mode === 'dark' 
                     ? '1px solid rgba(171, 110, 255, 0.15)' 
-                    : '1px solid rgba(0, 0, 0, 0.05)',
+                    : '1px solid rgba(255, 255, 255, 0.6)',
               },
             }}
             open
@@ -419,7 +419,7 @@ export function MainLayout(props: MainLayoutProps) {
               bgcolor: (theme) => 
                 theme.palette.mode === 'dark' 
                   ? 'rgba(10, 5, 20, 0.2)' 
-                  : 'rgba(255, 255, 255, 0.2)',
+                  : 'rgba(255, 255, 255, 0.65)',
               backdropFilter: 'blur(30px) saturate(190%)',
               WebkitBackdropFilter: 'blur(30px) saturate(190%)',
               '@supports (backdrop-filter: url(#test)) or (-webkit-backdrop-filter: url(#test))': {
@@ -430,7 +430,7 @@ export function MainLayout(props: MainLayoutProps) {
               borderRight: (theme) => 
                 theme.palette.mode === 'dark' 
                   ? '1px solid rgba(171, 110, 255, 0.15)' 
-                  : '1px solid rgba(0, 0, 0, 0.05)',
+                  : '1px solid rgba(255, 255, 255, 0.6)',
             },
             zIndex: 1201
           }}
