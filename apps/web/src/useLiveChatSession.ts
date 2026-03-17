@@ -8,6 +8,18 @@ interface UseLiveChatSessionOptions {
   identityProtobuf?: string;
 }
 
+/**
+ * Default libp2p WebSocket bootstrap peers.
+ * These are well-known IPFS/libp2p nodes that let browser peers join the DHT,
+ * discover relay servers, and become reachable.
+ */
+const DEFAULT_BOOTSTRAP_MULTIADDRS = [
+  '/dnsaddr/bootstrap.libp2p.io/p2p/QmNnooDu7bfjPFoTZYxMNLWUQJyrVwtbZg5gBMjTezGAJN',
+  '/dnsaddr/bootstrap.libp2p.io/p2p/QmQCU2EcMqAqQPR2i9bChDtGNJchTbq5TbXJJ16u19uLTa',
+  '/dnsaddr/bootstrap.libp2p.io/p2p/QmbLHAnMoJPWSCR5Zhtx6BHJX9KiKNN6tpvbUcqanj75Nb',
+  '/dnsaddr/bootstrap.libp2p.io/p2p/QmcZf59bWwK5XFi76CZX8cbJ4BhTzzA3gU1ZjYZcYW3dwt',
+];
+
 const INITIAL_STATE: BrowserLiveSessionState = {
   status: 'idle',
   connectedPeers: [],
@@ -32,16 +44,19 @@ export function useLiveChatSession(options: UseLiveChatSessionOptions) {
 
   useEffect(() => {
     const session = createBrowserLiveSession({
-      nodeOptions: options.identityProtobuf ? {
-        identityProtobuf: (() => {
-          const binary = atob(options.identityProtobuf);
-          const bytes = new Uint8Array(binary.length);
-          for (let i = 0; i < binary.length; i++) {
-            bytes[i] = binary.charCodeAt(i);
-          }
-          return bytes;
-        })()
-      } : undefined
+      nodeOptions: {
+        bootstrapMultiaddrs: DEFAULT_BOOTSTRAP_MULTIADDRS,
+        ...(options.identityProtobuf ? {
+          identityProtobuf: (() => {
+            const binary = atob(options.identityProtobuf);
+            const bytes = new Uint8Array(binary.length);
+            for (let i = 0; i < binary.length; i++) {
+              bytes[i] = binary.charCodeAt(i);
+            }
+            return bytes;
+          })()
+        } : {}),
+      },
     });
     sessionRef.current = session;
 

@@ -1,3 +1,4 @@
+import React from 'react';
 import { Box, Typography, Paper, Grid, Chip, List, ListItem, ListItemText, Divider, Stack } from '@mui/material';
 import SignalWifi4BarIcon from '@mui/icons-material/SignalWifi4Bar';
 import HubIcon from '@mui/icons-material/Hub';
@@ -7,9 +8,11 @@ import RouterIcon from '@mui/icons-material/Router';
 import ArticleIcon from '@mui/icons-material/Article';
 import type { BrowserLiveSessionState } from '@skypier/network';
 import { createRuntimePlan } from '@skypier/network';
+import type { NetworkLogEntry } from '../useNetworkLog';
 
 interface NetworkStatusPageProps {
   sessionState: BrowserLiveSessionState;
+  networkLog?: NetworkLogEntry[];
 }
 
 const GlassPaper = ({ children, sx = {} }: { children: React.ReactNode, sx?: any }) => (
@@ -41,7 +44,12 @@ const GlassPaper = ({ children, sx = {} }: { children: React.ReactNode, sx?: any
   </Paper>
 );
 
-export function NetworkStatusPage({ sessionState }: NetworkStatusPageProps) {
+export function NetworkStatusPage({ sessionState, networkLog = [] }: NetworkStatusPageProps) {
+  const logEndRef = React.useRef<HTMLDivElement>(null);
+
+  React.useEffect(() => {
+    logEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [networkLog.length]);
   const plan = createRuntimePlan('browser-pwa');
 
   const getStatusColor = (status: string) => {
@@ -209,6 +217,80 @@ export function NetworkStatusPage({ sessionState }: NetworkStatusPageProps) {
                 ))}
               </Stack>
             )}
+          </GlassPaper>
+        </Grid>
+
+        {/* Live Log Panel */}
+        <Grid sx={{ gridColumn: 'span 12' }}>
+          <GlassPaper>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mb: 2 }}>
+              <ArticleIcon color="primary" />
+              <Typography variant="h6">Live Network Log</Typography>
+              <Chip
+                label={`${networkLog.length} entries`}
+                size="small"
+                variant="outlined"
+                sx={{ ml: 'auto', fontSize: '0.65rem', height: 20 }}
+              />
+            </Box>
+
+            <Divider sx={{ mb: 1, opacity: 0.1 }} />
+
+            <Box
+              sx={{
+                maxHeight: 360,
+                overflowY: 'auto',
+                fontFamily: 'monospace',
+                fontSize: '0.72rem',
+                lineHeight: 1.7,
+                bgcolor: (theme: any) =>
+                  theme.palette.mode === 'dark'
+                    ? 'rgba(0,0,0,0.35)'
+                    : 'rgba(0,0,0,0.03)',
+                borderRadius: 2,
+                p: 1.5,
+              }}
+            >
+              {networkLog.length === 0 ? (
+                <Typography variant="caption" color="text.secondary" sx={{ display: 'block', py: 3, textAlign: 'center' }}>
+                  No log entries yet. Start the session to see network activity.
+                </Typography>
+              ) : (
+                networkLog.map((entry) => (
+                  <Box
+                    key={entry.id}
+                    sx={{
+                      display: 'flex',
+                      gap: 1,
+                      py: 0.25,
+                      color:
+                        entry.level === 'error'
+                          ? '#f44336'
+                          : entry.level === 'warn'
+                            ? '#ff9800'
+                            : 'text.secondary',
+                    }}
+                  >
+                    <Box
+                      component="span"
+                      sx={{ flexShrink: 0, opacity: 0.5, minWidth: 85 }}
+                    >
+                      {entry.timestamp.slice(11, 23)}
+                    </Box>
+                    <Box
+                      component="span"
+                      sx={{ flexShrink: 0, minWidth: 36, fontWeight: 'bold', textTransform: 'uppercase' }}
+                    >
+                      {entry.level === 'log' ? 'INF' : entry.level === 'warn' ? 'WRN' : 'ERR'}
+                    </Box>
+                    <Box component="span" sx={{ wordBreak: 'break-all' }}>
+                      {entry.message}
+                    </Box>
+                  </Box>
+                ))
+              )}
+              <div ref={logEndRef} />
+            </Box>
           </GlassPaper>
         </Grid>
 

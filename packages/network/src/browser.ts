@@ -53,18 +53,15 @@ export async function createBrowserSkypierNode(options: CreateBrowserSkypierNode
     throw new Error('No browser transport could be initialized for libp2p.');
   }
 
-  const peerRouters = [
-    safelyCreate(() => kadDHT({
-      clientMode: true,
-      alpha: 2,
-      peerInfoMapper: removePrivateAddressesMapper,
-    }) as any),
-  ].filter((router): router is NonNullable<typeof router> => router != null);
-
   const services = {
     identify: safelyCreate(() => identify()),
     ping: safelyCreate(() => ping()),
     dcutr: safelyCreate(() => dcutr()),
+    dht: safelyCreate(() => kadDHT({
+      clientMode: true,
+      alpha: 2,
+      peerInfoMapper: removePrivateAddressesMapper,
+    })),
   };
 
   return await createLibp2p({
@@ -92,7 +89,6 @@ export async function createBrowserSkypierNode(options: CreateBrowserSkypierNode
       }),
     ],
     peerDiscovery,
-    ...(peerRouters.length > 0 ? { peerRouters } : {}),
     services: Object.fromEntries(Object.entries(services).filter(([, value]) => value != null)) as any,
   });
 }

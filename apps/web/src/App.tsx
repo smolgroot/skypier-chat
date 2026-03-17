@@ -5,6 +5,7 @@ import { useCallback, useState, useMemo, useEffect } from 'react';
 import { ThemeProvider, CssBaseline, Snackbar, Alert } from '@mui/material';
 import { useChatController } from './useChatController';
 import { useLiveChatSession } from './useLiveChatSession';
+import { useNetworkLog } from './useNetworkLog';
 import { connectAndLinkEthWallet } from './walletLinking';
 import { theme } from './theme';
 import { MainLayout } from './components/MainLayout';
@@ -58,6 +59,7 @@ export function App() {
   const [contactDialError, setContactDialError] = useState<string | undefined>();
   const [contactDialSuccess, setContactDialSuccess] = useState<string | undefined>();
 
+  const networkLog = useNetworkLog();
   const currentTheme = useMemo(() => theme(colorMode), [colorMode]);
 
   const handleInboundMessage = useCallback(async ({ fromPeerId, envelope }: { fromPeerId: string; envelope: { kind: 'message' | 'receipt' | 'presence' | 'sync'; conversationId: string; senderPeerId: string; sentAt: string; payload: string } }) => {
@@ -294,7 +296,7 @@ export function App() {
 
     if (activeView === 'network') {
       return (
-        <NetworkStatusPage sessionState={liveState} />
+        <NetworkStatusPage sessionState={liveState} networkLog={networkLog} />
       );
     }
 
