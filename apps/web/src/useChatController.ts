@@ -7,6 +7,7 @@ import {
   createLocalMessage,
   createInitialChatState,
   getCurrentDevice,
+  updateMessageDelivery,
   type PersistedChatState,
   toggleMessageReaction,
 } from '@skypier/storage';
@@ -398,6 +399,17 @@ export function useChatController() {
     await persistState(nextState);
   }, [persistState]);
 
+  const updateMessageDeliveryStatus = useCallback(async (
+    messageId: string,
+    delivery: ChatMessage['delivery'],
+  ) => {
+    const snap = stateRef.current;
+    const nextState = updateMessageDelivery(snap, messageId, delivery);
+    if (nextState !== snap) {
+      await persistState(nextState);
+    }
+  }, [persistState]);
+
   return {
     account: state.account,
     conversations: state.conversations,
@@ -415,6 +427,7 @@ export function useChatController() {
     clearReplyTarget: () => setReplyTargetId(undefined),
     toggleReaction,
     ingestIncomingEnvelope,
+    updateMessageDeliveryStatus,
     linkEthAddress,
     unlinkEthAddress,
     exportBackup,

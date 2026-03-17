@@ -13,7 +13,7 @@ const getDesignTokens = (mode: 'light' | 'dark'): ThemeOptions => ({
           main: '#42c6ff',
         },
         background: {
-          default: '#f0f2f5',
+          default: '#f8faff',
           paper: '#ffffff',
         },
         text: {
@@ -40,7 +40,7 @@ const getDesignTokens = (mode: 'light' | 'dark'): ThemeOptions => ({
       }),
   },
   typography: {
-    fontFamily: 'Inter, ui-sans-serif, system-ui, -apple-system, sans-serif',
+    fontFamily: '"SF Pro", Inter, ui-sans-serif, system-ui, -apple-system, sans-serif',
     h1: { fontSize: '1.5rem', fontWeight: 700 },
     h2: { fontSize: '1.25rem', fontWeight: 700 },
     h3: { fontSize: '1.1rem', fontWeight: 600 },

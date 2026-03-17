@@ -1,6 +1,12 @@
 import { multiaddr } from '@multiformats/multiaddr';
 import { peerIdFromString } from '@libp2p/peer-id';
+import * as lp from 'it-length-prefixed';
 import type { ChatMessage } from '@skypier/protocol';
+import {
+  loadPendingQueue,
+  savePendingQueue,
+  type PersistedQueueEntry,
+} from '@skypier/storage';
 import { createBrowserSkypierNode, type CreateBrowserSkypierNodeOptions, type SkypierBrowserNode } from './browser';
 import { SKYPIER_CHAT_PROTOCOLS, deserializeWireEnvelope, serializeWireEnvelope, type WireEnvelope } from './protocols';
 
@@ -9,6 +15,11 @@ export type SessionStatus = 'idle' | 'starting' | 'running' | 'stopped' | 'error
 export interface PeerReachabilityEvent {
   peerId: string;
   reachability: 'direct' | 'relayed' | 'offline';
+}
+
+export interface DeliveryStatusEvent {
+  messageId: string;
+  status: 'sent' | 'delivered' | 'failed';
 }
 
 export interface BrowserLiveSessionState {
@@ -28,6 +39,7 @@ export interface BrowserLiveSessionEventMap {
     envelope: WireEnvelope;
   };
   peerReachability: PeerReachabilityEvent;
+  deliveryStatus: DeliveryStatusEvent;
 }
 
 export interface BrowserLiveSession {
@@ -38,6 +50,7 @@ export interface BrowserLiveSession {
   sendEnvelopeToConnected(envelope: WireEnvelope): Promise<number>;
   sendChatMessageToConnected(message: ChatMessage): Promise<number>;
   sendChatMessageToPeer(message: ChatMessage, targetPeerId: string): Promise<boolean>;
+  retryMessage(messageId: string): Promise<boolean>;
   flushQueue(): Promise<number>;
   getState(): BrowserLiveSessionState;
   subscribe<T extends keyof BrowserLiveSessionEventMap>(event: T, handler: (payload: BrowserLiveSessionEventMap[T]) => void): () => void;
@@ -46,6 +59,23 @@ export interface BrowserLiveSession {
 interface QueuedEnvelope {
   peerId: string;
   envelope: WireEnvelope;
+  /** How many times we've retried sending this envelope */
+  retryCount: number;
+  /** ISO timestamp: when to attempt the next retry */
+  nextRetryAt: string;
+}
+
+// ─── Retry constants ─────────────────────────────────────────────────────
+const MAX_RETRIES = 50;
+/** Base delay in ms for the first retry (doubles each attempt, capped) */
+const BASE_RETRY_DELAY_MS = 2_000;
+/** Maximum delay between retries (5 min) */
+const MAX_RETRY_DELAY_MS = 5 * 60 * 1_000;
+/** How often the background loop ticks (10 s) */
+const RETRY_TICK_INTERVAL_MS = 10_000;
+
+function computeNextRetryDelay(retryCount: number): number {
+  return Math.min(BASE_RETRY_DELAY_MS * Math.pow(2, retryCount), MAX_RETRY_DELAY_MS);
 }
 
 export interface CreateBrowserLiveSessionOptions {
@@ -54,6 +84,8 @@ export interface CreateBrowserLiveSessionOptions {
 
 export function createBrowserLiveSession(options: CreateBrowserLiveSessionOptions = {}): BrowserLiveSession {
   let node: SkypierBrowserNode | undefined;
+  let retryTimer: ReturnType<typeof setInterval> | undefined;
+
   let state: BrowserLiveSessionState = {
     status: 'idle',
     connectedPeers: [],
@@ -62,18 +94,38 @@ export function createBrowserLiveSession(options: CreateBrowserLiveSessionOption
     queuedOutgoing: 0,
   };
 
-  const queue: QueuedEnvelope[] = [];
+  // Rehydrate persisted pending queue
+  const queue: QueuedEnvelope[] = loadPendingQueue().map((entry) => ({
+    peerId: entry.peerId,
+    envelope: entry.envelope as WireEnvelope,
+    retryCount: entry.retryCount,
+    nextRetryAt: entry.nextRetryAt,
+  }));
 
   const listeners = {
     state: new Set<(payload: BrowserLiveSessionState) => void>(),
     inbound: new Set<(payload: { fromPeerId: string; envelope: WireEnvelope }) => void>(),
     peerReachability: new Set<(payload: PeerReachabilityEvent) => void>(),
+    deliveryStatus: new Set<(payload: DeliveryStatusEvent) => void>(),
   };
+
+  // ─── Helpers ───────────────────────────────────────────────────────────
+
+  function persistQueue() {
+    const entries: PersistedQueueEntry[] = queue.map((q) => ({
+      peerId: q.peerId,
+      messageId: q.envelope.messageId ?? '',
+      envelope: q.envelope,
+      retryCount: q.retryCount,
+      nextRetryAt: q.nextRetryAt,
+    }));
+    savePendingQueue(entries);
+  }
 
   function emitState() {
     state = {
       ...state,
-      connectedPeers: node?.getConnections().map((connection) => connection.remotePeer.toString()) ?? [],
+      connectedPeers: node?.getConnections().map((c) => c.remotePeer.toString()) ?? [],
       listenAddresses: node?.getMultiaddrs().map((ma) => ma.toString()) ?? [],
       protocols: node?.getProtocols() ?? [],
       queuedOutgoing: queue.length,
@@ -86,38 +138,177 @@ export function createBrowserLiveSession(options: CreateBrowserLiveSessionOption
     listeners.inbound.forEach((handler) => handler(payload));
   }
 
-  async function sendEnvelopeToPeer(peerId: string, envelope: WireEnvelope) {
+  function emitDeliveryStatus(payload: DeliveryStatusEvent) {
+    listeners.deliveryStatus.forEach((handler) => handler(payload));
+  }
+
+  function enqueue(peerId: string, envelope: WireEnvelope, retryCount = 0) {
+    const delay = computeNextRetryDelay(retryCount);
+    queue.push({
+      peerId,
+      envelope,
+      retryCount,
+      nextRetryAt: new Date(Date.now() + delay).toISOString(),
+    });
+    persistQueue();
+    emitState();
+  }
+
+  // ─── Send one envelope via length-prefixed stream ──────────────────────
+
+  async function sendEnvelopeToPeer(peerId: string, envelope: WireEnvelope): Promise<boolean> {
     if (!node) {
       console.warn('[skypier:session] sendEnvelopeToPeer: node not ready, queueing for', peerId);
-      queue.push({ peerId, envelope });
-      emitState();
-      return;
+      enqueue(peerId, envelope);
+      return false;
     }
 
-    const connection = node.getConnections().find((candidate) => candidate.remotePeer.toString() === peerId);
+    const connection = node.getConnections().find((c) => c.remotePeer.toString() === peerId);
 
     if (!connection) {
-      console.warn('[skypier:session] sendEnvelopeToPeer: no connection to', peerId, '— queueing. Connected peers:', node.getConnections().map(c => c.remotePeer.toString()));
-      queue.push({ peerId, envelope });
-      emitState();
-      return;
+      console.warn('[skypier:session] sendEnvelopeToPeer: no connection to', peerId, '— queueing.');
+      enqueue(peerId, envelope);
+      return false;
     }
 
     try {
+      // 1) Open a fresh stream on the message protocol
       const stream = await connection.newStream(SKYPIER_CHAT_PROTOCOLS.message);
-      stream.send(serializeWireEnvelope(envelope));
+
+      // 2) Length-prefix encode the serialized envelope
+      const raw = serializeWireEnvelope(envelope);
+      for await (const chunk of lp.encode([raw])) {
+        stream.send(normalizeChunk(chunk));
+      }
+
+      // 3) Close the stream gracefully
       await stream.close();
-      console.log('[skypier:session] ✓ sent envelope to', peerId, '— kind:', envelope.kind, 'conv:', envelope.conversationId);
+
+      console.log('[skypier:session] ✓ sent envelope to', peerId, '— kind:', envelope.kind, 'msgId:', envelope.messageId, 'conv:', envelope.conversationId);
+
+      // Mark as sent
+      if (envelope.messageId) {
+        emitDeliveryStatus({ messageId: envelope.messageId, status: 'sent' });
+      }
+
+      return true;
     } catch (error) {
       console.error('[skypier:session] ✗ failed to send to', peerId, error);
-      queue.push({ peerId, envelope });
-      state = {
-        ...state,
-        lastError: error instanceof Error ? error.message : 'Failed to send envelope',
-      };
-      emitState();
+      return false;
     }
   }
+
+  // ─── Send a delivery receipt (ACK) back to the sender ──────────────────
+
+  async function sendReceiptToPeer(peerId: string, originalEnvelope: WireEnvelope) {
+    if (!node) return;
+
+    const connection = node.getConnections().find((c) => c.remotePeer.toString() === peerId);
+    if (!connection) return;
+
+    const ackEnvelope: WireEnvelope = {
+      kind: 'receipt',
+      messageId: originalEnvelope.messageId,
+      conversationId: originalEnvelope.conversationId,
+      senderPeerId: state.localPeerId ?? 'unknown',
+      sentAt: new Date().toISOString(),
+      payload: 'delivered',
+    };
+
+    try {
+      const stream = await connection.newStream(SKYPIER_CHAT_PROTOCOLS.receipts);
+      const raw = serializeWireEnvelope(ackEnvelope);
+      for await (const chunk of lp.encode([raw])) {
+        stream.send(normalizeChunk(chunk));
+      }
+      await stream.close();
+      console.log('[skypier:session] ✓ sent ACK receipt for', originalEnvelope.messageId, 'to', peerId);
+    } catch (err) {
+      console.warn('[skypier:session] ✗ failed to send receipt to', peerId, err);
+    }
+  }
+
+  // ─── Read a full envelope from an inbound length-prefixed stream ───────
+
+  async function readEnvelopeFromStream(source: AsyncIterable<any>): Promise<WireEnvelope> {
+    const chunks: Uint8Array[] = [];
+
+    for await (const chunk of lp.decode(source)) {
+      chunks.push(normalizeChunk(chunk));
+    }
+
+    const totalLength = chunks.reduce((sum, c) => sum + c.byteLength, 0);
+    const combined = new Uint8Array(totalLength);
+    let offset = 0;
+    for (const c of chunks) {
+      combined.set(c, offset);
+      offset += c.byteLength;
+    }
+    return deserializeWireEnvelope(combined);
+  }
+
+  // ─── Background retry loop with exponential back-off ───────────────────
+
+  function startRetryLoop() {
+    if (retryTimer != null) return;
+
+    retryTimer = setInterval(async () => {
+      if (!node || queue.length === 0) return;
+
+      const now = Date.now();
+      const due: QueuedEnvelope[] = [];
+      const remaining: QueuedEnvelope[] = [];
+
+      for (const item of queue) {
+        if (new Date(item.nextRetryAt).getTime() <= now) {
+          due.push(item);
+        } else {
+          remaining.push(item);
+        }
+      }
+
+      if (due.length === 0) return;
+
+      // Replace queue in-place
+      queue.length = 0;
+      queue.push(...remaining);
+
+      for (const item of due) {
+        if (item.retryCount >= MAX_RETRIES) {
+          console.warn('[skypier:session] ✗ max retries reached for', item.envelope.messageId, '— giving up');
+          if (item.envelope.messageId) {
+            emitDeliveryStatus({ messageId: item.envelope.messageId, status: 'failed' });
+          }
+          continue;
+        }
+
+        const success = await sendEnvelopeToPeer(item.peerId, item.envelope);
+        if (!success) {
+          const nextRetryCount = item.retryCount + 1;
+          const delay = computeNextRetryDelay(nextRetryCount);
+          queue.push({
+            peerId: item.peerId,
+            envelope: item.envelope,
+            retryCount: nextRetryCount,
+            nextRetryAt: new Date(Date.now() + delay).toISOString(),
+          });
+          console.log('[skypier:session] ↻ retry', nextRetryCount, '/', MAX_RETRIES, 'for', item.envelope.messageId, '— next in', Math.round(delay / 1000), 's');
+        }
+      }
+
+      persistQueue();
+      emitState();
+    }, RETRY_TICK_INTERVAL_MS);
+  }
+
+  function stopRetryLoop() {
+    if (retryTimer != null) {
+      clearInterval(retryTimer);
+      retryTimer = undefined;
+    }
+  }
+
+  // ─── Public API ────────────────────────────────────────────────────────
 
   return {
     async start() {
@@ -131,30 +322,41 @@ export function createBrowserLiveSession(options: CreateBrowserLiveSessionOption
       try {
         node = await createBrowserSkypierNode(options.nodeOptions);
 
+        // ─── Register MESSAGE protocol handler ───────────────────────
         console.log('[skypier:session] registering protocol handler:', SKYPIER_CHAT_PROTOCOLS.message);
         await node.handle(SKYPIER_CHAT_PROTOCOLS.message, async (stream, connection) => {
           const fromPeerId = connection.remotePeer.toString();
           console.log('[skypier:session] ⇐ inbound stream from', fromPeerId);
           try {
-            // Collect all chunks — a message may arrive fragmented
-            const chunks: Uint8Array[] = [];
-            for await (const chunk of stream) {
-              chunks.push(normalizeChunk(chunk));
-            }
-            const totalLength = chunks.reduce((sum, c) => sum + c.byteLength, 0);
-            const combined = new Uint8Array(totalLength);
-            let offset = 0;
-            for (const c of chunks) {
-              combined.set(c, offset);
-              offset += c.byteLength;
-            }
-            const envelope = deserializeWireEnvelope(combined);
-            console.log('[skypier:session] ⇐ received envelope from', fromPeerId, '— kind:', envelope.kind, 'conv:', envelope.conversationId, 'payload length:', envelope.payload.length);
+            const envelope = await readEnvelopeFromStream(stream);
+            console.log('[skypier:session] ⇐ received envelope from', fromPeerId, '— kind:', envelope.kind, 'msgId:', envelope.messageId, 'conv:', envelope.conversationId);
             emitInbound({ fromPeerId, envelope });
+
+            // Send delivery receipt back
+            if (envelope.kind === 'message' && envelope.messageId) {
+              void sendReceiptToPeer(fromPeerId, envelope);
+            }
           } catch (err) {
             console.error('[skypier:session] ✗ failed to read inbound stream from', fromPeerId, err);
           }
         });
+
+        // ─── Register RECEIPTS protocol handler ──────────────────────
+        console.log('[skypier:session] registering protocol handler:', SKYPIER_CHAT_PROTOCOLS.receipts);
+        await node.handle(SKYPIER_CHAT_PROTOCOLS.receipts, async (stream, connection) => {
+          const fromPeerId = connection.remotePeer.toString();
+          try {
+            const ackEnvelope = await readEnvelopeFromStream(stream);
+            if (ackEnvelope.kind === 'receipt' && ackEnvelope.messageId) {
+              console.log('[skypier:session] ⇐ ACK receipt for', ackEnvelope.messageId, 'from', fromPeerId);
+              emitDeliveryStatus({ messageId: ackEnvelope.messageId, status: 'delivered' });
+            }
+          } catch (err) {
+            console.error('[skypier:session] ✗ failed to read receipt stream from', fromPeerId, err);
+          }
+        });
+
+        // ─── Peer events ─────────────────────────────────────────────
 
         let seenPeerIds = new Set<string>();
 
@@ -202,8 +404,11 @@ export function createBrowserLiveSession(options: CreateBrowserLiveSessionOption
         };
 
         console.log('[skypier:session] ✓ node started — localPeerId:', node.peerId.toString());
-        console.log('[skypier:session]   listen addrs:', node.getMultiaddrs().map(ma => ma.toString()));
+        console.log('[skypier:session]   listen addrs:', node.getMultiaddrs().map((ma) => ma.toString()));
         emitState();
+
+        // Start background retry loop & flush any queued items
+        startRetryLoop();
         await this.flushQueue();
       } catch (error) {
         state = {
@@ -216,6 +421,8 @@ export function createBrowserLiveSession(options: CreateBrowserLiveSessionOption
     },
 
     async stop() {
+      stopRetryLoop();
+
       if (!node) {
         state = { ...state, status: 'stopped' };
         emitState();
@@ -229,6 +436,7 @@ export function createBrowserLiveSession(options: CreateBrowserLiveSessionOption
         status: 'stopped',
         connectedPeers: [],
       };
+      persistQueue();
       emitState();
     },
 
@@ -251,8 +459,6 @@ export function createBrowserLiveSession(options: CreateBrowserLiveSessionOption
 
       const targetPeerId = peerIdFromString(peerIdString.trim());
 
-      // First try: dial by PeerId directly (works if peer is already in the address book
-      // or discovered via mDNS / bootstrap / previous connection)
       try {
         console.log('[skypier:session] dialPeerById: attempting direct dial to', peerIdString);
         const connection = await node.dial(targetPeerId);
@@ -265,7 +471,6 @@ export function createBrowserLiveSession(options: CreateBrowserLiveSessionOption
         console.warn('[skypier:session] dialPeerById: direct dial failed, trying peer routing…', directErr instanceof Error ? directErr.message : directErr);
       }
 
-      // Second try: use peer routing (KadDHT) to find the peer's addresses
       try {
         const peerInfo = await node.peerRouting.findPeer(targetPeerId);
         const addrs = peerInfo?.multiaddrs ?? [];
@@ -289,11 +494,14 @@ export function createBrowserLiveSession(options: CreateBrowserLiveSessionOption
     },
 
     async sendEnvelopeToConnected(envelope: WireEnvelope) {
-      const targets = node?.getConnections().map((connection) => connection.remotePeer.toString()) ?? [];
+      const targets = node?.getConnections().map((c) => c.remotePeer.toString()) ?? [];
       console.log('[skypier:session] broadcasting envelope to', targets.length, 'connected peers:', targets);
 
       for (const peerId of targets) {
-        await sendEnvelopeToPeer(peerId, envelope);
+        const success = await sendEnvelopeToPeer(peerId, envelope);
+        if (!success) {
+          enqueue(peerId, envelope);
+        }
       }
 
       emitState();
@@ -303,6 +511,7 @@ export function createBrowserLiveSession(options: CreateBrowserLiveSessionOption
     async sendChatMessageToConnected(message: ChatMessage) {
       const envelope: WireEnvelope = {
         kind: 'message',
+        messageId: message.id,
         conversationId: message.conversationId,
         senderPeerId: state.localPeerId ?? 'unknown',
         sentAt: new Date().toISOString(),
@@ -315,17 +524,37 @@ export function createBrowserLiveSession(options: CreateBrowserLiveSessionOption
     async sendChatMessageToPeer(message: ChatMessage, targetPeerId: string) {
       const envelope: WireEnvelope = {
         kind: 'message',
+        messageId: message.id,
         conversationId: message.conversationId,
         senderPeerId: state.localPeerId ?? 'unknown',
         sentAt: new Date().toISOString(),
         payload: message.previewText,
       };
 
-      console.log('[skypier:session] sending message to specific peer', targetPeerId, 'conv:', message.conversationId);
-      const before = queue.length;
-      await sendEnvelopeToPeer(targetPeerId, envelope);
-      // If nothing was queued, the send succeeded
-      return queue.length === before;
+      console.log('[skypier:session] sending message to specific peer', targetPeerId, 'conv:', message.conversationId, 'msgId:', message.id);
+      const success = await sendEnvelopeToPeer(targetPeerId, envelope);
+      if (!success) {
+        enqueue(targetPeerId, envelope);
+      }
+      return success;
+    },
+
+    async retryMessage(messageId: string) {
+      const idx = queue.findIndex((q) => q.envelope.messageId === messageId);
+      if (idx === -1) {
+        console.warn('[skypier:session] retryMessage: no queued item for', messageId);
+        return false;
+      }
+
+      const item = queue.splice(idx, 1)[0];
+      const success = await sendEnvelopeToPeer(item.peerId, item.envelope);
+      if (!success) {
+        // Re-enqueue with reset retryCount = 0 (user-triggered manual retry)
+        enqueue(item.peerId, item.envelope, 0);
+      }
+      persistQueue();
+      emitState();
+      return success;
     },
 
     async flushQueue() {
@@ -338,13 +567,15 @@ export function createBrowserLiveSession(options: CreateBrowserLiveSessionOption
       let sentCount = 0;
 
       for (const item of pending) {
-        const before = queue.length;
-        await sendEnvelopeToPeer(item.peerId, item.envelope);
-        if (queue.length === before) {
+        const success = await sendEnvelopeToPeer(item.peerId, item.envelope);
+        if (success) {
           sentCount += 1;
+        } else {
+          queue.push(item);
         }
       }
 
+      persistQueue();
       emitState();
       return sentCount;
     },

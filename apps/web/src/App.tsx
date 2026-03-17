@@ -1,8 +1,8 @@
 import { createKeyCustodyPlan, createSecuritySummary } from '@skypier/crypto';
-import { createPresence, createRuntimePlan, type PeerReachabilityEvent } from '@skypier/network';
+import { createPresence, createRuntimePlan, type DeliveryStatusEvent, type PeerReachabilityEvent } from '@skypier/network';
 import { getCurrentDevice } from '@skypier/storage';
 import { useCallback, useState, useMemo, useEffect } from 'react';
-import { ThemeProvider, CssBaseline, Snackbar, Alert } from '@mui/material';
+import { ThemeProvider, CssBaseline, Snackbar, Alert, Drawer, Box as MuiBox } from '@mui/material';
 import { useChatController } from './useChatController';
 import { useLiveChatSession } from './useLiveChatSession';
 import { useNetworkLog } from './useNetworkLog';
@@ -35,6 +35,7 @@ export function App() {
     clearReplyTarget,
     toggleReaction,
     ingestIncomingEnvelope,
+    updateMessageDeliveryStatus,
     linkEthAddress,
     unlinkEthAddress,
     exportBackup,
@@ -46,7 +47,8 @@ export function App() {
     localPeerId,
   } = useChatController();
 
-  const [activeView, setActiveView] = useState<'chat' | 'profile' | 'settings' | 'contact' | 'network'>('chat');
+  const [activeView, setActiveView] = useState<'chat' | 'profile' | 'settings' | 'network'>('chat');
+  const [showContactDetail, setShowContactDetail] = useState(false);
   const [colorMode, setColorMode] = useState<'light' | 'dark'>('dark');
   const [peerIdInput, setPeerIdInput] = useState('');
   const [dialError, setDialError] = useState<string | undefined>();
@@ -71,6 +73,17 @@ export function App() {
     void updateConversationConnection(peerId, { reachability });
   }, [updateConversationConnection]);
 
+  const handleDeliveryStatus = useCallback(({ messageId, status }: DeliveryStatusEvent) => {
+    const deliveryMap: Record<string, 'sent' | 'delivered' | 'local-only'> = {
+      sent: 'sent',
+      delivered: 'delivered',
+      failed: 'local-only', // revert to local-only so the user knows it failed
+    };
+    const delivery = deliveryMap[status] ?? 'local-only';
+    console.log('[skypier:app] delivery status:', messageId, '→', delivery);
+    void updateMessageDeliveryStatus(messageId, delivery);
+  }, [updateMessageDeliveryStatus]);
+
   const {
     state: liveState,
     connectedPeers,
@@ -80,9 +93,11 @@ export function App() {
     dialPeerById,
     broadcastChatMessage,
     sendChatMessageToPeer,
+    retryMessage,
   } = useLiveChatSession({
     onInboundMessage: handleInboundMessage,
     onPeerReachabilityChange: handlePeerReachabilityChange,
+    onDeliveryStatus: handleDeliveryStatus,
     identityProtobuf
   });
 
@@ -174,7 +189,7 @@ export function App() {
     }
     setContactDialError(undefined);
     setContactDialSuccess(undefined);
-    setActiveView('contact');
+    setShowContactDetail(true);
   }, [selectedConversation]);
 
   const handleContactDial = useCallback(async (peerId: string) => {
@@ -300,19 +315,6 @@ export function App() {
       );
     }
 
-    if (activeView === 'contact' && selectedConversation) {
-      return (
-        <ContactDetailPage
-          conversation={selectedConversation}
-          localPeerId={liveState.localPeerId ?? localPeerId ?? getCurrentDevice().peerId}
-          isDialing={contactDialBusy}
-          dialError={contactDialError}
-          dialSuccess={contactDialSuccess}
-          onDialPeer={(peerId) => { void handleContactDial(peerId); }}
-          onOpenChat={() => setActiveView('chat')}
-        />
-      );
-    }
 
     if (selectedConversation) {
       return (
@@ -346,6 +348,9 @@ export function App() {
                 }
               }
             })();
+          }}
+          onRetryMessage={(messageId) => {
+            void retryMessage(messageId);
           }}
         />
       );
@@ -395,6 +400,52 @@ export function App() {
         onUnlocked={handleBiometricUnlocked}
         onCancel={handleBiometricUnlocked}
       />
+      <Drawer
+        anchor="bottom"
+        open={showContactDetail}
+        onClose={() => setShowContactDetail(false)}
+        slotProps={{
+          backdrop: {
+            sx: {
+              backdropFilter: 'blur(12px) saturate(160%)',
+              WebkitBackdropFilter: 'blur(12px) saturate(160%)',
+              bgcolor: (theme) => theme.palette.mode === 'dark' ? 'rgba(0,0,0,0.4)' : 'rgba(255,255,255,0.4)',
+            }
+          }
+        }}
+        PaperProps={{
+          sx: {
+            borderTopLeftRadius: 24,
+            borderTopRightRadius: 24,
+            bgcolor: (theme) => theme.palette.mode === 'dark' ? 'rgba(14, 8, 28, 0.4)' : 'rgba(255, 255, 255, 0.4)',
+            backdropFilter: (theme) => `blur(30px) saturate(190%) url(#liquid-glass-refraction-${theme.palette.mode})`,
+            WebkitBackdropFilter: (theme) => `blur(30px) saturate(190%) url(#liquid-glass-refraction-${theme.palette.mode})`,
+            filter: (theme) => `url(#liquid-glass-gloss-${theme.palette.mode})`,
+            border: (theme) => 
+               theme.palette.mode === 'dark' 
+                ? '1px solid rgba(171, 110, 255, 0.25)' 
+                : '1px solid rgba(0, 0, 0, 0.08)',
+            boxShadow: '0 -8px 32px rgba(0,0,0,0.3)',
+            maxHeight: '85vh'
+          }
+        }}
+      >
+        {selectedConversation && (
+          <ContactDetailPage
+            conversation={selectedConversation}
+            localPeerId={liveState.localPeerId ?? localPeerId ?? getCurrentDevice().peerId}
+            isDialing={contactDialBusy}
+            dialError={contactDialError}
+            dialSuccess={contactDialSuccess}
+            onDialPeer={(peerId) => { void handleContactDial(peerId); }}
+            onOpenChat={() => {
+              setShowContactDetail(false);
+              setActiveView('chat');
+            }}
+          />
+        )}
+      </Drawer>
+
       <Snackbar
         open={showNetworkAlert}
         autoHideDuration={liveState.status === 'error' ? 0 : 6000}
@@ -423,10 +474,6 @@ export function App() {
         onCreateChat={handleCreateChat}
         onOpenSelectedContact={openSelectedContact}
         onBack={() => {
-          if (activeView === 'contact') {
-            setActiveView('chat');
-            return;
-          }
           setSelectedConversationId('');
         }}
       >

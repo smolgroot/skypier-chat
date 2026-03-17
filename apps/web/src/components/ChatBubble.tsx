@@ -62,9 +62,25 @@ interface ChatBubbleProps {
   isSelf: boolean;
   onReplySelect?: (message: ChatMessage) => void;
   onToggleReaction?: (messageId: string, emoji: string) => void;
+  onRetryMessage?: (messageId: string) => void;
 }
 
-export function ChatBubble({ message, isSelf, onReplySelect, onToggleReaction }: ChatBubbleProps) {
+function deliveryIndicator(delivery: ChatMessage['delivery']): { label: string; color: string } {
+  switch (delivery) {
+    case 'delivered':
+    case 'read':
+      return { label: '✓✓', color: 'rgba(76,175,80,0.9)' };
+    case 'sent':
+      return { label: '✓', color: 'inherit' };
+    case 'queued':
+      return { label: '⏳', color: 'rgba(255,152,0,0.8)' };
+    case 'local-only':
+    default:
+      return { label: '⊘', color: 'rgba(244,67,54,0.8)' };
+  }
+}
+
+export function ChatBubble({ message, isSelf, onReplySelect, onToggleReaction, onRetryMessage }: ChatBubbleProps) {
   
   return (
     <BubbleContainer isSelf={isSelf}>
@@ -94,11 +110,32 @@ export function ChatBubble({ message, isSelf, onReplySelect, onToggleReaction }:
           <Typography variant="caption" sx={{ opacity: 0.6, fontSize: '0.7rem' }}>
             {new Date(message.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
           </Typography>
-          {isSelf && (
-             <Typography variant="caption" sx={{ opacity: 0.6, fontSize: '0.7rem' }}>
-              {message.delivery === 'delivered' ? '✓✓' : '✓'}
-            </Typography>
-          )}
+          {isSelf && (() => {
+            const { label, color } = deliveryIndicator(message.delivery);
+            const isFailed = message.delivery === 'local-only';
+            return (
+              <>
+                <Typography variant="caption" sx={{ color, fontSize: '0.7rem', fontWeight: 600 }}>
+                  {label}
+                </Typography>
+                {isFailed && onRetryMessage && (
+                  <Typography
+                    variant="caption"
+                    onClick={() => onRetryMessage(message.id)}
+                    sx={{
+                      color: 'error.main',
+                      fontSize: '0.65rem',
+                      cursor: 'pointer',
+                      textDecoration: 'underline',
+                      '&:hover': { opacity: 0.8 },
+                    }}
+                  >
+                    Retry
+                  </Typography>
+                )}
+              </>
+            );
+          })()}
         </Box>
 
         {message.reactions.length > 0 && (

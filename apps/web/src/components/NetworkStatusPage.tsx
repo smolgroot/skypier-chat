@@ -324,7 +324,7 @@ export function NetworkStatusPage({ sessionState, networkLog = [] }: NetworkStat
           </GlassPaper>
         </Grid>
 
-        {/* Runtime Notes */}
+        {/* Runtime Notes
         <Grid sx={{ gridColumn: 'span 12' }}>
           <Paper
             elevation={0}
@@ -351,7 +351,7 @@ export function NetworkStatusPage({ sessionState, networkLog = [] }: NetworkStat
               ))}
             </Stack>
           </Paper>
-        </Grid>
+        </Grid> */}
       </Grid>
     </Box>
   );

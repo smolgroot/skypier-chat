@@ -1,4 +1,4 @@
-import { Box, Button, CircularProgress, Dialog, DialogContent, DialogTitle, Typography, Stack } from '@mui/material';
+import { Box, Button, CircularProgress, Drawer, Typography, Stack } from '@mui/material';
 import FingerprintIcon from '@mui/icons-material/Fingerprint';
 import { useEffect, useState } from 'react';
 
@@ -95,34 +95,43 @@ export function BiometricUnlock(props: BiometricUnlockProps) {
   };
 
   return (
-    <Dialog 
-      open={open} 
-      onClose={onCancel} 
-      fullWidth 
-      maxWidth="xs"
+    <Drawer
+      anchor="bottom"
+      open={open}
+      onClose={onCancel}
+      slotProps={{
+        backdrop: {
+          sx: {
+            backdropFilter: 'blur(20px) saturate(160%)',
+            WebkitBackdropFilter: 'blur(20px) saturate(160%)',
+            bgcolor: (theme) => theme.palette.mode === 'dark' ? 'rgba(0,0,0,0.6)' : 'rgba(255,255,255,0.6)',
+          }
+        }
+      }}
       PaperProps={{
         sx: {
+          borderTopLeftRadius: 24,
+          borderTopRightRadius: 24,
           bgcolor: (theme) => 
             theme.palette.mode === 'dark' 
               ? 'rgba(14, 8, 28, 0.4)' 
-              : 'rgba(255, 255, 255, 0.4)',
-          backdropFilter: 'blur(30px) saturate(190%)',
-          WebkitBackdropFilter: 'blur(30px) saturate(190%)',
+              : 'rgba(255, 255, 255, 0.65)',
+          backdropFilter: (theme) => `blur(30px) saturate(190%) url(#liquid-glass-refraction-${theme.palette.mode})`,
+          WebkitBackdropFilter: (theme) => `blur(30px) saturate(190%) url(#liquid-glass-refraction-${theme.palette.mode})`,
+          filter: (theme) => `url(#liquid-glass-gloss-${theme.palette.mode})`,
           border: (theme) => 
             theme.palette.mode === 'dark' 
-              ? '1px solid rgba(171, 110, 255, 0.2)' 
+              ? '1px solid rgba(171, 110, 255, 0.25)' 
               : '1px solid rgba(0, 0, 0, 0.08)',
-          borderRadius: 4,
           backgroundImage: 'none',
-          boxShadow: (theme) => 
-            theme.palette.mode === 'dark'
-              ? '0 8px 32px 0 rgba(0, 0, 0, 0.8)'
-              : '0 8px 32px 0 rgba(31, 38, 135, 0.15)'
+          boxShadow: '0 -8px 32px rgba(0, 0, 0, 0.5)',
+          maxHeight: '90vh'
         }
       }}
     >
-      <DialogTitle sx={{ textAlign: 'center', fontWeight: 'bold' }}>Unlock Skypier</DialogTitle>
-      <DialogContent sx={{ display: 'flex', flexDirection: 'column', gap: 3, pt: 2, pb: 4 }}>
+      <Box sx={{ py: 4, px: 3, display: 'flex', flexDirection: 'column', gap: 3 }}>
+        <Typography variant="h5" align="center" sx={{ fontWeight: 'bold' }}>Unlock Skypier</Typography>
+        
         <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2 }}>
           <Box sx={{ 
             p: 2, 
@@ -132,7 +141,7 @@ export function BiometricUnlock(props: BiometricUnlockProps) {
           }}>
             <FingerprintIcon sx={{ fontSize: 64, color: 'primary.main' }} />
           </Box>
-          <Typography variant="body1" align="center" sx={{ opacity: 0.9 }}>
+          <Typography variant="body1" align="center" sx={{ opacity: 0.9, maxWidth: 400 }}>
             {biometricAvailable
               ? passkeyCredentialId
                 ? 'Skypier is locked. Please use your passkey (biometrics) to continue.'
@@ -155,15 +164,16 @@ export function BiometricUnlock(props: BiometricUnlockProps) {
             onClick={handleBiometricAuth}
             disabled={!biometricAvailable || isAttempting}
             size="large"
+            sx={{ borderRadius: 3 }}
           >
             {isAttempting ? 'Processing…' : passkeyCredentialId ? 'Unlock Now' : 'Create Passkey'}
           </Button>
-          <Button variant="text" onClick={handleManualUnlock} disabled={isAttempting} fullWidth>
+          <Button variant="text" onClick={handleManualUnlock} disabled={isAttempting} fullWidth sx={{ borderRadius: 3 }}>
             Manual Skip
           </Button>
         </Stack>
-      </DialogContent>
-    </Dialog>
+      </Box>
+    </Drawer>
   );
 }
 

@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { createBrowserLiveSession, type BrowserLiveSession, type BrowserLiveSessionState, type PeerReachabilityEvent } from '@skypier/network';
+import { createBrowserLiveSession, type BrowserLiveSession, type BrowserLiveSessionState, type DeliveryStatusEvent, type PeerReachabilityEvent } from '@skypier/network';
 import type { ChatMessage } from '@skypier/protocol';
 
 interface UseLiveChatSessionOptions {
   onInboundMessage: (payload: { fromPeerId: string; envelope: { kind: 'message' | 'receipt' | 'presence' | 'sync'; conversationId: string; senderPeerId: string; sentAt: string; payload: string } }) => Promise<void> | void;
   onPeerReachabilityChange?: (event: PeerReachabilityEvent) => void;
+  onDeliveryStatus?: (event: DeliveryStatusEvent) => void;
   identityProtobuf?: string;
 }
 
@@ -42,6 +43,11 @@ export function useLiveChatSession(options: UseLiveChatSessionOptions) {
     peerReachabilityHandlerRef.current = options.onPeerReachabilityChange;
   }, [options.onPeerReachabilityChange]);
 
+  const deliveryStatusHandlerRef = useRef(options.onDeliveryStatus);
+  useEffect(() => {
+    deliveryStatusHandlerRef.current = options.onDeliveryStatus;
+  }, [options.onDeliveryStatus]);
+
   useEffect(() => {
     const session = createBrowserLiveSession({
       nodeOptions: {
@@ -72,12 +78,17 @@ export function useLiveChatSession(options: UseLiveChatSessionOptions) {
       peerReachabilityHandlerRef.current?.(payload);
     });
 
+    const unsubscribeDeliveryStatus = session.subscribe('deliveryStatus', (payload) => {
+      deliveryStatusHandlerRef.current?.(payload);
+    });
+
     setState(session.getState());
 
     return () => {
       unsubscribeState();
       unsubscribeInbound();
       unsubscribePeerReachability();
+      unsubscribeDeliveryStatus();
       void session.stop();
       sessionRef.current = null;
     };
@@ -141,6 +152,16 @@ export function useLiveChatSession(options: UseLiveChatSessionOptions) {
     return success;
   }, []);
 
+  const retryMessage = useCallback(async (messageId: string) => {
+    if (!sessionRef.current) {
+      return false;
+    }
+
+    const success = await sessionRef.current.retryMessage(messageId);
+    setState(sessionRef.current.getState());
+    return success;
+  }, []);
+
   return {
     state,
     startSession,
@@ -149,6 +170,7 @@ export function useLiveChatSession(options: UseLiveChatSessionOptions) {
     dialPeerById,
     broadcastChatMessage,
     sendChatMessageToPeer,
+    retryMessage,
     connectedPeers: useMemo(() => state.connectedPeers, [state.connectedPeers]),
   };
 }

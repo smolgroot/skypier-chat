@@ -24,7 +24,7 @@ import {
 import ChatIcon from '@mui/icons-material/Chat';
 import AccountCircleIcon from '@mui/icons-material/AccountCircle';
 import SettingsIcon from '@mui/icons-material/Settings';
-import SignalWifi4BarIcon from '@mui/icons-material/SignalWifi4Bar';
+import SettingsInputAntennaIcon from '@mui/icons-material/SettingsInputAntenna';
 import MenuIcon from '@mui/icons-material/Menu';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import DarkModeIcon from '@mui/icons-material/DarkMode';
@@ -41,8 +41,8 @@ interface MainLayoutProps {
   conversations: Conversation[];
   selectedConversationId?: string;
   onSelectConversation: (id: string) => void;
-  activeView: 'chat' | 'profile' | 'settings' | 'contact' | 'network';
-  setActiveView: (view: 'chat' | 'profile' | 'settings' | 'contact' | 'network') => void;
+  activeView: 'chat' | 'profile' | 'settings' | 'network';
+  setActiveView: (view: 'chat' | 'profile' | 'settings' | 'network') => void;
   children: React.ReactNode;
   mode: 'light' | 'dark';
   toggleColorMode: () => void;
@@ -90,7 +90,7 @@ export function MainLayout(props: MainLayoutProps) {
 
   // Determine if we should show the back button on mobile.
   // We show it if we're on mobile and a conversation is selected while in chat view.
-  const showBackButton = isMobile && (activeView === 'contact' || (activeView === 'chat' && !!selectedConversationId));
+  const showBackButton = isMobile && (activeView === 'chat' && !!selectedConversationId);
 
   const handleDrawerToggle = () => {
     setMobileOpen(!mobileOpen);
@@ -172,7 +172,7 @@ export function MainLayout(props: MainLayoutProps) {
             onClick={() => { setActiveView('network'); if(isMobile) setMobileOpen(false); }}
             sx={{ borderRadius: 2 }}
           >
-            <ListItemIcon><SignalWifi4BarIcon color={activeView === 'network' ? 'primary' : 'inherit'} /></ListItemIcon>
+            <ListItemIcon><SettingsInputAntennaIcon color={activeView === 'network' ? 'primary' : 'inherit'} /></ListItemIcon>
             <ListItemText primary="P2P Status" />
           </ListItemButton>
         </ListItem>
@@ -196,10 +196,14 @@ export function MainLayout(props: MainLayoutProps) {
         display: 'flex', 
         height: '100dvh', 
         overflow: 'hidden',
-        bgcolor: mode === 'dark' ? '#030105' : '#ffffff',
+        bgcolor: mode === 'dark' 
+          ? '#030105' 
+          : (activeView === 'chat' && !isMobile ? '#cad7b8' : (activeView === 'chat' && isMobile && selectedConversationId ? '#cad7b8' : '#ffffff')),
         backgroundImage: mode === 'dark'
           ? 'linear-gradient(to bottom, #030105, transparent, #030105), radial-gradient(circle, #281f3ab6 0%, #000 100%)'
-          : 'linear-gradient(to bottom, #ffffff, transparent, #ffffff), radial-gradient(circle, transparent 0%, #ffffff 70%)',
+          : (activeView === 'chat' 
+              ? 'none' 
+              : 'linear-gradient(to bottom, #ffffff, transparent, #ffffff), radial-gradient(circle, transparent 0%, #ffffff 70%)'),
         backgroundSize: '100% 100%, cover',
         backgroundRepeat: 'no-repeat, no-repeat',
         backgroundPosition: 'center'
@@ -215,7 +219,7 @@ export function MainLayout(props: MainLayoutProps) {
             bgcolor: (theme) => 
               theme.palette.mode === 'dark' 
                 ? 'rgba(14, 8, 28, 0.3)' 
-                : 'rgba(255, 255, 255, 0.65)',
+                : 'rgba(255, 255, 255, 0.2)',
             backdropFilter: (theme) => `blur(30px) saturate(190%) url(#liquid-glass-refraction-${theme.palette.mode})`,
             WebkitBackdropFilter: (theme) => `blur(30px) saturate(190%) url(#liquid-glass-refraction-${theme.palette.mode})`,
             filter: (theme) => `url(#liquid-glass-gloss-${theme.palette.mode})`,
@@ -271,7 +275,7 @@ export function MainLayout(props: MainLayoutProps) {
             bgcolor: (theme) => 
                theme.palette.mode === 'dark' 
                 ? 'rgba(14, 8, 28, 0.3)' 
-                : 'rgba(255, 255, 255, 0.55)',
+                : 'rgba(255, 255, 255, 0.3)',
             backdropFilter: (theme) => `blur(30px) saturate(190%) url(#liquid-glass-refraction-${theme.palette.mode})`,
             WebkitBackdropFilter: (theme) => `blur(30px) saturate(190%) url(#liquid-glass-refraction-${theme.palette.mode})`,
             filter: (theme) => `url(#liquid-glass-gloss-${theme.palette.mode})`,
@@ -329,7 +333,6 @@ export function MainLayout(props: MainLayoutProps) {
               ) : (
                 activeView === 'chat' ? 'Skypier Chat' : 
                 activeView === 'network' ? 'P2P Status' :
-                activeView === 'contact' ? 'Contact Details' :
                 activeView.charAt(0).toUpperCase() + activeView.slice(1)
               )}
             </Typography>
@@ -355,7 +358,7 @@ export function MainLayout(props: MainLayoutProps) {
                 bgcolor: (theme) => 
                   theme.palette.mode === 'dark' 
                     ? 'rgba(10, 5, 20, 0.2)' 
-                    : 'rgba(255, 255, 255, 0.4)',
+                    : 'rgba(255, 255, 255, 0.2)',
                 backdropFilter: (theme) => `blur(30px) saturate(190%) url(#liquid-glass-refraction-${theme.palette.mode})`,
                 WebkitBackdropFilter: (theme) => `blur(30px) saturate(190%) url(#liquid-glass-refraction-${theme.palette.mode})`,
                 filter: (theme) => `url(#liquid-glass-gloss-${theme.palette.mode})`,
@@ -387,7 +390,7 @@ export function MainLayout(props: MainLayoutProps) {
               bgcolor: (theme) => 
                 theme.palette.mode === 'dark' 
                   ? 'rgba(10, 5, 20, 0.2)' 
-                  : 'rgba(255, 255, 255, 0.4)',
+                  : 'rgba(255, 255, 255, 0.2)',
               backdropFilter: (theme) => `blur(30px) saturate(190%) url(#liquid-glass-refraction-${theme.palette.mode})`,
               WebkitBackdropFilter: (theme) => `blur(30px) saturate(190%) url(#liquid-glass-refraction-${theme.palette.mode})`,
               filter: (theme) => `url(#liquid-glass-gloss-${theme.palette.mode})`,

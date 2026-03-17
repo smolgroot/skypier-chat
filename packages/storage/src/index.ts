@@ -465,3 +465,71 @@ function base64ToBytes(value: string): Uint8Array {
 function toArrayBuffer(bytes: Uint8Array): ArrayBuffer {
   return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
 }
+
+// ─── Pending-Queue Persistence (survives page reload) ────────────────────
+
+const PENDING_QUEUE_KEY = 'skypier-chat:pending-queue';
+
+export interface PersistedQueueEntry {
+  peerId: string;
+  messageId: string;
+  envelope: {
+    kind: string;
+    messageId?: string;
+    conversationId: string;
+    senderPeerId: string;
+    sentAt: string;
+    payload: string;
+  };
+  retryCount: number;
+  /** ISO timestamp of the next scheduled retry */
+  nextRetryAt: string;
+}
+
+export function loadPendingQueue(): PersistedQueueEntry[] {
+  try {
+    const raw = typeof localStorage !== 'undefined' ? localStorage.getItem(PENDING_QUEUE_KEY) : null;
+    return raw ? (JSON.parse(raw) as PersistedQueueEntry[]) : [];
+  } catch {
+    return [];
+  }
+}
+
+export function savePendingQueue(entries: PersistedQueueEntry[]): void {
+  try {
+    if (typeof localStorage !== 'undefined') {
+      localStorage.setItem(PENDING_QUEUE_KEY, JSON.stringify(entries));
+    }
+  } catch {
+    // quota exceeded or unavailable — silently ignore
+  }
+}
+
+// ─── Message Delivery-Status Helpers ─────────────────────────────────────
+
+/**
+ * Update a message's `delivery` field inside a persisted state snapshot.
+ * Returns a new state object (immutable).
+ */
+export function updateMessageDelivery(
+  state: PersistedChatState,
+  messageId: string,
+  delivery: ChatMessage['delivery'],
+): PersistedChatState {
+  let changed = false;
+  const nextMessages = { ...state.messagesByConversation };
+
+  for (const convId of Object.keys(nextMessages)) {
+    const msgs = nextMessages[convId];
+    const idx = msgs.findIndex((m) => m.id === messageId);
+    if (idx !== -1 && msgs[idx].delivery !== delivery) {
+      const copy = [...msgs];
+      copy[idx] = { ...copy[idx], delivery };
+      nextMessages[convId] = copy;
+      changed = true;
+      break;
+    }
+  }
+
+  return changed ? { ...state, messagesByConversation: nextMessages } : state;
+}

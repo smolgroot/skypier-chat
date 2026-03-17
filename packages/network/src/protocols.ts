@@ -11,6 +11,8 @@ export type WireEnvelopeKind = 'message' | 'receipt' | 'presence' | 'sync';
 
 export interface WireEnvelope {
   kind: WireEnvelopeKind;
+  /** Unique message ID used for delivery-receipt correlation */
+  messageId?: string;
   conversationId: string;
   senderPeerId: string;
   sentAt: string;

@@ -29,52 +29,57 @@ export function ContactDetailPage(props: ContactDetailPageProps) {
   }
 
   return (
-    <Box sx={{ p: 4, maxWidth: 700, mx: 'auto', width: '100%' }}>
-      <Box
-        sx={{
-          p: 3,
-          borderRadius: 4,
-          bgcolor: (theme) =>
-            theme.palette.mode === 'dark'
-              ? 'rgba(14, 8, 28, 0.25)'
-              : 'rgba(255, 255, 255, 0.3)',
-          backdropFilter: 'blur(20px) saturate(180%)',
-          WebkitBackdropFilter: 'blur(20px) saturate(180%)',
-          border: (theme) =>
-            theme.palette.mode === 'dark'
-              ? '1px solid rgba(171, 110, 255, 0.15)'
-              : '1px solid rgba(0, 0, 0, 0.05)',
-        }}
-      >
-        <Stack spacing={2} alignItems="center">
-          <UserAvatar seed={remoteParticipant.peerId} size={92} />
+    <Box sx={{ p: 4, pt: 2, maxWidth: 600, mx: 'auto', width: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+      {/* Drawer Handle */}
+      <Box sx={{ 
+        width: 40, 
+        height: 4, 
+        bgcolor: 'rgba(128, 128, 128, 0.3)', 
+        borderRadius: 2, 
+        mb: 4 
+      }} />
+
+      <Stack spacing={3} alignItems="center" sx={{ width: '100%' }}>
+        <UserAvatar seed={remoteParticipant.peerId} size={100} sx={{ boxShadow: (theme) => `0 8px 32px ${theme.palette.primary.main}44` }} />
+        
+        <Box sx={{ textAlign: 'center' }}>
           <Typography variant="h4" sx={{ fontWeight: 'bold' }}>{remoteParticipant.displayName}</Typography>
-          <Typography variant="body2" color="text.secondary">
+          <Typography variant="body2" color="primary" sx={{ fontWeight: '500' }}>
             {reachabilityLabel(conversation.reachability)}
           </Typography>
-          <Typography variant="body2" color="text.secondary" sx={{ wordBreak: 'break-all', textAlign: 'center' }}>
-            {remoteParticipant.peerId}
-          </Typography>
+        </Box>
 
-          <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} sx={{ mt: 1, width: '100%' }}>
-            <Button
-              fullWidth
-              variant="contained"
-              startIcon={<PhoneIcon />}
-              onClick={() => onDialPeer(remoteParticipant.peerId)}
-              disabled={isDialing}
-            >
-              {isDialing ? 'Dialing…' : 'Test peer dial'}
-            </Button>
-            <Button fullWidth variant="outlined" startIcon={<ChatIcon />} onClick={onOpenChat}>
-              Open chat
-            </Button>
-          </Stack>
+        <Typography variant="body2" color="text.secondary" sx={{ wordBreak: 'break-all', textAlign: 'center', opacity: 0.7, maxWidth: 300 }}>
+          {remoteParticipant.peerId}
+        </Typography>
 
-          {dialError ? <Typography color="error" variant="caption">{dialError}</Typography> : null}
-          {dialSuccess ? <Typography color="success.main" variant="caption">{dialSuccess}</Typography> : null}
+        <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} sx={{ mt: 2, width: '100%' }}>
+          <Button
+            fullWidth
+            variant="contained"
+            startIcon={<PhoneIcon />}
+            onClick={() => onDialPeer(remoteParticipant.peerId)}
+            disabled={isDialing}
+            size="large"
+            sx={{ borderRadius: 3 }}
+          >
+            {isDialing ? 'Dialing…' : 'Test connectivity'}
+          </Button>
+          <Button 
+            fullWidth 
+            variant="outlined" 
+            startIcon={<ChatIcon />} 
+            onClick={onOpenChat}
+            size="large"
+            sx={{ borderRadius: 3 }}
+          >
+            Send message
+          </Button>
         </Stack>
-      </Box>
+
+        {dialError ? <Typography color="error" variant="caption" sx={{ mt: 1 }}>{dialError}</Typography> : null}
+        {dialSuccess ? <Typography color="success.main" variant="caption" sx={{ mt: 1 }}>{dialSuccess}</Typography> : null}
+      </Stack>
     </Box>
   );
 }
