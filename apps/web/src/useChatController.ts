@@ -313,6 +313,7 @@ export function useChatController() {
 
   const ingestIncomingEnvelope = useCallback(async (envelope: WireEnvelope, fromPeerId: string) => {
     if (envelope.kind !== 'message') {
+      console.log('[skypier:controller] ignoring non-message envelope kind:', envelope.kind);
       return;
     }
 
@@ -389,6 +390,11 @@ export function useChatController() {
       },
     };
 
+    console.log('[skypier:controller] ingested message from', fromPeerId,
+      existingConversation ? '(existing conv)' : '(NEW conv auto-created)',
+      'conv:', conversation.id,
+      'total msgs now:', nextMessages.length,
+    );
     await persistState(nextState);
   }, [persistState]);
 

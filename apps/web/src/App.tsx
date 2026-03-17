@@ -61,6 +61,7 @@ export function App() {
   const currentTheme = useMemo(() => theme(colorMode), [colorMode]);
 
   const handleInboundMessage = useCallback(async ({ fromPeerId, envelope }: { fromPeerId: string; envelope: { kind: 'message' | 'receipt' | 'presence' | 'sync'; conversationId: string; senderPeerId: string; sentAt: string; payload: string } }) => {
+    console.log('[skypier:app] \u21d0 inbound message from', fromPeerId, '\u2014 kind:', envelope.kind, 'conv:', envelope.conversationId, 'payload:', envelope.payload.slice(0, 80));
     await ingestIncomingEnvelope(envelope, fromPeerId);
   }, [ingestIncomingEnvelope]);
 
@@ -75,6 +76,7 @@ export function App() {
     stopSession,
     dialPeerById,
     broadcastChatMessage,
+    sendChatMessageToPeer,
   } = useLiveChatSession({
     onInboundMessage: handleInboundMessage,
     onPeerReachabilityChange: handlePeerReachabilityChange,
@@ -324,8 +326,21 @@ export function App() {
           onSendMessage={() => {
             void (async () => {
               const message = await sendMessage();
-              if (message) {
-                await broadcastChatMessage(message);
+              if (message && selectedConversation) {
+                // Find the remote peer in the conversation to send targeted
+                const remotePeer = selectedConversation.participants.find(
+                  (p) => p.peerId !== (liveState.localPeerId ?? localPeerId ?? getCurrentDevice().peerId)
+                );
+                if (remotePeer) {
+                  console.log('[skypier:app] \u21d2 sending message to peer', remotePeer.peerId, 'conv:', message.conversationId);
+                  const sent = await sendChatMessageToPeer(message, remotePeer.peerId);
+                  if (!sent) {
+                    console.warn('[skypier:app] targeted send failed/queued, falling back to broadcast');
+                    await broadcastChatMessage(message);
+                  }
+                } else {
+                  await broadcastChatMessage(message);
+                }
               }
             })();
           }}

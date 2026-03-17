@@ -10,6 +10,35 @@ interface NetworkStatusPageProps {
   sessionState: BrowserLiveSessionState;
 }
 
+const GlassPaper = ({ children, sx = {} }: { children: React.ReactNode, sx?: any }) => (
+  <Paper
+    elevation={0}
+    sx={{
+      p: 3,
+      height: '100%',
+      bgcolor: (theme: any) => 
+        theme.palette.mode === 'dark' 
+          ? 'rgba(14, 8, 28, 0.2)' 
+          : 'rgba(255, 255, 255, 0.4)',
+      backdropFilter: (theme: any) => `blur(30px) saturate(190%) url(#liquid-glass-refraction-${theme.palette.mode})`,
+      WebkitBackdropFilter: (theme: any) => `blur(30px) saturate(190%) url(#liquid-glass-refraction-${theme.palette.mode})`,
+      filter: (theme: any) => `url(#liquid-glass-gloss-${theme.palette.mode})`,
+      border: (theme: any) => 
+        theme.palette.mode === 'dark' 
+          ? '1px solid rgba(171, 110, 255, 0.2)' 
+          : '1px solid rgba(0, 0, 0, 0.08)',
+      borderRadius: 4,
+      boxShadow: (theme: any) => 
+        theme.palette.mode === 'dark'
+          ? '0 8px 32px 0 rgba(0, 0, 0, 0.4)'
+          : '0 8px 32px 0 rgba(31, 38, 135, 0.07)',
+      ...sx
+    }}
+  >
+    {children}
+  </Paper>
+);
+
 export function NetworkStatusPage({ sessionState }: NetworkStatusPageProps) {
   const plan = createRuntimePlan('browser-pwa');
 
@@ -24,7 +53,7 @@ export function NetworkStatusPage({ sessionState }: NetworkStatusPageProps) {
   };
 
   return (
-    <Box sx={{ p: { xs: 2, md: 4 }, maxWidth: 1000, mx: 'auto', overflowY: 'auto', height: '100%' }}>
+    <Box sx={{ p: { xs: 2, md: 4 }, maxWidth: 1000, mx: 'auto', overflowY: 'auto', height: '100%', pb: 8 }}>
       <Typography variant="h4" sx={{ mb: 4, fontWeight: 'bold' }}>
         Network Status
       </Typography>
@@ -32,28 +61,7 @@ export function NetworkStatusPage({ sessionState }: NetworkStatusPageProps) {
       <Grid container spacing={3}>
         {/* Connection Status Card */}
         <Grid sx={{ gridColumn: { xs: 'span 12', md: 'span 6' } }}>
-          <Paper
-            elevation={0}
-            sx={{
-              p: 3,
-              height: '100%',
-              bgcolor: (theme) => 
-                theme.palette.mode === 'dark' 
-                  ? 'rgba(14, 8, 28, 0.3)' 
-                  : 'rgba(255, 255, 255, 0.35)',
-              backdropFilter: 'blur(30px) saturate(190%)',
-              WebkitBackdropFilter: 'blur(30px) saturate(190%)',
-              border: (theme) => 
-                theme.palette.mode === 'dark' 
-                  ? '1px solid rgba(171, 110, 255, 0.2)' 
-                  : '1px solid rgba(0, 0, 0, 0.08)',
-              borderRadius: 4,
-              boxShadow: (theme) => 
-                theme.palette.mode === 'dark'
-                  ? '0 8px 32px 0 rgba(0, 0, 0, 0.4)'
-                  : '0 8px 32px 0 rgba(31, 38, 135, 0.07)'
-            }}
-          >
+          <GlassPaper>
             <Stack spacing={2}>
               <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
                 <SignalWifi4BarIcon color="primary" />
@@ -75,9 +83,9 @@ export function NetworkStatusPage({ sessionState }: NetworkStatusPageProps) {
                 <Typography variant="h6" color="primary">{sessionState.connectedPeers.length}</Typography>
               </Box>
 
-              <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5 }}>
                 <Typography variant="body2" color="text.secondary">Local Peer ID</Typography>
-                <Typography variant="caption" sx={{ wordBreak: 'break-all', opacity: 0.7 }}>
+                <Typography variant="caption" sx={{ wordBreak: 'break-all', opacity: 0.7, fontFamily: 'monospace' }}>
                   {sessionState.localPeerId || 'Not initialized'}
                 </Typography>
               </Box>
@@ -90,33 +98,12 @@ export function NetworkStatusPage({ sessionState }: NetworkStatusPageProps) {
                 </Box>
               )}
             </Stack>
-          </Paper>
+          </GlassPaper>
         </Grid>
 
         {/* Capability Card */}
         <Grid sx={{ gridColumn: { xs: 'span 12', md: 'span 6' } }}>
-          <Paper
-            elevation={0}
-            sx={{
-              p: 3,
-              height: '100%',
-              bgcolor: (theme) => 
-                theme.palette.mode === 'dark' 
-                  ? 'rgba(14, 8, 28, 0.3)' 
-                  : 'rgba(255, 255, 255, 0.35)',
-              backdropFilter: 'blur(30px) saturate(190%)',
-              WebkitBackdropFilter: 'blur(30px) saturate(190%)',
-              border: (theme) => 
-                theme.palette.mode === 'dark' 
-                  ? '1px solid rgba(171, 110, 255, 0.2)' 
-                  : '1px solid rgba(0, 0, 0, 0.08)',
-              borderRadius: 4,
-              boxShadow: (theme) => 
-                theme.palette.mode === 'dark'
-                  ? '0 8px 32px 0 rgba(0, 0, 0, 0.4)'
-                  : '0 8px 32px 0 rgba(31, 38, 135, 0.07)'
-            }}
-          >
+          <GlassPaper>
             <Stack spacing={2}>
               <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
                 <SecurityIcon color="primary" />
@@ -130,45 +117,25 @@ export function NetworkStatusPage({ sessionState }: NetworkStatusPageProps) {
                       primary={t.transport.charAt(0).toUpperCase() + t.transport.slice(1)} 
                       secondary={t.reason}
                       primaryTypographyProps={{ variant: 'body2', fontWeight: 'bold' }}
-                      secondaryTypographyProps={{ variant: 'caption' }}
+                      secondaryTypographyProps={{ variant: 'caption', sx: { wordBreak: 'break-word' } }}
                     />
                     <Chip 
                       label={t.status.toUpperCase()} 
                       size="small" 
                       variant="outlined" 
                       color={t.status === 'supported' || t.status === 'target' ? 'success' : 'default'}
-                      sx={{ fontSize: '0.6rem', height: 20 }}
+                      sx={{ fontSize: '0.6rem', height: 20, ml: 1 }}
                     />
                   </ListItem>
                 ))}
               </List>
             </Stack>
-          </Paper>
+          </GlassPaper>
         </Grid>
 
         {/* Active Peers Card */}
         <Grid sx={{ gridColumn: 'span 12' }}>
-          <Paper
-            elevation={0}
-            sx={{
-              p: 3,
-              bgcolor: (theme) => 
-                theme.palette.mode === 'dark' 
-                  ? 'rgba(14, 8, 28, 0.3)' 
-                  : 'rgba(255, 255, 255, 0.35)',
-              backdropFilter: 'blur(30px) saturate(190%)',
-              WebkitBackdropFilter: 'blur(30px) saturate(190%)',
-              border: (theme) => 
-                theme.palette.mode === 'dark' 
-                  ? '1px solid rgba(171, 110, 255, 0.2)' 
-                  : '1px solid rgba(0, 0, 0, 0.08)',
-              borderRadius: 4,
-              boxShadow: (theme) => 
-                theme.palette.mode === 'dark'
-                  ? '0 8px 32px 0 rgba(0, 0, 0, 0.4)'
-                  : '0 8px 32px 0 rgba(31, 38, 135, 0.07)'
-            }}
-          >
+          <GlassPaper>
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mb: 2 }}>
               <HubIcon color="primary" />
               <Typography variant="h6">Active Mesh Connections</Typography>
@@ -183,17 +150,17 @@ export function NetworkStatusPage({ sessionState }: NetworkStatusPageProps) {
             ) : (
               <List>
                 {sessionState.connectedPeers.map((peerId) => (
-                  <ListItem key={peerId} divider>
+                  <ListItem key={peerId} divider sx={{ px: 0, flexDirection: { xs: 'column', sm: 'row' }, alignItems: { xs: 'flex-start', sm: 'center' }, gap: 1 }}>
                     <ListItemText 
                       primary={peerId} 
-                      primaryTypographyProps={{ sx: { fontFamily: 'monospace', fontSize: '0.8rem' } }}
+                      primaryTypographyProps={{ sx: { fontFamily: 'monospace', fontSize: '0.8rem', wordBreak: 'break-all' } }}
                     />
-                    <Chip label="Direct WebRTC" size="small" variant="outlined" sx={{ ml: 2, fontSize: '0.7rem' }} />
+                    <Chip label="Direct WebRTC" size="small" variant="outlined" sx={{ fontSize: '0.7rem' }} />
                   </ListItem>
                 ))}
               </List>
             )}
-          </Paper>
+          </GlassPaper>
         </Grid>
 
         {/* Runtime Notes */}

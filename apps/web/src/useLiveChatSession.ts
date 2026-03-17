@@ -114,6 +114,16 @@ export function useLiveChatSession(options: UseLiveChatSessionOptions) {
     return sentCount;
   }, []);
 
+  const sendChatMessageToPeer = useCallback(async (message: ChatMessage, targetPeerId: string) => {
+    if (!sessionRef.current) {
+      return false;
+    }
+
+    const success = await sessionRef.current.sendChatMessageToPeer(message, targetPeerId);
+    setState(sessionRef.current.getState());
+    return success;
+  }, []);
+
   return {
     state,
     startSession,
@@ -121,6 +131,7 @@ export function useLiveChatSession(options: UseLiveChatSessionOptions) {
     dialPeer,
     dialPeerById,
     broadcastChatMessage,
+    sendChatMessageToPeer,
     connectedPeers: useMemo(() => state.connectedPeers, [state.connectedPeers]),
   };
 }

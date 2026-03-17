@@ -57,7 +57,7 @@ export function SettingsPage(props: SettingsPageProps) {
   } = props;
 
   return (
-    <Box sx={{ p: 4, maxWidth: 800, mx: 'auto', height: '100%', overflowY: 'auto' }}>
+    <Box sx={{ p: { xs: 2, md: 4 }, maxWidth: 800, mx: 'auto', height: '100%', overflowY: 'auto' }}>
       <Typography variant="h1" gutterBottom>
         Settings
       </Typography>
@@ -121,7 +121,13 @@ export function SettingsPage(props: SettingsPageProps) {
               <List dense>
                 <ListItem><ListItemText primary="Persisted locally with" secondary={storageMode} /></ListItem>
                 <ListItem><ListItemText primary="Live node status" secondary={liveState.status} /></ListItem>
-                <ListItem><ListItemText primary="Local peer ID" secondary={liveState.localPeerId ?? 'not started'} /></ListItem>
+                <ListItem>
+                  <ListItemText 
+                    primary="Local peer ID" 
+                    secondary={liveState.localPeerId ?? 'not started'} 
+                    secondaryTypographyProps={{ sx: { wordBreak: 'break-all' } }}
+                  />
+                </ListItem>
                 <ListItem><ListItemText primary="Connected peers" secondary={connectedPeers.length} /></ListItem>
                 {presence.map((entry) => (
                   <ListItem key={entry.peerId}>
@@ -129,11 +135,11 @@ export function SettingsPage(props: SettingsPageProps) {
                   </ListItem>
                 ))}
               </List>
-              <Stack direction="row" spacing={2} sx={{ mt: 2 }}>
-                <Button variant="outlined" onClick={() => void startSession()}>Start live session</Button>
-                <Button variant="outlined" color="error" onClick={() => void stopSession()}>Stop</Button>
+              <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} sx={{ mt: 2 }}>
+                <Button variant="outlined" fullWidth onClick={() => void startSession()}>Start live session</Button>
+                <Button variant="outlined" fullWidth color="error" onClick={() => void stopSession()}>Stop</Button>
               </Stack>
-              <Box sx={{ mt: 3, display: 'flex', gap: 1 }}>
+              <Box sx={{ mt: 3, display: 'flex', flexDirection: { xs: 'column', sm: 'row' }, gap: 1 }}>
                 <TextField
                   fullWidth
                   size="small"
@@ -159,7 +165,7 @@ export function SettingsPage(props: SettingsPageProps) {
               <Typography variant="body1" paragraph>
                 Exports the current local state as an encrypted JSON bundle.
               </Typography>
-              <Typography variant="body2" color="text.secondary">
+              <Typography variant="body2" color="text.secondary" sx={{ wordBreak: 'break-all' }}>
                 Latest checksum: {lastBackupChecksum ?? 'not exported yet'}
               </Typography>
               <Button variant="contained" startIcon={<BackupIcon />} sx={{ mt: 2 }} onClick={() => void exportBackup()}>
@@ -201,10 +207,11 @@ export function SettingsPage(props: SettingsPageProps) {
               borderRadius: 4,
               bgcolor: (theme) => 
                 theme.palette.mode === 'dark' 
-                  ? 'rgba(14, 8, 28, 0.25)' 
-                  : 'rgba(255, 255, 255, 0.3)',
-              backdropFilter: 'blur(30px) saturate(190%)',
-              WebkitBackdropFilter: 'blur(30px) saturate(190%)',
+                  ? 'rgba(14, 8, 28, 0.2)' 
+                  : 'rgba(255, 255, 255, 0.4)',
+              backdropFilter: (theme) => `blur(30px) saturate(190%) url(#liquid-glass-refraction-${theme.palette.mode})`,
+              WebkitBackdropFilter: (theme) => `blur(30px) saturate(190%) url(#liquid-glass-refraction-${theme.palette.mode})`,
+              filter: (theme) => `url(#liquid-glass-gloss-${theme.palette.mode})`,
               border: (theme) => 
                 theme.palette.mode === 'dark' 
                   ? '1px solid rgba(171, 110, 255, 0.2)' 

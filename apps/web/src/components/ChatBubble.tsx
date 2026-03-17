@@ -22,14 +22,20 @@ const StyledBubble = styled(Paper, {
   background: isSelf 
     ? (theme.palette.mode === 'dark' 
         ? 'linear-gradient(135deg, rgba(142, 45, 226, 0.4), rgba(74, 0, 224, 0.4))' 
-        : 'linear-gradient(135deg, rgba(142, 45, 226, 0.7), rgba(74, 0, 224, 0.7))')
+        : 'linear-gradient(135deg, #1f7cff, #42c6ff)')
     : (theme.palette.mode === 'dark' 
         ? 'rgba(30, 20, 50, 0.3)' 
-        : 'rgba(255, 255, 255, 0.4)'),
+        : '#ffffff'),
   color: isSelf ? '#fff' : theme.palette.text.primary,
-  backdropFilter: `blur(20px) saturate(190%) url(#liquid-glass-refraction-${theme.palette.mode})`,
-  WebkitBackdropFilter: `blur(20px) saturate(190%) url(#liquid-glass-refraction-${theme.palette.mode})`,
-  filter: `url(#liquid-glass-gloss-${theme.palette.mode})`,
+  backdropFilter: theme.palette.mode === 'dark' 
+    ? `blur(20px) saturate(190%) url(#liquid-glass-refraction-${theme.palette.mode})`
+    : 'none',
+  WebkitBackdropFilter: theme.palette.mode === 'dark' 
+    ? `blur(20px) saturate(190%) url(#liquid-glass-refraction-${theme.palette.mode})`
+    : 'none',
+  filter: theme.palette.mode === 'dark'
+    ? `url(#liquid-glass-gloss-${theme.palette.mode})`
+    : 'none',
   border: (theme.palette.mode === 'dark' 
       ? '1px solid rgba(171, 110, 255, 0.2)' 
       : '1px solid rgba(0, 0, 0, 0.05)'),
