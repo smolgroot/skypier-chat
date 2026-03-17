@@ -15,6 +15,8 @@ export interface BrowserLiveSessionState {
   status: SessionStatus;
   localPeerId?: string;
   connectedPeers: string[];
+  listenAddresses: string[];
+  protocols: string[];
   queuedOutgoing: number;
   lastError?: string;
 }
@@ -55,6 +57,8 @@ export function createBrowserLiveSession(options: CreateBrowserLiveSessionOption
   let state: BrowserLiveSessionState = {
     status: 'idle',
     connectedPeers: [],
+    listenAddresses: [],
+    protocols: [],
     queuedOutgoing: 0,
   };
 
@@ -70,6 +74,8 @@ export function createBrowserLiveSession(options: CreateBrowserLiveSessionOption
     state = {
       ...state,
       connectedPeers: node?.getConnections().map((connection) => connection.remotePeer.toString()) ?? [],
+      listenAddresses: node?.getMultiaddrs().map((ma) => ma.toString()) ?? [],
+      protocols: node?.getProtocols() ?? [],
       queuedOutgoing: queue.length,
     };
 

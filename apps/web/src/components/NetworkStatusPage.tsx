@@ -3,6 +3,8 @@ import SignalWifi4BarIcon from '@mui/icons-material/SignalWifi4Bar';
 import HubIcon from '@mui/icons-material/Hub';
 import SpeedIcon from '@mui/icons-material/Speed';
 import SecurityIcon from '@mui/icons-material/Security';
+import RouterIcon from '@mui/icons-material/Router';
+import ArticleIcon from '@mui/icons-material/Article';
 import type { BrowserLiveSessionState } from '@skypier/network';
 import { createRuntimePlan } from '@skypier/network';
 
@@ -130,6 +132,83 @@ export function NetworkStatusPage({ sessionState }: NetworkStatusPageProps) {
                 ))}
               </List>
             </Stack>
+          </GlassPaper>
+        </Grid>
+
+        {/* Listen Multiaddresses Card */}
+        <Grid sx={{ gridColumn: 'span 12' }}>
+          <GlassPaper>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mb: 2 }}>
+              <RouterIcon color="primary" />
+              <Typography variant="h6">Listen Multiaddresses</Typography>
+            </Box>
+
+            <Divider sx={{ mb: 2, opacity: 0.1 }} />
+
+            {sessionState.listenAddresses.length === 0 ? (
+              <Typography variant="body2" color="text.secondary" sx={{ py: 2, textAlign: 'center' }}>
+                No listen addresses available. Node may not be started yet.
+              </Typography>
+            ) : (
+              <List disablePadding>
+                {sessionState.listenAddresses.map((addr, idx) => (
+                  <ListItem key={idx} divider={idx < sessionState.listenAddresses.length - 1} sx={{ px: 0, py: 1 }}>
+                    <ListItemText
+                      primary={addr}
+                      primaryTypographyProps={{ sx: { fontFamily: 'monospace', fontSize: '0.78rem', wordBreak: 'break-all' } }}
+                    />
+                    <Chip
+                      label={
+                        addr.includes('/webrtc') ? 'WebRTC'
+                        : addr.includes('/p2p-circuit') ? 'Relay'
+                        : addr.includes('/ws') ? 'WebSocket'
+                        : 'Other'
+                      }
+                      size="small"
+                      variant="outlined"
+                      color={addr.includes('/webrtc') ? 'primary' : addr.includes('/p2p-circuit') ? 'warning' : 'default'}
+                      sx={{ fontSize: '0.65rem', height: 20, ml: 1, flexShrink: 0 }}
+                    />
+                  </ListItem>
+                ))}
+              </List>
+            )}
+          </GlassPaper>
+        </Grid>
+
+        {/* Registered Protocols Card */}
+        <Grid sx={{ gridColumn: 'span 12' }}>
+          <GlassPaper>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mb: 2 }}>
+              <ArticleIcon color="primary" />
+              <Typography variant="h6">Registered Protocols</Typography>
+            </Box>
+
+            <Divider sx={{ mb: 2, opacity: 0.1 }} />
+
+            {sessionState.protocols.length === 0 ? (
+              <Typography variant="body2" color="text.secondary" sx={{ py: 2, textAlign: 'center' }}>
+                No protocols registered yet.
+              </Typography>
+            ) : (
+              <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
+                {sessionState.protocols.map((proto) => (
+                  <Chip
+                    key={proto}
+                    label={proto}
+                    size="small"
+                    variant="outlined"
+                    color={proto.startsWith('/skypier') ? 'primary' : 'default'}
+                    sx={{
+                      fontFamily: 'monospace',
+                      fontSize: '0.7rem',
+                      height: 'auto',
+                      '& .MuiChip-label': { display: 'block', whiteSpace: 'normal', py: 0.5 },
+                    }}
+                  />
+                ))}
+              </Stack>
+            )}
           </GlassPaper>
         </Grid>
 

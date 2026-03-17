@@ -11,6 +11,8 @@ interface UseLiveChatSessionOptions {
 const INITIAL_STATE: BrowserLiveSessionState = {
   status: 'idle',
   connectedPeers: [],
+  listenAddresses: [],
+  protocols: [],
   queuedOutgoing: 0,
 };
 
