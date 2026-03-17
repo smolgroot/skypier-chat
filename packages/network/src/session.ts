@@ -184,7 +184,7 @@ export function createBrowserLiveSession(options: CreateBrowserLiveSessionOption
 
   // ─── Send one envelope via length-prefixed stream ──────────────────────
 
-  async function sendEnvelopeToPeer(peerId: string, envelope: WireEnvelope): Promise<boolean> {
+  async function sendEnvelopeToPeer(peerId: string, envelope: WireEnvelope): Promise<true | false | 'unsupported'> {
     // Guard: never send to ourselves
     if (peerId === state.localPeerId) {
       return true; // treat as "sent" — nothing to do
@@ -224,6 +224,13 @@ export function createBrowserLiveSession(options: CreateBrowserLiveSessionOption
 
       return true;
     } catch (error) {
+      // UnsupportedProtocolError means the remote peer doesn't speak our
+      // protocol — it's a DHT/relay/bootstrap node, not a Skypier peer.
+      // Don't spam the log and mark it so callers don't retry.
+      const errName = (error as { name?: string })?.name ?? '';
+      if (errName === 'UnsupportedProtocolError') {
+        return 'unsupported';
+      }
       console.error('[skypier:session] ✗ failed to send to', peerId, error);
       return false;
     }
@@ -313,8 +320,12 @@ export function createBrowserLiveSession(options: CreateBrowserLiveSessionOption
           continue;
         }
 
-        const success = await sendEnvelopeToPeer(item.peerId, item.envelope);
-        if (!success) {
+        const result = await sendEnvelopeToPeer(item.peerId, item.envelope);
+        if (result === 'unsupported') {
+          // Peer doesn't speak our protocol — drop permanently
+          continue;
+        }
+        if (!result) {
           const nextRetryCount = item.retryCount + 1;
           const delay = computeNextRetryDelay(nextRetryCount);
           queue.push({
@@ -577,15 +588,21 @@ export function createBrowserLiveSession(options: CreateBrowserLiveSessionOption
         .filter((pid) => pid !== state.localPeerId); // never send to self
       console.log('[skypier:session] broadcasting envelope to', targets.length, 'connected peers:', targets);
 
+      let sentCount = 0;
       for (const peerId of targets) {
-        const success = await sendEnvelopeToPeer(peerId, envelope);
-        if (!success) {
+        const result = await sendEnvelopeToPeer(peerId, envelope);
+        if (result === true) {
+          sentCount++;
+        } else if (result === 'unsupported') {
+          // Peer doesn't speak our protocol (relay/DHT/bootstrap node) — skip silently
+        } else {
+          // Transient failure — queue for retry
           enqueue(peerId, envelope);
         }
       }
 
       emitState();
-      return targets.length;
+      return sentCount;
     },
 
     async sendChatMessageToConnected(message: ChatMessage) {
@@ -612,11 +629,11 @@ export function createBrowserLiveSession(options: CreateBrowserLiveSessionOption
       };
 
       console.log('[skypier:session] sending message to specific peer', targetPeerId, 'conv:', message.conversationId, 'msgId:', message.id);
-      const success = await sendEnvelopeToPeer(targetPeerId, envelope);
-      if (!success) {
+      const result = await sendEnvelopeToPeer(targetPeerId, envelope);
+      if (result === false) {
         enqueue(targetPeerId, envelope);
       }
-      return success;
+      return result === true;
     },
 
     async retryMessage(messageId: string) {
@@ -627,14 +644,14 @@ export function createBrowserLiveSession(options: CreateBrowserLiveSessionOption
       }
 
       const item = queue.splice(idx, 1)[0];
-      const success = await sendEnvelopeToPeer(item.peerId, item.envelope);
-      if (!success) {
+      const result = await sendEnvelopeToPeer(item.peerId, item.envelope);
+      if (result === false) {
         // Re-enqueue with reset retryCount = 0 (user-triggered manual retry)
         enqueue(item.peerId, item.envelope, 0);
       }
       persistQueue();
       emitState();
-      return success;
+      return result === true;
     },
 
     async flushQueue() {
@@ -647,12 +664,13 @@ export function createBrowserLiveSession(options: CreateBrowserLiveSessionOption
       let sentCount = 0;
 
       for (const item of pending) {
-        const success = await sendEnvelopeToPeer(item.peerId, item.envelope);
-        if (success) {
+        const result = await sendEnvelopeToPeer(item.peerId, item.envelope);
+        if (result === true) {
           sentCount += 1;
-        } else {
+        } else if (result === false) {
           queue.push(item);
         }
+        // 'unsupported' → silently drop
       }
 
       persistQueue();
