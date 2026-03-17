@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { createBrowserLiveSession, type BrowserLiveSession, type BrowserLiveSessionState, type DeliveryStatusEvent, type PeerReachabilityEvent } from '@skypier/network';
+import { createBrowserLiveSession, type BrowserLiveSession, type BrowserLiveSessionState, type DeliveryStatusEvent, type NetworkDebugSnapshot, type PeerReachabilityEvent } from '@skypier/network';
 import type { ChatMessage } from '@skypier/protocol';
 
 interface UseLiveChatSessionOptions {
@@ -162,6 +162,10 @@ export function useLiveChatSession(options: UseLiveChatSessionOptions) {
     return success;
   }, []);
 
+  const getDebugInfo = useCallback((): NetworkDebugSnapshot | null => {
+    return sessionRef.current?.getDebugInfo() ?? null;
+  }, []);
+
   return {
     state,
     startSession,
@@ -171,6 +175,7 @@ export function useLiveChatSession(options: UseLiveChatSessionOptions) {
     broadcastChatMessage,
     sendChatMessageToPeer,
     retryMessage,
+    getDebugInfo,
     connectedPeers: useMemo(() => state.connectedPeers, [state.connectedPeers]),
   };
 }

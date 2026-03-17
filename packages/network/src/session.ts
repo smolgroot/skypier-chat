@@ -42,6 +42,25 @@ export interface BrowserLiveSessionEventMap {
   deliveryStatus: DeliveryStatusEvent;
 }
 
+export interface ConnectionDebugInfo {
+  remotePeerId: string;
+  remoteAddr: string;
+  direction: string;
+  status: string;
+  transportType: 'webrtc' | 'relay' | 'websocket' | 'other';
+}
+
+export interface NetworkDebugSnapshot {
+  peerId: string | undefined;
+  connections: ConnectionDebugInfo[];
+  listenAddresses: string[];
+  hasRelayReservation: boolean;
+  hasWebRTCAddress: boolean;
+  totalConnections: number;
+  relayedConnections: number;
+  directConnections: number;
+}
+
 export interface BrowserLiveSession {
   start(): Promise<void>;
   stop(): Promise<void>;
@@ -53,6 +72,7 @@ export interface BrowserLiveSession {
   retryMessage(messageId: string): Promise<boolean>;
   flushQueue(): Promise<number>;
   getState(): BrowserLiveSessionState;
+  getDebugInfo(): NetworkDebugSnapshot | null;
   subscribe<T extends keyof BrowserLiveSessionEventMap>(event: T, handler: (payload: BrowserLiveSessionEventMap[T]) => void): () => void;
 }
 
@@ -429,6 +449,28 @@ export function createBrowserLiveSession(options: CreateBrowserLiveSessionOption
         console.log('[skypier:session]   listen addrs:', node.getMultiaddrs().map((ma) => ma.toString()));
         emitState();
 
+        // Log relay discovery progress periodically
+        let relayCheckCount = 0;
+        const relayCheckInterval = setInterval(() => {
+          if (!node || relayCheckCount >= 12) {  // stop after ~60 s
+            clearInterval(relayCheckInterval);
+            return;
+          }
+          relayCheckCount++;
+          const addrs = node.getMultiaddrs().map((ma) => ma.toString());
+          const relayAddrs = addrs.filter((a) => a.includes('/p2p-circuit'));
+          const webrtcAddrs = addrs.filter((a) => a.includes('/webrtc'));
+          const conns = node.getConnections().length;
+          console.log(
+            `[skypier:session] 🔍 relay status: ${relayAddrs.length} relay addr(s), ${webrtcAddrs.length} webrtc addr(s), ${conns} connection(s)`,
+          );
+          if (relayAddrs.length > 0) {
+            console.log('[skypier:session] ✓ relay reservation acquired:', relayAddrs[0]);
+            emitState(); // update UI with new listen addresses
+            clearInterval(relayCheckInterval);
+          }
+        }, 5_000);
+
         // Start background retry loop & flush any queued items
         startRetryLoop();
         await this.flushQueue();
@@ -605,6 +647,41 @@ export function createBrowserLiveSession(options: CreateBrowserLiveSessionOption
 
     getState() {
       return state;
+    },
+
+    getDebugInfo(): NetworkDebugSnapshot | null {
+      if (!node) return null;
+
+      const classifyTransport = (addr: string): ConnectionDebugInfo['transportType'] => {
+        if (addr.includes('/webrtc/')) return 'webrtc';
+        if (addr.includes('/p2p-circuit')) return 'relay';
+        if (addr.includes('/ws/') || addr.includes('/wss/') || addr.endsWith('/ws') || addr.endsWith('/wss')) return 'websocket';
+        return 'other';
+      };
+
+      const connections: ConnectionDebugInfo[] = node.getConnections().map((c) => {
+        const addrStr = c.remoteAddr.toString();
+        return {
+          remotePeerId: c.remotePeer.toString(),
+          remoteAddr: addrStr,
+          direction: c.direction,
+          status: c.status,
+          transportType: classifyTransport(addrStr),
+        };
+      });
+
+      const listenAddrs = node.getMultiaddrs().map((ma) => ma.toString());
+
+      return {
+        peerId: node.peerId.toString(),
+        connections,
+        listenAddresses: listenAddrs,
+        hasRelayReservation: listenAddrs.some((a) => a.includes('/p2p-circuit')),
+        hasWebRTCAddress: listenAddrs.some((a) => a.includes('/webrtc')),
+        totalConnections: connections.length,
+        relayedConnections: connections.filter((c) => c.transportType === 'relay').length,
+        directConnections: connections.filter((c) => c.transportType !== 'relay').length,
+      };
     },
 
     subscribe(event, handler) {

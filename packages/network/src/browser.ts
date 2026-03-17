@@ -46,7 +46,9 @@ export async function createBrowserSkypierNode(options: CreateBrowserSkypierNode
   const transports = [
     safelyCreate(() => webSockets()),
     safelyCreate(() => webRTC()),
-    safelyCreate(() => circuitRelayTransport()),
+    safelyCreate(() => circuitRelayTransport({
+      reservationConcurrency: 2,
+    })),
   ].filter((transport): transport is NonNullable<typeof transport> => transport != null);
 
   if (transports.length === 0) {
@@ -59,7 +61,6 @@ export async function createBrowserSkypierNode(options: CreateBrowserSkypierNode
     dcutr: safelyCreate(() => dcutr()),
     dht: safelyCreate(() => kadDHT({
       clientMode: true,
-      alpha: 2,
       peerInfoMapper: removePrivateAddressesMapper,
     })),
   };
@@ -71,9 +72,9 @@ export async function createBrowserSkypierNode(options: CreateBrowserSkypierNode
       listen: options.listenAddresses ?? ['/webrtc', '/p2p-circuit'],
     },
     connectionManager: {
-      maxConnections: options.maxConnections ?? 10,
-      maxParallelDials: 2,
-      dialTimeout: 10_000,
+      maxConnections: options.maxConnections ?? 100,
+      maxParallelDials: 5,
+      dialTimeout: 30_000,
     },
     transports,
     connectionGater: {

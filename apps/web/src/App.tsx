@@ -95,6 +95,7 @@ export function App() {
     broadcastChatMessage,
     sendChatMessageToPeer,
     retryMessage,
+    getDebugInfo,
   } = useLiveChatSession({
     onInboundMessage: handleInboundMessage,
     onPeerReachabilityChange: handlePeerReachabilityChange,
@@ -312,7 +313,7 @@ export function App() {
 
     if (activeView === 'network') {
       return (
-        <NetworkStatusPage sessionState={liveState} networkLog={networkLog} />
+        <NetworkStatusPage sessionState={liveState} networkLog={networkLog} getDebugInfo={getDebugInfo} />
       );
     }
 

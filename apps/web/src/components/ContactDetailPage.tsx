@@ -1,5 +1,5 @@
 import { Box, Button, Stack, Typography } from '@mui/material';
-import PhoneIcon from '@mui/icons-material/Phone';
+import SatelliteAltIcon from '@mui/icons-material/SatelliteAlt';
 import ChatIcon from '@mui/icons-material/Chat';
 import type { Conversation } from '@skypier/protocol';
 import { reachabilityLabel } from '@skypier/network';
@@ -57,7 +57,7 @@ export function ContactDetailPage(props: ContactDetailPageProps) {
           <Button
             fullWidth
             variant="contained"
-            startIcon={<PhoneIcon />}
+            startIcon={<SatelliteAltIcon />}
             onClick={() => onDialPeer(remoteParticipant.peerId)}
             disabled={isDialing}
             size="large"

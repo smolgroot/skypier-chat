@@ -188,8 +188,8 @@ export function ChatThread(props: ChatThreadProps) {
           <TextField
             fullWidth
             multiline
-            maxRows={5}
-            placeholder="Write a message..."
+            maxRows={1}
+            placeholder="  Write a message..."
             value={composerValue}
             onChange={(e) => onComposerChange(e.target.value)}
             onKeyPress={handleKeyPress}

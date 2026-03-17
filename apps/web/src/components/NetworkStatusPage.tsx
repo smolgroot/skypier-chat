@@ -1,18 +1,22 @@
 import React from 'react';
-import { Box, Typography, Paper, Grid, Chip, List, ListItem, ListItemText, Divider, Stack } from '@mui/material';
+import { Box, Typography, Paper, Grid, Chip, List, ListItem, ListItemText, Divider, Stack, Button, Tooltip, IconButton } from '@mui/material';
 import SignalWifi4BarIcon from '@mui/icons-material/SignalWifi4Bar';
 import HubIcon from '@mui/icons-material/Hub';
 import SpeedIcon from '@mui/icons-material/Speed';
 import SecurityIcon from '@mui/icons-material/Security';
 import RouterIcon from '@mui/icons-material/Router';
 import ArticleIcon from '@mui/icons-material/Article';
-import type { BrowserLiveSessionState } from '@skypier/network';
+import BugReportIcon from '@mui/icons-material/BugReport';
+import ContentCopyIcon from '@mui/icons-material/ContentCopy';
+import type { BrowserLiveSessionState, NetworkDebugSnapshot } from '@skypier/network';
 import { createRuntimePlan } from '@skypier/network';
 import type { NetworkLogEntry } from '../useNetworkLog';
+import { NetworkGraph } from './NetworkGraph';
 
 interface NetworkStatusPageProps {
   sessionState: BrowserLiveSessionState;
   networkLog?: NetworkLogEntry[];
+  getDebugInfo?: () => NetworkDebugSnapshot | null;
 }
 
 const GlassPaper = ({ children, sx = {} }: { children: React.ReactNode, sx?: any }) => (
@@ -44,8 +48,10 @@ const GlassPaper = ({ children, sx = {} }: { children: React.ReactNode, sx?: any
   </Paper>
 );
 
-export function NetworkStatusPage({ sessionState, networkLog = [] }: NetworkStatusPageProps) {
+export function NetworkStatusPage({ sessionState, networkLog = [], getDebugInfo }: NetworkStatusPageProps) {
   const logEndRef = React.useRef<HTMLDivElement>(null);
+  const [debugSnapshot, setDebugSnapshot] = React.useState<NetworkDebugSnapshot | null>(null);
+  const [copied, setCopied] = React.useState(false);
 
   React.useEffect(() => {
     logEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -111,7 +117,7 @@ export function NetworkStatusPage({ sessionState, networkLog = [] }: NetworkStat
           </GlassPaper>
         </Grid>
 
-        {/* Capability Card */}
+        {/* Capability Card
         <Grid sx={{ gridColumn: { xs: 'span 12', md: 'span 6' } }}>
           <GlassPaper>
             <Stack spacing={2}>
@@ -141,7 +147,7 @@ export function NetworkStatusPage({ sessionState, networkLog = [] }: NetworkStat
               </List>
             </Stack>
           </GlassPaper>
-        </Grid>
+        </Grid> */}
 
         {/* Listen Multiaddresses Card */}
         <Grid sx={{ gridColumn: 'span 12' }}>
@@ -215,6 +221,119 @@ export function NetworkStatusPage({ sessionState, networkLog = [] }: NetworkStat
                     }}
                   />
                 ))}
+              </Stack>
+            )}
+          </GlassPaper>
+        </Grid>
+
+        {/* Connection Details / Debug Panel */}
+        <Grid sx={{ gridColumn: 'span 12' }}>
+          <GlassPaper>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mb: 2 }}>
+              <BugReportIcon color="primary" />
+              <Typography variant="h6">Connection Details</Typography>
+              <Box sx={{ ml: 'auto', display: 'flex', gap: 1 }}>
+                {debugSnapshot && (
+                  <Tooltip title={copied ? 'Copied!' : 'Copy debug JSON'}>
+                    <IconButton
+                      size="small"
+                      onClick={() => {
+                        void navigator.clipboard.writeText(JSON.stringify(debugSnapshot, null, 2));
+                        setCopied(true);
+                        setTimeout(() => setCopied(false), 2000);
+                      }}
+                    >
+                      <ContentCopyIcon sx={{ fontSize: 16 }} />
+                    </IconButton>
+                  </Tooltip>
+                )}
+                <Button
+                  variant="outlined"
+                  size="small"
+                  onClick={() => setDebugSnapshot(getDebugInfo?.() ?? null)}
+                  sx={{ fontSize: '0.7rem', textTransform: 'none' }}
+                >
+                  Refresh
+                </Button>
+              </Box>
+            </Box>
+
+            <Divider sx={{ mb: 2, opacity: 0.1 }} />
+
+            {!debugSnapshot ? (
+              <Typography variant="body2" color="text.secondary" sx={{ py: 2, textAlign: 'center' }}>
+                Press Refresh to load connection details.
+              </Typography>
+            ) : (
+              <Stack spacing={2}>
+                {/* Relay & WebRTC status */}
+                <Box sx={{ display: 'flex', gap: 1.5, flexWrap: 'wrap' }}>
+                  <Chip
+                    label={debugSnapshot.hasRelayReservation ? '✓ Relay reservation' : '✗ No relay reservation'}
+                    size="small"
+                    color={debugSnapshot.hasRelayReservation ? 'success' : 'error'}
+                    sx={{ fontWeight: 'bold' }}
+                  />
+                  <Chip
+                    label={debugSnapshot.hasWebRTCAddress ? '✓ WebRTC listener' : '✗ No WebRTC address'}
+                    size="small"
+                    color={debugSnapshot.hasWebRTCAddress ? 'success' : 'warning'}
+                    sx={{ fontWeight: 'bold' }}
+                  />
+                  <Chip
+                    label={`${debugSnapshot.totalConnections} connection(s)`}
+                    size="small"
+                    variant="outlined"
+                  />
+                  <Chip
+                    label={`${debugSnapshot.directConnections} direct / ${debugSnapshot.relayedConnections} relayed`}
+                    size="small"
+                    variant="outlined"
+                  />
+                </Box>
+
+                {/* Per-peer list */}
+                {debugSnapshot.connections.length > 0 && (
+                  <List disablePadding dense>
+                    {debugSnapshot.connections.map((conn, idx) => (
+                      <ListItem
+                        key={`${conn.remotePeerId}-${idx}`}
+                        divider={idx < debugSnapshot.connections.length - 1}
+                        sx={{ px: 0, py: 0.75 }}
+                      >
+                        <ListItemText
+                          primary={
+                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                              <Typography variant="body2" sx={{ fontFamily: 'monospace', fontSize: '0.72rem' }}>
+                                {conn.remotePeerId.slice(0, 16)}…{conn.remotePeerId.slice(-8)}
+                              </Typography>
+                              <Chip
+                                label={conn.transportType}
+                                size="small"
+                                variant="outlined"
+                                color={
+                                  conn.transportType === 'webrtc' ? 'primary'
+                                  : conn.transportType === 'relay' ? 'warning'
+                                  : conn.transportType === 'websocket' ? 'info'
+                                  : 'default'
+                                }
+                                sx={{ fontSize: '0.6rem', height: 18 }}
+                              />
+                              <Chip
+                                label={conn.direction}
+                                size="small"
+                                variant="outlined"
+                                sx={{ fontSize: '0.6rem', height: 18 }}
+                              />
+                            </Box>
+                          }
+                          secondary={conn.remoteAddr}
+                          secondaryTypographyProps={{ sx: { fontFamily: 'monospace', fontSize: '0.65rem', wordBreak: 'break-all', opacity: 0.6 } }}
+                        />
+                      </ListItem>
+                    ))}
+                  </List>
+                )}
               </Stack>
             )}
           </GlassPaper>
@@ -294,33 +413,37 @@ export function NetworkStatusPage({ sessionState, networkLog = [] }: NetworkStat
           </GlassPaper>
         </Grid>
 
-        {/* Active Peers Card */}
         <Grid sx={{ gridColumn: 'span 12' }}>
           <GlassPaper>
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mb: 2 }}>
               <HubIcon color="primary" />
-              <Typography variant="h6">Active Mesh Connections</Typography>
+              <Typography variant="h6">Network Topology (Interactive)</Typography>
+              <Chip 
+                label={`${sessionState.connectedPeers.length} Peers`} 
+                size="small" 
+                variant="outlined" 
+                sx={{ ml: 'auto', fontSize: '0.65rem' }} 
+              />
             </Box>
             
-            <Divider sx={{ mb: 2, opacity: 0.1 }} />
+            <Divider sx={{ mb: 3, opacity: 0.1 }} />
 
             {sessionState.connectedPeers.length === 0 ? (
-              <Typography variant="body2" color="text.secondary" sx={{ py: 4, textAlign: 'center' }}>
-                No active connections found. Connecting to network mesh...
-              </Typography>
+              <Box sx={{ py: 8, textAlign: 'center', bgcolor: 'rgba(0,0,0,0.05)', borderRadius: 4 }}>
+                <Typography variant="body2" color="text.secondary">
+                  No active connections found. Connecting to network mesh...
+                </Typography>
+              </Box>
             ) : (
-              <List>
-                {sessionState.connectedPeers.map((peerId) => (
-                  <ListItem key={peerId} divider sx={{ px: 0, flexDirection: { xs: 'column', sm: 'row' }, alignItems: { xs: 'flex-start', sm: 'center' }, gap: 1 }}>
-                    <ListItemText 
-                      primary={peerId} 
-                      primaryTypographyProps={{ sx: { fontFamily: 'monospace', fontSize: '0.8rem', wordBreak: 'break-all' } }}
-                    />
-                    <Chip label="Direct WebRTC" size="small" variant="outlined" sx={{ fontSize: '0.7rem' }} />
-                  </ListItem>
-                ))}
-              </List>
+              <NetworkGraph 
+                localPeerId={sessionState.localPeerId || 'Me'} 
+                connectedPeers={sessionState.connectedPeers} 
+              />
             )}
+            
+            <Typography variant="caption" sx={{ mt: 2, display: 'block', opacity: 0.5, textAlign: 'center' }}>
+              Drag nodes to explore the mesh. The center node represents your local Peer.
+            </Typography>
           </GlassPaper>
         </Grid>
 
