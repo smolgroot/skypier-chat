@@ -16,7 +16,7 @@ export function ConversationList(props: ConversationListProps) {
       <div className="panel__header">
         <div>
           <p className="eyebrow">Chats</p>
-          <h1>Skypier Chat</h1>
+          <h1>Skypier dM</h1>
         </div>
         <button className="secondary-button" type="button">
           New chat

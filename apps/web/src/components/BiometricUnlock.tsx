@@ -186,7 +186,7 @@ async function createPasskey(userDisplayName?: string): Promise<string> {
       challenge,
       rp: {
         id: window.location.hostname,
-        name: 'Skypier Chat',
+        name: 'Skypier dM',
       },
       user: {
         id: toArrayBuffer(userId),

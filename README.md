@@ -1,4 +1,4 @@
-# Skypier Chat
+# Skypier dMessenger (dM)
 
 Skypier Chat is a peer-to-peer messenger built for privacy-first communication over libp2p.
 

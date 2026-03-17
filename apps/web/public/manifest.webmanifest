@@ -1,5 +1,5 @@
 {
-  "name": "Skypier Chat",
+  "name": "Skypier dM",
   "short_name": "SkypierChat",
   "description": "Privacy-first peer-to-peer messaging over libp2p.",
   "start_url": "/",

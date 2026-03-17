@@ -17,6 +17,7 @@ import { SplashScreen } from './components/SplashScreen';
 import { OnboardingWizard } from './components/OnboardingWizard';
 import { BiometricUnlock } from './components/BiometricUnlock';
 import { ContactDetailPage } from './components/ContactDetailPage';
+import { useNotifications } from './hooks/useNotifications';
 
 export function App() {
   const {
@@ -65,11 +66,20 @@ export function App() {
 
   const networkLog = useNetworkLog();
   const currentTheme = useMemo(() => theme(colorMode), [colorMode]);
+  const { notifyIncomingMessage } = useNotifications();
 
   const handleInboundMessage = useCallback(async ({ fromPeerId, envelope }: { fromPeerId: string; envelope: { kind: 'message' | 'receipt' | 'presence' | 'sync'; conversationId: string; senderPeerId: string; sentAt: string; payload: string } }) => {
     console.log('[skypier:app] \u21d0 inbound message from', fromPeerId, '\u2014 kind:', envelope.kind, 'conv:', envelope.conversationId, 'payload:', envelope.payload.slice(0, 80));
     await ingestIncomingEnvelope(envelope, fromPeerId);
-  }, [ingestIncomingEnvelope]);
+
+    // Sound + OS notification for actual chat messages
+    if (envelope.kind === 'message') {
+      notifyIncomingMessage({
+        senderName: `Peer ${fromPeerId.slice(0, 10)}…`,
+        messagePreview: envelope.payload,
+      });
+    }
+  }, [ingestIncomingEnvelope, notifyIncomingMessage]);
 
   const handlePeerReachabilityChange = useCallback(({ peerId, reachability }: PeerReachabilityEvent) => {
     void updateConversationConnection(peerId, { reachability });
