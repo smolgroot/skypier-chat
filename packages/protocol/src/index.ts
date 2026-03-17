@@ -98,4 +98,5 @@ export interface AccountProfile {
   localPeerId?: string;
   identityProtobuf?: string; // Base64 encoded PeerID protobuf (includes private key)
   linkedEthAddresses: LinkedEthAddress[];
+  biometricUnlockEnabled?: boolean;
 }

@@ -289,7 +289,7 @@ export function useChatController() {
     await persistState(nextState);
   }, [persistState]);
 
-  const updateAccount = useCallback(async (updates: { displayName?: string; identityProtobuf?: string; localPeerId?: string }) => {
+  const updateAccount = useCallback(async (updates: { displayName?: string; identityProtobuf?: string; localPeerId?: string; biometricUnlockEnabled?: boolean }) => {
     const snap = stateRef.current;
     const nextState: PersistedChatState = {
       ...snap,
@@ -298,6 +298,7 @@ export function useChatController() {
         displayName: updates.displayName ?? snap.account.displayName,
         identityProtobuf: updates.identityProtobuf ?? snap.account.identityProtobuf,
         localPeerId: updates.localPeerId ?? snap.account.localPeerId,
+        biometricUnlockEnabled: updates.biometricUnlockEnabled ?? snap.account.biometricUnlockEnabled,
       },
     };
     await persistState(nextState);

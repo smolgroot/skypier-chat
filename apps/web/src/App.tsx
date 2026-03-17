@@ -2,7 +2,7 @@ import { createKeyCustodyPlan, createSecuritySummary } from '@skypier/crypto';
 import { createPresence, createRuntimePlan, type PeerReachabilityEvent } from '@skypier/network';
 import { getCurrentDevice } from '@skypier/storage';
 import { useCallback, useState, useMemo, useEffect } from 'react';
-import { ThemeProvider, CssBaseline } from '@mui/material';
+import { ThemeProvider, CssBaseline, Snackbar, Alert } from '@mui/material';
 import { useChatController } from './useChatController';
 import { useLiveChatSession } from './useLiveChatSession';
 import { connectAndLinkEthWallet } from './walletLinking';
@@ -13,6 +13,7 @@ import { ProfilePage } from './components/ProfilePage';
 import { SettingsPage } from './components/SettingsPage';
 import { SplashScreen } from './components/SplashScreen';
 import { OnboardingWizard } from './components/OnboardingWizard';
+import { BiometricUnlock } from './components/BiometricUnlock';
 
 export function App() {
   const {
@@ -48,6 +49,8 @@ export function App() {
   const [dialError, setDialError] = useState<string | undefined>();
   const [walletBusy, setWalletBusy] = useState(false);
   const [walletError, setWalletError] = useState<string | undefined>();
+  const [networkAlertDismissed, setNetworkAlertDismissed] = useState(false);
+  const [showBiometricUnlock, setShowBiometricUnlock] = useState(false);
 
   const currentTheme = useMemo(() => theme(colorMode), [colorMode]);
 
@@ -107,6 +110,14 @@ export function App() {
     setColorMode((prev) => (prev === 'light' ? 'dark' : 'light'));
   };
 
+  const handleBiometricUnlockToggle = useCallback((enabled: boolean) => {
+    void updateAccount({ biometricUnlockEnabled: enabled });
+  }, [updateAccount]);
+
+  const handleBiometricUnlocked = useCallback(() => {
+    setShowBiometricUnlock(false);
+  }, []);
+
   const handleCreateChat = useCallback(async (peerId: string, displayName?: string) => {
     await createConversationWithPeer(peerId, displayName);
     setActiveView('chat');
@@ -139,6 +150,44 @@ export function App() {
       setDialError(error instanceof Error ? error.message : 'Unable to dial peer right now.');
     }
   }, [createConversationWithPeer, dialPeerById, liveState.status, updateConversationConnection]);
+
+  // Reset network alert when status changes to avoid persistent dismissals blocking important info
+  useEffect(() => {
+    if (liveState.status !== 'idle' && liveState.status !== 'error') {
+      setNetworkAlertDismissed(false);
+    }
+  }, [liveState.status]);
+
+  // Show biometric unlock on app load if enabled (after onboarding is complete)
+  useEffect(() => {
+    if (isLoaded && !account.displayName) return; // Still in onboarding
+    if (isLoaded && account.biometricUnlockEnabled && !showBiometricUnlock) {
+      setShowBiometricUnlock(true);
+    }
+  }, [isLoaded, account.biometricUnlockEnabled]);
+
+  const showNetworkAlert =
+    !networkAlertDismissed &&
+    (liveState.status === 'error' || liveState.status === 'stopped' || (liveState.status === 'idle' && isLoaded));
+  const networkAlertMessage =
+    liveState.status === 'error'
+      ? `P2P network error: ${liveState.lastError || 'Unknown error'}`
+      : liveState.status === 'stopped'
+        ? 'P2P network is offline. Your messages will be stored locally.'
+        : 'P2P network is not yet connected. Connecting…';
+  const networkAlertSeverity =
+    liveState.status === 'error'
+      ? 'error'
+      : liveState.status === 'stopped'
+        ? 'warning'
+        : 'info';
+
+  useEffect(() => {
+    // Show biometric unlock on first app load if enabled
+    if (isLoaded && account.biometricUnlockEnabled && !showBiometricUnlock) {
+      setShowBiometricUnlock(true);
+    }
+  }, [isLoaded, account.biometricUnlockEnabled]);
 
   const renderContent = () => {
     if (activeView === 'profile') {
@@ -175,6 +224,7 @@ export function App() {
           walletBusy={walletBusy}
           walletError={walletError}
           dialError={dialError}
+          onBiometricUnlockToggle={handleBiometricUnlockToggle}
         />
       );
     }
@@ -236,6 +286,25 @@ export function App() {
   return (
     <ThemeProvider theme={currentTheme}>
       <CssBaseline />
+      <BiometricUnlock
+        open={showBiometricUnlock}
+        onUnlocked={handleBiometricUnlocked}
+        onCancel={handleBiometricUnlocked}
+      />
+      <Snackbar
+        open={showNetworkAlert}
+        autoHideDuration={liveState.status === 'error' ? 0 : 6000}
+        onClose={() => setNetworkAlertDismissed(true)}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'left' }}
+      >
+        <Alert
+          onClose={() => setNetworkAlertDismissed(true)}
+          severity={networkAlertSeverity}
+          sx={{ width: '100%' }}
+        >
+          {networkAlertMessage}
+        </Alert>
+      </Snackbar>
       <MainLayout
         conversations={conversations}
         selectedConversationId={selectedConversationId}

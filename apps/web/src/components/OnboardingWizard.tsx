@@ -70,21 +70,31 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
-        bgcolor: '#050308',
+        bgcolor: 'transparent',
         p: 2
       }}
     >
       <Paper
-        elevation={24}
+        elevation={0}
         sx={{
           width: '100%',
           maxWidth: 500,
           p: 4,
           borderRadius: 4,
-          bgcolor: 'background.paper',
+          bgcolor: (theme) => 
+            theme.palette.mode === 'dark' 
+              ? 'rgba(14, 8, 28, 0.7)' 
+              : 'rgba(255, 255, 255, 0.7)',
+          backdropFilter: 'blur(20px) saturate(180%)',
+          WebkitBackdropFilter: 'blur(20px) saturate(180%)',
+          border: (theme) => 
+            theme.palette.mode === 'dark' 
+              ? '1px solid rgba(171, 110, 255, 0.15)' 
+              : '1px solid rgba(0, 0, 0, 0.05)',
           display: 'flex',
           flexDirection: 'column',
-          gap: 3
+          gap: 3,
+          backgroundImage: 'none'
         }}
       >
         <Box sx={{ textAlign: 'center' }}>

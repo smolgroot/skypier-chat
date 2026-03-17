@@ -21,11 +21,33 @@ export function ProfilePage({ peerId, displayName, linkedWallets }: ProfilePageP
         User Profile
       </Typography>
       
-      <Paper sx={{ p: 4, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3, mb: 4 }}>
+      <Paper 
+        elevation={0}
+        sx={{ 
+          p: 4, 
+          display: 'flex', 
+          flexDirection: 'column', 
+          alignItems: 'center', 
+          gap: 3, 
+          mb: 4,
+          bgcolor: (theme) => 
+            theme.palette.mode === 'dark' 
+              ? 'rgba(14, 8, 28, 0.65)' 
+              : 'rgba(255, 255, 255, 0.7)',
+          backdropFilter: 'blur(20px) saturate(180%)',
+          WebkitBackdropFilter: 'blur(20px) saturate(180%)',
+          border: (theme) => 
+            theme.palette.mode === 'dark' 
+              ? '1px solid rgba(171, 110, 255, 0.15)' 
+              : '1px solid rgba(0, 0, 0, 0.05)',
+          borderRadius: 4,
+          backgroundImage: 'none'
+        }}
+      >
         <UserAvatar 
           seed={peerId} 
           size={120} 
-          sx={{ boxShadow: '0 8px 16px rgba(0,0,0,0.2)' }} 
+          sx={{ boxShadow: '0 8px 32px rgba(142, 45, 226, 0.3)' }} 
         />
 
         <Box sx={{ textAlign: 'center', width: '100%' }}>
@@ -46,7 +68,7 @@ export function ProfilePage({ peerId, displayName, linkedWallets }: ProfilePageP
 
         <Divider sx={{ width: '100%' }} />
 
-        <Box sx={{ p: 2, bgcolor: '#fff', borderRadius: 2, boxShadow: 'inset 0 2px 4px rgba(0,0,0,0.1)' }}>
+        <Box sx={{ p: 2, bgcolor: '#fff', borderRadius: 2, boxShadow: '0 4px 12px rgba(0,0,0,0.2)' }}>
           <QRCodeSVG value={peerId} size={200} includeMargin={true} />
         </Box>
         <Typography variant="caption" color="text.secondary">
@@ -66,7 +88,27 @@ export function ProfilePage({ peerId, displayName, linkedWallets }: ProfilePageP
       {linkedWallets.length > 0 ? (
         <Stack spacing={2}>
           {linkedWallets.map((wallet) => (
-            <Paper key={wallet.address} sx={{ p: 2, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <Paper 
+              key={wallet.address} 
+              elevation={0}
+              sx={{ 
+                p: 2, 
+                display: 'flex', 
+                justifyContent: 'space-between', 
+                alignItems: 'center',
+                bgcolor: (theme) => 
+                  theme.palette.mode === 'dark' 
+                    ? 'rgba(14, 8, 28, 0.5)' 
+                    : 'rgba(255, 255, 255, 0.5)',
+                backdropFilter: 'blur(10px) saturate(180%)',
+                WebkitBackdropFilter: 'blur(10px) saturate(180%)',
+                border: (theme) => 
+                  theme.palette.mode === 'dark' 
+                    ? '1px solid rgba(171, 110, 255, 0.1)' 
+                    : '1px solid rgba(0, 0, 0, 0.05)',
+                backgroundImage: 'none'
+              }}
+            >
               <Box>
                 <Typography variant="body1" sx={{ fontFamily: 'monospace' }}>
                   {wallet.address.slice(0, 10)}...{wallet.address.slice(-8)}

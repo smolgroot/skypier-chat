@@ -42,7 +42,10 @@ export function ChatList({ conversations, selectedConversationId, onSelectConver
                 py: dense ? 1 : 1.5,
                 transition: 'all 0.2s',
                 '&.Mui-selected': {
-                  bgcolor: (theme) => theme.palette.mode === 'dark' ? 'rgba(31, 124, 255, 0.15)' : 'rgba(31, 124, 255, 0.08)',
+                  bgcolor: (theme) => theme.palette.mode === 'dark' ? 'rgba(171, 110, 255, 0.15)' : 'rgba(142, 45, 226, 0.08)',
+                  '&:hover': {
+                    bgcolor: (theme) => theme.palette.mode === 'dark' ? 'rgba(171, 110, 255, 0.25)' : 'rgba(142, 45, 226, 0.12)',
+                  }
                 }
               }}
             >

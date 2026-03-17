@@ -105,7 +105,7 @@ export function MainLayout(props: MainLayoutProps) {
   };
 
   const drawerContent = (
-    <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%', bgcolor: 'background.paper' }}>
+    <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%', bgcolor: 'transparent' }}>
       {isMobile && <Toolbar sx={{ pt: 'env(safe-area-inset-top)' }} />}
       <Box sx={{ p: 2, display: 'flex', alignItems: 'center', gap: 2 }}>
         <UserAvatar seed={peerId} size={40} />
@@ -164,9 +164,41 @@ export function MainLayout(props: MainLayoutProps) {
   );
 
   return (
-    <Box sx={{ display: 'flex', height: '100dvh', overflow: 'hidden' }}>
-      <Dialog open={newChatOpen} onClose={() => setNewChatOpen(false)} fullWidth maxWidth="sm">
-        <DialogTitle>Start New Chat</DialogTitle>
+    <Box 
+      sx={{ 
+        display: 'flex', 
+        height: '100dvh', 
+        overflow: 'hidden',
+        bgcolor: mode === 'dark' ? '#030105' : '#f0f2f5', 
+        backgroundImage: mode === 'dark' 
+          ? `radial-gradient(circle at 10% 10%, rgba(142, 45, 226, 0.2) 0%, transparent 50%), 
+             radial-gradient(circle at 90% 90%, rgba(74, 0, 224, 0.15) 0%, transparent 50%),
+             radial-gradient(circle at 50% 50%, rgba(171, 110, 255, 0.05) 0%, transparent 80%)`
+          : 'none'
+      }}
+    >
+      <Dialog 
+        open={newChatOpen} 
+        onClose={() => setNewChatOpen(false)} 
+        fullWidth 
+        maxWidth="sm"
+        PaperProps={{
+          sx: {
+            bgcolor: (theme) => 
+              theme.palette.mode === 'dark' 
+                ? 'rgba(14, 8, 28, 0.7)' 
+                : 'rgba(255, 255, 255, 0.7)',
+            backdropFilter: 'blur(20px) saturate(180%)',
+            border: (theme) => 
+              theme.palette.mode === 'dark' 
+                ? '1px solid rgba(171, 110, 255, 0.15)' 
+                : '1px solid rgba(0, 0, 0, 0.05)',
+            borderRadius: 4,
+            backgroundImage: 'none'
+          }
+        }}
+      >
+        <DialogTitle sx={{ fontWeight: 'bold' }}>Start New Chat</DialogTitle>
         <DialogContent sx={{ pt: '8px !important', display: 'grid', gap: 2 }}>
           <TextField
             label="Peer ID"
@@ -175,6 +207,8 @@ export function MainLayout(props: MainLayoutProps) {
             onChange={(event) => setNewChatPeerId(event.target.value)}
             fullWidth
             autoFocus
+            variant="outlined"
+            size="small"
           />
           <TextField
             label="Display Name (optional)"
@@ -182,10 +216,12 @@ export function MainLayout(props: MainLayoutProps) {
             value={newChatDisplayName}
             onChange={(event) => setNewChatDisplayName(event.target.value)}
             fullWidth
+            variant="outlined"
+            size="small"
           />
           {newChatError ? <Typography color="error" variant="caption">{newChatError}</Typography> : null}
         </DialogContent>
-        <DialogActions>
+        <DialogActions sx={{ p: 2, pt: 0 }}>
           <Button onClick={() => setNewChatOpen(false)}>Cancel</Button>
           <Button onClick={() => { void handleCreateChat(); }} variant="contained" disabled={creatingChat}>
             {creatingChat ? 'Creating…' : 'Create Chat'}
@@ -196,11 +232,20 @@ export function MainLayout(props: MainLayoutProps) {
       {isMobile && (
         <AppBar 
           position="fixed" 
+          elevation={0}
           sx={{ 
-            bgcolor: 'background.paper', 
+            bgcolor: (theme) => 
+               theme.palette.mode === 'dark' 
+                ? 'rgba(14, 8, 28, 0.75)' 
+                : 'rgba(255, 255, 255, 0.8)',
+            backdropFilter: 'blur(20px) saturate(180%)',
+            borderBottom: (theme) => 
+               theme.palette.mode === 'dark' 
+                ? '1px solid rgba(171, 110, 255, 0.15)' 
+                : '1px solid rgba(0, 0, 0, 0.05)',
             color: 'text.primary',
             pt: 'env(safe-area-inset-top)',
-            zIndex: (theme) => theme.zIndex.drawer - 1 // Ensure it's below the temporary drawer
+            zIndex: (theme) => theme.zIndex.drawer - 1
           }}
         >
           <Toolbar>
@@ -219,7 +264,7 @@ export function MainLayout(props: MainLayoutProps) {
                   <UserAvatar seed={selectedConversationId} size={32} />
                   <Box sx={{ display: 'flex', flexDirection: 'column' }}>
                     <Typography variant="subtitle1" sx={{ fontWeight: 'bold', lineHeight: 1.2 }}>
-                      {conversations.find(c => c.id === selectedConversationId)?.title}
+                      {conversations.find(c => c.id === selectedConversationId)?.title || 'Chat'}
                     </Typography>
                     <Typography variant="caption" sx={{ opacity: 0.8, lineHeight: 1 }}>
                       {reachabilityLabel(conversations.find(c => c.id === selectedConversationId)?.reachability ?? 'unknown')}
@@ -244,7 +289,22 @@ export function MainLayout(props: MainLayoutProps) {
             variant="permanent"
             sx={{
               height: '100%',
-              '& .MuiDrawer-paper': { boxSizing: 'border-box', width: SIDEBAR_WIDTH, height: '100%', position: 'static' },
+              '& .MuiDrawer-paper': { 
+                boxSizing: 'border-box', 
+                width: SIDEBAR_WIDTH, 
+                height: '100%', 
+                position: 'static',
+                bgcolor: (theme) => 
+                  theme.palette.mode === 'dark' 
+                    ? 'rgba(10, 5, 20, 0.6)' 
+                    : 'rgba(255, 255, 255, 0.6)',
+                backdropFilter: 'blur(20px) saturate(180%)',
+                WebkitBackdropFilter: 'blur(20px) saturate(180%)',
+                borderRight: (theme) => 
+                  theme.palette.mode === 'dark' 
+                    ? '1px solid rgba(171, 110, 255, 0.15)' 
+                    : '1px solid rgba(0, 0, 0, 0.05)',
+              },
             }}
             open
           >
@@ -261,7 +321,21 @@ export function MainLayout(props: MainLayoutProps) {
           onClose={handleDrawerToggle}
           ModalProps={{ keepMounted: true }}
           sx={{
-            '& .MuiDrawer-paper': { boxSizing: 'border-box', width: SIDEBAR_WIDTH, zIndex: 1201 },
+            '& .MuiDrawer-paper': { 
+              boxSizing: 'border-box', 
+              width: SIDEBAR_WIDTH, 
+              zIndex: 1201,
+              bgcolor: (theme) => 
+                theme.palette.mode === 'dark' 
+                  ? 'rgba(10, 5, 20, 0.6)' 
+                  : 'rgba(255, 255, 255, 0.6)',
+              backdropFilter: 'blur(20px) saturate(180%)',
+              WebkitBackdropFilter: 'blur(20px) saturate(180%)',
+              borderRight: (theme) => 
+                theme.palette.mode === 'dark' 
+                  ? '1px solid rgba(171, 110, 255, 0.15)' 
+                  : '1px solid rgba(0, 0, 0, 0.05)',
+            },
             zIndex: 1201
           }}
         >
