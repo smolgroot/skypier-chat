@@ -1,5 +1,5 @@
 import { createKeyCustodyPlan, createSecuritySummary } from '@skypier/crypto';
-import { createPresence, createRuntimePlan, type DeliveryStatusEvent, type PeerReachabilityEvent } from '@skypier/network';
+import { createPresence, createRuntimePlan, type DeliveryStatusEvent, type PeerReachabilityEvent, type DialLogEntry } from '@skypier/network';
 import { getCurrentDevice } from '@skypier/storage';
 import { useCallback, useState, useMemo, useEffect } from 'react';
 import { ThemeProvider, CssBaseline, Snackbar, Alert, Drawer, Box as MuiBox } from '@mui/material';
@@ -61,6 +61,7 @@ export function App() {
   const [contactDialBusy, setContactDialBusy] = useState(false);
   const [contactDialError, setContactDialError] = useState<string | undefined>();
   const [contactDialSuccess, setContactDialSuccess] = useState<string | undefined>();
+  const [dialLogs, setDialLogs] = useState<DialLogEntry[]>([]);
 
   const networkLog = useNetworkLog();
   const currentTheme = useMemo(() => theme(colorMode), [colorMode]);
@@ -100,6 +101,7 @@ export function App() {
     onInboundMessage: handleInboundMessage,
     onPeerReachabilityChange: handlePeerReachabilityChange,
     onDeliveryStatus: handleDeliveryStatus,
+    onDialLog: (log) => setDialLogs(prev => [...prev, log]),
     identityProtobuf
   });
 
@@ -198,6 +200,7 @@ export function App() {
     setContactDialBusy(true);
     setContactDialError(undefined);
     setContactDialSuccess(undefined);
+    setDialLogs([]);
 
     try {
       if (liveState.status !== 'running') {
@@ -340,13 +343,7 @@ export function App() {
                 );
                 if (remotePeer) {
                   console.log('[skypier:app] \u21d2 sending message to peer', remotePeer.peerId, 'conv:', message.conversationId);
-                  const sent = await sendChatMessageToPeer(message, remotePeer.peerId);
-                  if (!sent) {
-                    console.warn('[skypier:app] targeted send failed/queued, falling back to broadcast');
-                    await broadcastChatMessage(message);
-                  }
-                } else {
-                  await broadcastChatMessage(message);
+                  await sendChatMessageToPeer(message, remotePeer.peerId);
                 }
               }
             })();
@@ -439,6 +436,7 @@ export function App() {
             isDialing={contactDialBusy}
             dialError={contactDialError}
             dialSuccess={contactDialSuccess}
+            dialLogs={dialLogs}
             onDialPeer={(peerId) => { void handleContactDial(peerId); }}
             onOpenChat={() => {
               setShowContactDetail(false);

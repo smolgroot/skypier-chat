@@ -2,7 +2,7 @@ import { Box, Button, Stack, Typography } from '@mui/material';
 import SatelliteAltIcon from '@mui/icons-material/SatelliteAlt';
 import ChatIcon from '@mui/icons-material/Chat';
 import type { Conversation } from '@skypier/protocol';
-import { reachabilityLabel } from '@skypier/network';
+import { reachabilityLabel, type DialLogEntry } from '@skypier/network';
 import { UserAvatar } from './UserAvatar';
 
 interface ContactDetailPageProps {
@@ -11,12 +11,13 @@ interface ContactDetailPageProps {
   isDialing: boolean;
   dialError?: string;
   dialSuccess?: string;
+  dialLogs?: DialLogEntry[];
   onDialPeer: (peerId: string) => void;
   onOpenChat: () => void;
 }
 
 export function ContactDetailPage(props: ContactDetailPageProps) {
-  const { conversation, localPeerId, isDialing, dialError, dialSuccess, onDialPeer, onOpenChat } = props;
+  const { conversation, localPeerId, isDialing, dialError, dialSuccess, dialLogs = [], onDialPeer, onOpenChat } = props;
 
   const remoteParticipant = conversation.participants.find((participant) => participant.peerId !== localPeerId);
 
@@ -79,6 +80,58 @@ export function ContactDetailPage(props: ContactDetailPageProps) {
 
         {dialError ? <Typography color="error" variant="caption" sx={{ mt: 1 }}>{dialError}</Typography> : null}
         {dialSuccess ? <Typography color="success.main" variant="caption" sx={{ mt: 1 }}>{dialSuccess}</Typography> : null}
+
+        {/* Dial Logs Section */}
+        {(isDialing || dialLogs.length > 0) && (
+          <Box sx={{ 
+            width: '100%', 
+            mt: 3, 
+            p: 2, 
+            bgcolor: (theme) => theme.palette.mode === 'dark' ? 'rgba(0,0,0,0.3)' : 'rgba(0,0,0,0.05)',
+            borderRadius: 3,
+            maxHeight: 180,
+            overflowY: 'auto',
+            border: '1px solid rgba(128,128,128,0.1)'
+          }}>
+            <Typography variant="overline" sx={{ opacity: 0.6, display: 'block', mb: 1, lineHeight: 1 }}>
+              P2P Dial Diagnostics
+            </Typography>
+            <Stack spacing={0.5}>
+              {dialLogs.map((log, i) => (
+                <Box key={i} sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
+                  <Box sx={{ 
+                    width: 6, 
+                    height: 6, 
+                    borderRadius: '50%', 
+                    flexShrink: 0,
+                    bgcolor: log.level === 'error' ? 'error.main' 
+                           : log.level === 'warn' ? 'warning.main' 
+                           : log.level === 'success' ? 'success.main' 
+                           : 'primary.main'
+                  }} />
+                  <Typography variant="caption" sx={{ 
+                    fontFamily: 'SF Mono, monospace', 
+                    fontSize: '0.65rem',
+                    color: log.level === 'error' ? 'error.light' : 'text.primary',
+                    opacity: log.level === 'info' ? 0.7 : 1
+                  }}>
+                    {log.message}
+                  </Typography>
+                </Box>
+              ))}
+              {isDialing && (
+                <Typography variant="caption" sx={{ fontStyle: 'italic', opacity: 0.5 }}>
+                  Working...
+                </Typography>
+              )}
+              {dialLogs.length === 0 && isDialing && (
+                <Typography variant="caption" sx={{ opacity: 0.5 }}>
+                  Initializing P2P stack...
+                </Typography>
+              )}
+            </Stack>
+          </Box>
+        )}
       </Stack>
     </Box>
   );

@@ -6,6 +6,7 @@ interface UseLiveChatSessionOptions {
   onInboundMessage: (payload: { fromPeerId: string; envelope: { kind: 'message' | 'receipt' | 'presence' | 'sync'; conversationId: string; senderPeerId: string; sentAt: string; payload: string } }) => Promise<void> | void;
   onPeerReachabilityChange?: (event: PeerReachabilityEvent) => void;
   onDeliveryStatus?: (event: DeliveryStatusEvent) => void;
+  onDialLog?: (event: import('@skypier/network').DialLogEntry) => void;
   identityProtobuf?: string;
 }
 
@@ -47,6 +48,10 @@ export function useLiveChatSession(options: UseLiveChatSessionOptions) {
   useEffect(() => {
     deliveryStatusHandlerRef.current = options.onDeliveryStatus;
   }, [options.onDeliveryStatus]);
+  const dialLogHandlerRef = useRef(options.onDialLog);
+  useEffect(() => {
+    dialLogHandlerRef.current = options.onDialLog;
+  }, [options.onDialLog]);
 
   useEffect(() => {
     const session = createBrowserLiveSession({
@@ -82,6 +87,10 @@ export function useLiveChatSession(options: UseLiveChatSessionOptions) {
       deliveryStatusHandlerRef.current?.(payload);
     });
 
+    const unsubscribeDialLog = session.subscribe('dialLog', (payload) => {
+      dialLogHandlerRef.current?.(payload);
+    });
+
     setState(session.getState());
 
     return () => {
@@ -89,6 +98,7 @@ export function useLiveChatSession(options: UseLiveChatSessionOptions) {
       unsubscribeInbound();
       unsubscribePeerReachability();
       unsubscribeDeliveryStatus();
+      unsubscribeDialLog();
       void session.stop();
       sessionRef.current = null;
     };

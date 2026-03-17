@@ -40,6 +40,14 @@ export interface BrowserLiveSessionEventMap {
   };
   peerReachability: PeerReachabilityEvent;
   deliveryStatus: DeliveryStatusEvent;
+  dialLog: DialLogEntry;
+}
+
+export interface DialLogEntry {
+  peerId: string;
+  level: 'info' | 'warn' | 'error' | 'success';
+  message: string;
+  timestamp: string;
 }
 
 export interface ConnectionDebugInfo {
@@ -127,6 +135,7 @@ export function createBrowserLiveSession(options: CreateBrowserLiveSessionOption
     inbound: new Set<(payload: { fromPeerId: string; envelope: WireEnvelope }) => void>(),
     peerReachability: new Set<(payload: PeerReachabilityEvent) => void>(),
     deliveryStatus: new Set<(payload: DeliveryStatusEvent) => void>(),
+    dialLog: new Set<(payload: DialLogEntry) => void>(),
   };
 
   // ─── Helpers ───────────────────────────────────────────────────────────
@@ -160,6 +169,16 @@ export function createBrowserLiveSession(options: CreateBrowserLiveSessionOption
 
   function emitDeliveryStatus(payload: DeliveryStatusEvent) {
     listeners.deliveryStatus.forEach((handler) => handler(payload));
+  }
+
+  function emitDialLog(peerId: string, level: DialLogEntry['level'], message: string) {
+    const entry: DialLogEntry = {
+      peerId,
+      level,
+      message,
+      timestamp: new Date().toISOString(),
+    };
+    listeners.dialLog.forEach((handler) => handler(entry));
   }
 
   function enqueue(peerId: string, envelope: WireEnvelope, retryCount = 0) {
@@ -545,14 +564,17 @@ export function createBrowserLiveSession(options: CreateBrowserLiveSessionOption
 
       try {
         console.log('[skypier:session] dialPeerById: attempting direct dial to', peerIdString);
+        emitDialLog(peerIdString, 'info', 'Attempting direct dial via known addresses...');
         const connection = await node.dial(targetPeerId);
         const peerId = connection.remotePeer.toString();
         console.log('[skypier:session] dialPeerById: ✓ connected to', peerId);
+        emitDialLog(peerIdString, 'success', 'Direct connection established!');
         emitState();
         await this.flushQueue();
         return peerId;
       } catch (directErr) {
         console.warn('[skypier:session] dialPeerById: direct dial failed, trying peer routing…', directErr instanceof Error ? directErr.message : directErr);
+        emitDialLog(peerIdString, 'warn', `Direct dial failed: ${directErr instanceof Error ? directErr.message : 'Unknown'}. Trying DHT peer routing...`);
       }
 
       try {
@@ -560,10 +582,12 @@ export function createBrowserLiveSession(options: CreateBrowserLiveSessionOption
         const addrs = peerInfo?.multiaddrs ?? [];
 
         if (addrs.length === 0) {
+          emitDialLog(peerIdString, 'error', 'Peer found in DHT but returned no dialable addresses.');
           throw new Error('Peer was found in DHT but has no dialable addresses.');
         }
 
         console.log('[skypier:session] dialPeerById: found', addrs.length, 'addresses via DHT, dialing…');
+        emitDialLog(peerIdString, 'info', `Found ${addrs.length} addresses in DHT. Testing candidates...`);
 
         // Dial each address individually — relay circuit addresses embed
         // different relay peer IDs, so passing them all to a single dial()
@@ -571,15 +595,19 @@ export function createBrowserLiveSession(options: CreateBrowserLiveSessionOption
         let lastErr: unknown;
         for (const addr of addrs) {
           try {
-            console.log('[skypier:session] dialPeerById: trying', addr.toString());
+            const addrStr = addr.toString();
+            console.log('[skypier:session] dialPeerById: trying', addrStr);
+            emitDialLog(peerIdString, 'info', `Trying: ${addrStr.length > 40 ? '...' + addrStr.slice(-37) : addrStr}`);
             const connection = await node.dial(addr);
             const peerId = connection.remotePeer.toString();
             console.log('[skypier:session] dialPeerById: ✓ connected to', peerId, 'via DHT');
+            emitDialLog(peerIdString, 'success', `Connected via ${addrStr.includes('p2p-circuit') ? 'Relay' : 'Direct path'}!`);
             emitState();
             await this.flushQueue();
             return peerId;
           } catch (addrErr) {
             console.warn('[skypier:session] dialPeerById: addr failed:', addr.toString(), addrErr instanceof Error ? addrErr.message : addrErr);
+            emitDialLog(peerIdString, 'warn', `Route failed: ${addrErr instanceof Error ? addrErr.message : 'Unknown'}`);
             lastErr = addrErr;
           }
         }
@@ -593,18 +621,40 @@ export function createBrowserLiveSession(options: CreateBrowserLiveSessionOption
     },
 
     async sendEnvelopeToConnected(envelope: WireEnvelope) {
-      const targets = (node?.getConnections().map((c) => c.remotePeer.toString()) ?? [])
-        .filter((pid) => pid !== state.localPeerId); // never send to self
-      console.log('[skypier:session] broadcasting envelope to', targets.length, 'connected peers:', targets);
+      if (!node) return 0;
+
+      const connections = node.getConnections();
+      const skypierPeers: string[] = [];
+
+      // Filter connections to only those that (likely) support our protocol
+      for (const conn of connections) {
+        const pid = conn.remotePeer.toString();
+        if (pid === state.localPeerId) continue;
+        
+        try {
+          const peerData = await node.peerStore.get(conn.remotePeer);
+          if (peerData.protocols.includes(SKYPIER_CHAT_PROTOCOLS.message)) {
+            skypierPeers.push(pid);
+          }
+        } catch {
+          // If protocol info isn't available yet, we could opt to skip or try anyway.
+          // For broadcast, we'll be conservative to avoid spamming infrastructure.
+        }
+      }
+
+      if (skypierPeers.length === 0) {
+        console.log('[skypier:session] broadcast: no skypier-compatible peers found among', connections.length, 'connections');
+        return 0;
+      }
+
+      console.log('[skypier:session] broadcasting envelope to', skypierPeers.length, 'skypier peers');
 
       let sentCount = 0;
-      for (const peerId of targets) {
+      for (const peerId of skypierPeers) {
         const result = await sendEnvelopeToPeer(peerId, envelope);
         if (result === true) {
           sentCount++;
-        } else if (result === 'unsupported') {
-          // Peer doesn't speak our protocol (relay/DHT/bootstrap node) — skip silently
-        } else {
+        } else if (result !== 'unsupported') {
           // Transient failure — queue for retry
           enqueue(peerId, envelope);
         }
