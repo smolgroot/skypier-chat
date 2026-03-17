@@ -195,11 +195,20 @@ export function createBrowserLiveSession(options: CreateBrowserLiveSessionOption
       return false;
     }
 
-    const connection = node.getConnections().find((c) => c.remotePeer.toString() === peerId);
+    let connection = node.getConnections().find((c) => c.remotePeer.toString() === peerId);
 
+    // No live connection — try to re-dial via the peer store / known addresses
     if (!connection) {
-      console.warn('[skypier:session] sendEnvelopeToPeer: no connection to', peerId);
-      return false;
+      try {
+        const targetPeerId = peerIdFromString(peerId);
+        console.log('[skypier:session] sendEnvelopeToPeer: no connection to', peerId, '— attempting re-dial…');
+        connection = await node.dial(targetPeerId);
+        console.log('[skypier:session] sendEnvelopeToPeer: re-dial ✓ connected to', peerId);
+        emitState();
+      } catch (dialErr) {
+        console.warn('[skypier:session] sendEnvelopeToPeer: re-dial failed for', peerId, dialErr instanceof Error ? dialErr.message : dialErr);
+        return false;
+      }
     }
 
     try {
