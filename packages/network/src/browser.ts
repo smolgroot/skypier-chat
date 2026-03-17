@@ -88,17 +88,24 @@ export async function createBrowserSkypierNode(options: CreateBrowserSkypierNode
           }
         }
 
-        // Block IPv6-encoded .libp2p.direct hostnames — many browsers / networks
-        // can't resolve these (e.g. "2605-a141-2252-9259--1.k51q…libp2p.direct")
-        const ipv6DnsPattern = /\/dns[46]?\/[\da-f]+-[\da-f]+-[\da-f]+-[\da-f]+-.*\.libp2p\.direct/i;
-        if (ipv6DnsPattern.test(addrStr)) {
-          // IPv4-encoded ones look like "141-95-145-190.k51q…" (4 groups)
-          // IPv6-encoded ones have 5+ hyphen-separated hex groups
+        // Block .libp2p.direct addresses on non-infrastructure ports.
+        // These are peer-observed external IPs (from identify/autonat) — browser
+        // peers can't accept incoming WSS connections, so dialing them always
+        // fails. Infrastructure relays/bootstrap nodes use port 4001 or 443.
+        if (addrStr.includes('.libp2p.direct')) {
+          const portMatch = addrStr.match(/\/tcp\/(\d+)\//);
+          const port = portMatch ? Number(portMatch[1]) : 0;
+          if (port !== 4001 && port !== 443) {
+            return true;
+          }
+
+          // Also block IPv6-encoded hostnames — many browsers/networks can't
+          // resolve them (e.g. "2605-a141-2252-9259--1.k51q…libp2p.direct")
           const hostMatch = addrStr.match(/\/dns[46]?\/([\da-f-]+)\./i);
           if (hostMatch) {
             const groups = hostMatch[1].split('-');
             if (groups.length > 4) {
-              return true; // IPv6-encoded, skip
+              return true;
             }
           }
         }
