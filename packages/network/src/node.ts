@@ -62,10 +62,11 @@ export async function createNativeSkypierNode(options: CreateNativeSkypierNodeOp
       listen: listenAddresses,
     },
     connectionManager: {
-      maxConnections: options.maxConnections ?? 10,
-      maxParallelDials: 2,
-      maxDialQueueLength: 50,
-      dialTimeout: 10_000,
+      maxConnections: options.maxConnections ?? 100,
+      maxParallelDials: 20,
+      maxDialQueueLength: 100,
+      dialTimeout: 30_000,
+      maxPeerAddrsToDial: 1000,
     },
     transports: [
       quic(),

@@ -75,7 +75,7 @@ export async function createBrowserSkypierNode(options: CreateBrowserSkypierNode
       maxConnections: options.maxConnections ?? 100,
       maxParallelDials: 20,
       dialTimeout: 30_000,
-      maxPeerAddrsToDial: 100,
+      maxPeerAddrsToDial: 1000,
     },
     transports,
     connectionGater: {
