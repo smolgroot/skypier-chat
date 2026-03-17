@@ -30,7 +30,7 @@ const getDesignTokens = (mode: 'light' | 'dark'): ThemeOptions => ({
           main: '#ab6eff', // Lighter Purple
         },
         background: {
-          default: '#050308', // Nearly Black
+          default: '#000000', // Pattern base
           paper: '#0e081c',   // Deepest Purple
         },
         text: {
