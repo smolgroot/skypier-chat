@@ -3,6 +3,10 @@
   "version": "0.1.0",
   "private": true,
   "packageManager": "pnpm@10.6.1",
+  "engines": {
+    "node": ">=20",
+    "pnpm": ">=10"
+  },
   "scripts": {
     "dev": "pnpm --filter @skypier/web dev",
     "build": "pnpm -r build",

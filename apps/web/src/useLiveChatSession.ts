@@ -5,6 +5,7 @@ import type { ChatMessage } from '@skypier/protocol';
 interface UseLiveChatSessionOptions {
   onInboundMessage: (payload: { fromPeerId: string; envelope: { kind: 'message' | 'receipt' | 'presence' | 'sync'; conversationId: string; senderPeerId: string; sentAt: string; payload: string } }) => Promise<void> | void;
   onPeerReachabilityChange?: (event: PeerReachabilityEvent) => void;
+  identityProtobuf?: string;
 }
 
 const INITIAL_STATE: BrowserLiveSessionState = {
@@ -28,7 +29,18 @@ export function useLiveChatSession(options: UseLiveChatSessionOptions) {
   }, [options.onPeerReachabilityChange]);
 
   useEffect(() => {
-    const session = createBrowserLiveSession();
+    const session = createBrowserLiveSession({
+      nodeOptions: options.identityProtobuf ? {
+        identityProtobuf: (() => {
+          const binary = atob(options.identityProtobuf);
+          const bytes = new Uint8Array(binary.length);
+          for (let i = 0; i < binary.length; i++) {
+            bytes[i] = binary.charCodeAt(i);
+          }
+          return bytes;
+        })()
+      } : undefined
+    });
     sessionRef.current = session;
 
     const unsubscribeState = session.subscribe('state', (payload) => {

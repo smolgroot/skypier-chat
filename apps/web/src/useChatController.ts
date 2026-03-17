@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createEncryptedBackupBundle, createPinataUploadRequest } from '@skypier/backup';
 import type { WireEnvelope } from '@skypier/network';
 import type { ChatMessage, LinkedEthAddress } from '@skypier/protocol';
@@ -16,7 +16,11 @@ const CURRENT_USER_NAME = 'You';
 
 export function useChatController() {
   const [state, setState] = useState<PersistedChatState>(createInitialChatState);
+  // stateRef always holds the latest persisted snapshot so async callbacks
+  // never read a stale closure even when two calls run before a re-render.
+  const stateRef = useRef<PersistedChatState>(state);
   const [selectedConversationId, setSelectedConversationId] = useState('');
+  const selectedConversationIdRef = useRef('');
   const [composerValue, setComposerValue] = useState('');
   const [replyTargetId, setReplyTargetId] = useState<string | undefined>();
   const [storageMode, setStorageMode] = useState<'indexeddb' | 'localstorage' | 'memory'>('memory');
@@ -34,6 +38,7 @@ export function useChatController() {
         return;
       }
 
+      stateRef.current = persistedState;
       setState(persistedState);
       setSelectedConversationId((current) => current || ''); // Don't auto-select on load
       setStorageMode(repository.getStorageMode());
@@ -47,6 +52,10 @@ export function useChatController() {
     };
   }, []);
 
+  useEffect(() => {
+    selectedConversationIdRef.current = selectedConversationId;
+  }, [selectedConversationId]);
+
   const selectedConversation = useMemo(
     () => state.conversations.find((conversation) => conversation.id === selectedConversationId),
     [selectedConversationId, state.conversations],
@@ -56,6 +65,7 @@ export function useChatController() {
   const replyTarget = messages.find((message) => message.id === replyTargetId);
 
   const persistState = useCallback(async (nextState: PersistedChatState) => {
+    stateRef.current = nextState; // sync — always before setState so any callback called after this sees the new snapshot
     setState(nextState);
     const repository = await createChatRepository();
     await repository.save(nextState);
@@ -67,12 +77,13 @@ export function useChatController() {
       throw new Error('Peer ID is required to create a chat.');
     }
 
-    const existing = state.conversations.find((conversation) =>
+    const existing = stateRef.current.conversations.find((conversation) =>
       conversation.participants.some((participant) => participant.peerId === normalizedPeerId),
     );
 
     if (existing) {
       setSelectedConversationId(existing.id);
+      selectedConversationIdRef.current = existing.id;
       return existing.id;
     }
 
@@ -111,19 +122,21 @@ export function useChatController() {
       updatedAt: new Date().toISOString(),
     };
 
+    const snap = stateRef.current;
     const nextState: PersistedChatState = {
-      ...state,
-      conversations: [newConversation, ...state.conversations],
+      ...snap,
+      conversations: [newConversation, ...snap.conversations],
       messagesByConversation: {
-        ...state.messagesByConversation,
+        ...snap.messagesByConversation,
         [conversationId]: [],
       },
     };
 
     await persistState(nextState);
     setSelectedConversationId(conversationId);
+    selectedConversationIdRef.current = conversationId;
     return conversationId;
-  }, [persistState, state]);
+  }, [persistState]);
 
   const updateConversationConnection = useCallback(async (
     peerId: string,
@@ -137,8 +150,9 @@ export function useChatController() {
       return;
     }
 
+    const snap = stateRef.current;
     const now = new Date().toISOString();
-    const nextConversations = state.conversations.map((conversation) => {
+    const nextConversations = snap.conversations.map((conversation) => {
       const hasPeer = conversation.participants.some((participant) => participant.peerId === normalizedPeerId);
       if (!hasPeer) {
         return conversation;
@@ -153,10 +167,10 @@ export function useChatController() {
     });
 
     await persistState({
-      ...state,
+      ...snap,
       conversations: nextConversations,
     });
-  }, [persistState, state]);
+  }, [persistState]);
 
   const sendMessage = useCallback(async (): Promise<ChatMessage | undefined> => {
     if (!selectedConversation || !composerValue.trim()) {
@@ -184,15 +198,16 @@ export function useChatController() {
     });
 
     const nextMessages = [...messages, nextMessage];
+    const snap = stateRef.current;
     const nextState: PersistedChatState = {
-      account: state.account,
-      conversations: state.conversations.map((conversation) => conversation.id === selectedConversation.id ? {
+      account: snap.account,
+      conversations: snap.conversations.map((conversation) => conversation.id === selectedConversation.id ? {
         ...conversation,
         lastMessagePreview: nextMessage.previewText,
         updatedAt: nextMessage.createdAt,
       } : conversation),
       messagesByConversation: {
-        ...state.messagesByConversation,
+        ...snap.messagesByConversation,
         [selectedConversation.id]: nextMessages,
       },
     };
@@ -201,34 +216,35 @@ export function useChatController() {
     setComposerValue('');
     setReplyTargetId(undefined);
     return nextMessage;
-  }, [composerValue, messages, persistState, replyTarget, selectedConversation, state.conversations, state.messagesByConversation]);
+  }, [composerValue, messages, persistState, replyTarget, selectedConversation]);
 
   const toggleReaction = useCallback(async (messageId: string, emoji: string) => {
     if (!selectedConversation || !messageId) {
       return;
     }
 
-    const nextMessages = (state.messagesByConversation[selectedConversation.id] ?? []).map((message) => (
+    const snap = stateRef.current;
+    const nextMessages = (snap.messagesByConversation[selectedConversation.id] ?? []).map((message) => (
       message.id === messageId ? toggleMessageReaction(message, emoji, CURRENT_USER_NAME) : message
     ));
 
     const nextState: PersistedChatState = {
-      ...state,
+      ...snap,
       messagesByConversation: {
-        ...state.messagesByConversation,
+        ...snap.messagesByConversation,
         [selectedConversation.id]: nextMessages,
       },
     };
 
     await persistState(nextState);
-  }, [persistState, selectedConversation, state]);
+  }, [persistState, selectedConversation]);
 
   const selectReplyTarget = useCallback((message: ChatMessage) => {
     setReplyTargetId(message.id);
   }, []);
 
   const exportBackup = useCallback(async () => {
-    const bundle = await createEncryptedBackupBundle(state);
+    const bundle = await createEncryptedBackupBundle(stateRef.current);
     const payload = {
       manifest: bundle.manifest,
       encryptedPayload: bundle.encryptedPayload,
@@ -244,40 +260,57 @@ export function useChatController() {
     anchor.click();
     URL.revokeObjectURL(url);
     setLastBackupChecksum(bundle.manifest.ciphertextBundleChecksum);
-  }, [state]);
+  }, []);
 
   const linkEthAddress = useCallback(async (wallet: LinkedEthAddress) => {
-    const deduped = state.account.linkedEthAddresses.filter((entry) => entry.address !== wallet.address);
+    const snap = stateRef.current;
+    const deduped = snap.account.linkedEthAddresses.filter((entry) => entry.address !== wallet.address);
 
     const nextState: PersistedChatState = {
-      ...state,
+      ...snap,
       account: {
-        ...state.account,
+        ...snap.account,
         linkedEthAddresses: [wallet, ...deduped],
       },
     };
 
     await persistState(nextState);
-  }, [persistState, state]);
+  }, [persistState]);
 
   const unlinkEthAddress = useCallback(async (address: string) => {
+    const snap = stateRef.current;
     const nextState: PersistedChatState = {
-      ...state,
+      ...snap,
       account: {
-        ...state.account,
-        linkedEthAddresses: state.account.linkedEthAddresses.filter((entry) => entry.address !== address.toLowerCase()),
+        ...snap.account,
+        linkedEthAddresses: snap.account.linkedEthAddresses.filter((entry) => entry.address !== address.toLowerCase()),
       },
     };
 
     await persistState(nextState);
-  }, [persistState, state]);
+  }, [persistState]);
+
+  const updateAccount = useCallback(async (updates: { displayName?: string; identityProtobuf?: string }) => {
+    const snap = stateRef.current;
+    const nextState: PersistedChatState = {
+      ...snap,
+      account: {
+        ...snap.account,
+        displayName: updates.displayName ?? snap.account.displayName,
+        identityProtobuf: updates.identityProtobuf ?? snap.account.identityProtobuf,
+      },
+    };
+    await persistState(nextState);
+  }, [persistState]);
 
   const ingestIncomingEnvelope = useCallback(async (envelope: WireEnvelope, fromPeerId: string) => {
     if (envelope.kind !== 'message') {
       return;
     }
 
-    const existingConversation = state.conversations.find((conversation) => conversation.id === envelope.conversationId);
+    const snap = stateRef.current;
+    const currentSelectedId = selectedConversationIdRef.current;
+    const existingConversation = snap.conversations.find((conversation) => conversation.id === envelope.conversationId);
     const conversation = existingConversation ?? {
       id: envelope.conversationId,
       title: `Peer ${fromPeerId.slice(0, 10)}…`,
@@ -304,7 +337,7 @@ export function useChatController() {
         },
       ],
       lastMessagePreview: envelope.payload,
-      unreadCount: selectedConversationId === envelope.conversationId ? 0 : 1,
+      unreadCount: currentSelectedId === envelope.conversationId ? 0 : 1,
       reachability: 'direct' as const,
       updatedAt: envelope.sentAt,
     };
@@ -327,29 +360,29 @@ export function useChatController() {
       reactions: [],
     };
 
-    const currentMessages = state.messagesByConversation[conversation.id] ?? [];
+    const currentMessages = snap.messagesByConversation[conversation.id] ?? [];
     const nextMessages = [...currentMessages, incomingMessage];
 
     const nextConversations = existingConversation
-      ? state.conversations.map((candidate) => candidate.id === conversation.id ? {
+      ? snap.conversations.map((candidate) => candidate.id === conversation.id ? {
         ...candidate,
         lastMessagePreview: incomingMessage.previewText,
         updatedAt: incomingMessage.createdAt,
-        unreadCount: selectedConversationId === conversation.id ? candidate.unreadCount : candidate.unreadCount + 1,
+        unreadCount: currentSelectedId === conversation.id ? candidate.unreadCount : candidate.unreadCount + 1,
       } : candidate)
-      : [conversation, ...state.conversations];
+      : [conversation, ...snap.conversations];
 
     const nextState: PersistedChatState = {
-      account: state.account,
+      account: snap.account,
       conversations: nextConversations,
       messagesByConversation: {
-        ...state.messagesByConversation,
+        ...snap.messagesByConversation,
         [conversation.id]: nextMessages,
       },
     };
 
     await persistState(nextState);
-  }, [persistState, selectedConversationId, state.conversations, state.messagesByConversation]);
+  }, [persistState]);
 
   return {
     account: state.account,
@@ -374,5 +407,7 @@ export function useChatController() {
     lastBackupChecksum,
     storageMode,
     isLoaded,
+    updateAccount,
+    identityProtobuf: state.account.identityProtobuf,
   };
 }

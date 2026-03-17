@@ -1,7 +1,7 @@
 import { createKeyCustodyPlan, createSecuritySummary } from '@skypier/crypto';
 import { createPresence, createRuntimePlan, type PeerReachabilityEvent } from '@skypier/network';
 import { getCurrentDevice } from '@skypier/storage';
-import { useCallback, useState, useMemo } from 'react';
+import { useCallback, useState, useMemo, useEffect } from 'react';
 import { ThemeProvider, CssBaseline } from '@mui/material';
 import { useChatController } from './useChatController';
 import { useLiveChatSession } from './useLiveChatSession';
@@ -11,6 +11,8 @@ import { MainLayout } from './components/MainLayout';
 import { ChatThread } from './components/ChatThread';
 import { ProfilePage } from './components/ProfilePage';
 import { SettingsPage } from './components/SettingsPage';
+import { SplashScreen } from './components/SplashScreen';
+import { OnboardingWizard } from './components/OnboardingWizard';
 
 export function App() {
   const {
@@ -35,6 +37,8 @@ export function App() {
     lastBackupChecksum,
     storageMode,
     isLoaded,
+    updateAccount,
+    identityProtobuf,
   } = useChatController();
 
   const [activeView, setActiveView] = useState<'chat' | 'profile' | 'settings'>('chat');
@@ -61,7 +65,18 @@ export function App() {
     stopSession,
     dialPeerById,
     broadcastChatMessage,
-  } = useLiveChatSession({ onInboundMessage: handleInboundMessage, onPeerReachabilityChange: handlePeerReachabilityChange });
+  } = useLiveChatSession({
+    onInboundMessage: handleInboundMessage,
+    onPeerReachabilityChange: handlePeerReachabilityChange,
+    identityProtobuf
+  });
+
+  // Automatically start the session once the app is loaded
+  useEffect(() => {
+    if (isLoaded && liveState.status === 'idle') {
+      void startSession().catch(console.error);
+    }
+  }, [isLoaded, liveState.status, startSession]);
 
   const handleLinkWallet = useCallback(() => {
     void (async () => {
@@ -191,6 +206,30 @@ export function App() {
       </div>
     );
   };
+
+  if (!isLoaded) {
+    return (
+      <ThemeProvider theme={currentTheme}>
+        <CssBaseline />
+        <SplashScreen />
+      </ThemeProvider>
+    );
+  }
+
+  const needsOnboarding = !account.displayName || !identityProtobuf;
+
+  if (needsOnboarding) {
+    return (
+      <ThemeProvider theme={currentTheme}>
+        <CssBaseline />
+        <OnboardingWizard 
+          onComplete={(data) => {
+            void updateAccount(data);
+          }} 
+        />
+      </ThemeProvider>
+    );
+  }
 
   return (
     <ThemeProvider theme={currentTheme}>

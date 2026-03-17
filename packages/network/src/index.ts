@@ -9,6 +9,7 @@ import {
 
 export { SKYPIER_CHAT_PROTOCOLS, deserializeWireEnvelope, serializeWireEnvelope };
 export { createBrowserLiveSession } from './session';
+export { generateNewIdentity, getPeerIdFromProtobuf } from './identity';
 export type { BrowserLiveSession, BrowserLiveSessionEventMap, BrowserLiveSessionState, SessionStatus, PeerReachabilityEvent } from './session';
 
 export type RuntimeKind = 'browser-pwa' | 'native-node';
