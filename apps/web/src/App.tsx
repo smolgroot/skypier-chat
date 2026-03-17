@@ -51,6 +51,7 @@ export function App() {
   const [walletError, setWalletError] = useState<string | undefined>();
   const [networkAlertDismissed, setNetworkAlertDismissed] = useState(false);
   const [showBiometricUnlock, setShowBiometricUnlock] = useState(false);
+  const [biometricSessionUnlocked, setBiometricSessionUnlocked] = useState(false);
 
   const currentTheme = useMemo(() => theme(colorMode), [colorMode]);
 
@@ -112,9 +113,15 @@ export function App() {
 
   const handleBiometricUnlockToggle = useCallback((enabled: boolean) => {
     void updateAccount({ biometricUnlockEnabled: enabled });
+
+    if (!enabled) {
+      setShowBiometricUnlock(false);
+      setBiometricSessionUnlocked(false);
+    }
   }, [updateAccount]);
 
   const handleBiometricUnlocked = useCallback(() => {
+    setBiometricSessionUnlocked(true);
     setShowBiometricUnlock(false);
   }, []);
 
@@ -161,10 +168,21 @@ export function App() {
   // Show biometric unlock on app load if enabled (after onboarding is complete)
   useEffect(() => {
     if (isLoaded && !account.displayName) return; // Still in onboarding
-    if (isLoaded && account.biometricUnlockEnabled && !showBiometricUnlock) {
+    if (
+      isLoaded
+      && account.biometricUnlockEnabled
+      && !biometricSessionUnlocked
+      && !showBiometricUnlock
+    ) {
       setShowBiometricUnlock(true);
     }
-  }, [isLoaded, account.biometricUnlockEnabled, account.displayName, showBiometricUnlock]);
+  }, [
+    isLoaded,
+    account.biometricUnlockEnabled,
+    account.displayName,
+    biometricSessionUnlocked,
+    showBiometricUnlock,
+  ]);
 
   const showNetworkAlert =
     !networkAlertDismissed &&

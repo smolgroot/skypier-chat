@@ -242,17 +242,29 @@ export function MainLayout(props: MainLayoutProps) {
           sx={{ 
             bgcolor: (theme) => 
                theme.palette.mode === 'dark' 
-                ? 'rgba(14, 8, 28, 0.3)' 
-                : 'rgba(255, 255, 255, 0.35)',
+                ? 'rgba(14, 8, 28, 0.35)' 
+                : 'rgba(255, 255, 255, 0.4)',
             backdropFilter: 'blur(30px) saturate(190%)',
             WebkitBackdropFilter: 'blur(30px) saturate(190%)',
-            borderBottom: (theme) => 
+            border: (theme) => 
                theme.palette.mode === 'dark' 
-                ? '1px solid rgba(171, 110, 255, 0.2)' 
+                ? '1px solid rgba(171, 110, 255, 0.3)' 
                 : '1px solid rgba(0, 0, 0, 0.08)',
             color: 'text.primary',
-            pt: 'env(safe-area-inset-top)',
-            zIndex: (theme) => theme.zIndex.drawer - 1
+            borderRadius: 100, 
+            left: 12,
+            right: 12,
+            mt: 'calc(env(safe-area-inset-top) + 12px)',
+            width: 'auto',
+            zIndex: (theme) => theme.zIndex.drawer - 1,
+            boxShadow: (theme) => 
+              theme.palette.mode === 'dark'
+                ? '0 8px 32px rgba(0, 0, 0, 0.6), inset 0 0 0 1px rgba(255, 255, 255, 0.05)'
+                : '0 8px 32px rgba(31, 38, 135, 0.1), inset 0 0 0 1px rgba(255, 255, 255, 0.2)',
+            backgroundImage: (theme) => 
+              theme.palette.mode === 'dark'
+                ? 'linear-gradient(135deg, rgba(142, 45, 226, 0.05) 0%, rgba(74, 0, 224, 0.05) 100%)'
+                : 'linear-gradient(135deg, rgba(255, 255, 255, 0.1) 0%, rgba(255, 255, 255, 0.05) 100%)'
           }}
         >
           <Toolbar>
@@ -358,13 +370,12 @@ export function MainLayout(props: MainLayoutProps) {
           height: '100%', 
           overflow: 'hidden', 
           position: 'relative',
-          bgcolor: 'transparent', // Allow root background to show through
+          bgcolor: 'transparent',
           display: 'flex',
           flexDirection: 'column',
-          pt: isMobile ? 'env(safe-area-inset-top)' : 0
+          pt: isMobile ? 'calc(env(safe-area-inset-top) + 80px)' : 0
         }}
       >
-        {isMobile && <Toolbar />}
         {isMobile && activeView === 'chat' && !selectedConversationId ? (
           <ChatList 
             conversations={conversations}
