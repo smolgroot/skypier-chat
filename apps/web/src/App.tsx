@@ -39,6 +39,7 @@ export function App() {
     isLoaded,
     updateAccount,
     identityProtobuf,
+    localPeerId,
   } = useChatController();
 
   const [activeView, setActiveView] = useState<'chat' | 'profile' | 'settings'>('chat');
@@ -83,7 +84,7 @@ export function App() {
       try {
         setWalletBusy(true);
         setWalletError(undefined);
-        const linked = await connectAndLinkEthWallet(liveState.localPeerId ?? getCurrentDevice().peerId);
+        const linked = await connectAndLinkEthWallet(liveState.localPeerId ?? localPeerId ?? getCurrentDevice().peerId);
         await linkEthAddress(linked.wallet);
       } catch (error) {
         setWalletError(error instanceof Error ? error.message : 'Failed to link wallet');
@@ -143,7 +144,7 @@ export function App() {
     if (activeView === 'profile') {
       return (
         <ProfilePage 
-          peerId={liveState.localPeerId ?? getCurrentDevice().peerId} 
+          peerId={liveState.localPeerId ?? localPeerId ?? getCurrentDevice().peerId} 
           displayName={account.displayName}
           linkedWallets={account.linkedEthAddresses} 
         />
@@ -242,7 +243,7 @@ export function App() {
         setActiveView={setActiveView}
         mode={colorMode}
         toggleColorMode={toggleColorMode}
-        peerId={liveState.localPeerId ?? getCurrentDevice().peerId}
+        peerId={liveState.localPeerId ?? localPeerId ?? getCurrentDevice().peerId}
         userName={account.displayName}
         onCreateChat={handleCreateChat}
         onBack={() => setSelectedConversationId('')}

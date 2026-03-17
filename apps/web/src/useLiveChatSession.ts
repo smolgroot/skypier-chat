@@ -64,7 +64,7 @@ export function useLiveChatSession(options: UseLiveChatSessionOptions) {
       void session.stop();
       sessionRef.current = null;
     };
-  }, []);
+  }, [options.identityProtobuf]);
 
   const startSession = useCallback(async () => {
     if (!sessionRef.current) {

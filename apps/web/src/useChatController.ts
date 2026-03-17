@@ -12,7 +12,6 @@ import {
 } from '@skypier/storage';
 
 const CURRENT_USER_ID = 'user-1';
-const CURRENT_USER_NAME = 'You';
 
 export function useChatController() {
   const [state, setState] = useState<PersistedChatState>(createInitialChatState);
@@ -97,8 +96,8 @@ export function useChatController() {
       participants: [
         {
           id: CURRENT_USER_ID,
-          displayName: CURRENT_USER_NAME,
-          peerId: currentDevice.peerId,
+          displayName: stateRef.current.account.displayName,
+          peerId: stateRef.current.account.localPeerId ?? currentDevice.peerId,
           devices: [currentDevice],
         },
         {
@@ -186,7 +185,7 @@ export function useChatController() {
     const nextMessage = createLocalMessage({
       conversationId: selectedConversation.id,
       senderId: CURRENT_USER_ID,
-      senderDisplayName: CURRENT_USER_NAME,
+      senderDisplayName: state.account.displayName,
       senderDeviceId: currentDevice.id,
       previewText: composerValue.trim(),
       recipientDeviceIds,
@@ -225,7 +224,7 @@ export function useChatController() {
 
     const snap = stateRef.current;
     const nextMessages = (snap.messagesByConversation[selectedConversation.id] ?? []).map((message) => (
-      message.id === messageId ? toggleMessageReaction(message, emoji, CURRENT_USER_NAME) : message
+      message.id === messageId ? toggleMessageReaction(message, emoji, snap.account.displayName) : message
     ));
 
     const nextState: PersistedChatState = {
@@ -290,7 +289,7 @@ export function useChatController() {
     await persistState(nextState);
   }, [persistState]);
 
-  const updateAccount = useCallback(async (updates: { displayName?: string; identityProtobuf?: string }) => {
+  const updateAccount = useCallback(async (updates: { displayName?: string; identityProtobuf?: string; localPeerId?: string }) => {
     const snap = stateRef.current;
     const nextState: PersistedChatState = {
       ...snap,
@@ -298,6 +297,7 @@ export function useChatController() {
         ...snap.account,
         displayName: updates.displayName ?? snap.account.displayName,
         identityProtobuf: updates.identityProtobuf ?? snap.account.identityProtobuf,
+        localPeerId: updates.localPeerId ?? snap.account.localPeerId,
       },
     };
     await persistState(nextState);
@@ -317,7 +317,7 @@ export function useChatController() {
       participants: [
         {
           id: CURRENT_USER_ID,
-          displayName: CURRENT_USER_NAME,
+          displayName: snap.account.displayName,
           peerId: getCurrentDevice().peerId,
           devices: [getCurrentDevice()],
         },
@@ -409,5 +409,6 @@ export function useChatController() {
     isLoaded,
     updateAccount,
     identityProtobuf: state.account.identityProtobuf,
+    localPeerId: state.account.localPeerId,
   };
 }

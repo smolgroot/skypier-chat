@@ -95,6 +95,7 @@ export interface LinkedEthAddress {
 export interface AccountProfile {
   userId: string;
   displayName: string;
+  localPeerId?: string;
   identityProtobuf?: string; // Base64 encoded PeerID protobuf (includes private key)
   linkedEthAddresses: LinkedEthAddress[];
 }

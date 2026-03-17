@@ -184,11 +184,11 @@ export function createInitialChatState(): PersistedChatState {
   return {
     account: {
       userId: 'user-1',
-      displayName: 'You',
+      displayName: '',
       linkedEthAddresses: [],
     },
-    conversations: structuredClone(seededConversations),
-    messagesByConversation: structuredClone(seededMessages),
+    conversations: [],
+    messagesByConversation: {},
   };
 }
 

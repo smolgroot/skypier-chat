@@ -15,10 +15,10 @@ import {
 } from '@mui/material';
 import ContentCopyIcon from '@mui/icons-material/ContentCopy';
 import RefreshIcon from '@mui/icons-material/Refresh';
-import { generateNewIdentity } from '@skypier/network';
+import { generateNewIdentity, getPeerIdFromProtobuf } from '@skypier/network';
 
 interface OnboardingWizardProps {
-  onComplete: (data: { displayName: string; identityProtobuf: string }) => void;
+  onComplete: (data: { displayName: string; identityProtobuf: string; localPeerId: string }) => void;
 }
 
 export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
@@ -36,10 +36,14 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
       setActiveStep(1);
     } else if (activeStep === 1) {
       if (importMode && importedProtobuf.trim()) {
-        // Simple validation or just trust it for now
-        onComplete({ displayName, identityProtobuf: importedProtobuf.trim() });
+        try {
+          const peerId = await getPeerIdFromProtobuf(importedProtobuf.trim());
+          onComplete({ displayName, identityProtobuf: importedProtobuf.trim(), localPeerId: peerId.toString() });
+        } catch (e) {
+          alert('Invalid identity secret. Please check your backup.');
+        }
       } else if (identity) {
-        onComplete({ displayName, identityProtobuf: identity.protobuf });
+        onComplete({ displayName, identityProtobuf: identity.protobuf, localPeerId: identity.peerId });
       }
     }
   };
