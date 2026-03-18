@@ -226,7 +226,7 @@ export function createLocalMessage(params: {
       nonce: createNonce(),
       recipientDeviceIds: params.recipientDeviceIds,
     },
-    delivery: 'local-only',
+    delivery: 'sending',
     replyTo: params.replyTo,
     reactions: [],
   };

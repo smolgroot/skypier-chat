@@ -1,5 +1,5 @@
 export type DeviceTrustLevel = 'software' | 'biometric' | 'hardware-backed';
-export type DeliveryState = 'local-only' | 'queued' | 'sent' | 'delivered' | 'read';
+export type DeliveryState = 'sending' | 'local-only' | 'queued' | 'sent' | 'delivered' | 'read';
 export type Reachability = 'unknown' | 'direct' | 'relayed' | 'offline';
 
 export interface DeviceIdentity {

@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Box, Paper, Typography, Badge, IconButton, Modal, Fade } from '@mui/material';
+import { Box, Paper, Typography, Badge, IconButton, Modal, Fade, CircularProgress } from '@mui/material';
 import { styled } from '@mui/material/styles';
 import { reachabilityLabel } from '@skypier/network';
 import type { ChatMessage } from '@skypier/protocol';
@@ -101,6 +101,8 @@ interface ChatBubbleProps {
 
 function deliveryIndicator(delivery: ChatMessage['delivery']): { label: string; color: string } {
   switch (delivery) {
+    case 'sending':
+      return { label: '···', color: 'rgba(255,255,255,0.4)' };
     case 'delivered':
     case 'read':
       return { label: '✓✓', color: 'rgba(76,175,80,0.9)' };
@@ -185,12 +187,11 @@ export function ChatBubble({ message, isSelf, onReplySelect, onToggleReaction, o
                 {new Date(message.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
               </Typography>
               {isSelf && (() => {
+                const isSending = message.delivery === 'sending';
                 const { label, color } = deliveryIndicator(message.delivery);
-                return (
-                  <Typography variant="caption" sx={{ color, fontSize: '0.7rem', fontWeight: 600 }}>
-                    {label}
-                  </Typography>
-                );
+                return isSending
+                  ? <CircularProgress size={10} thickness={5} sx={{ color: 'rgba(255,255,255,0.45)' }} />
+                  : <Typography variant="caption" sx={{ color, fontSize: '0.7rem', fontWeight: 600 }}>{label}</Typography>;
               })()}
             </Box>
             {message.reactions.length > 0 && (
@@ -267,13 +268,15 @@ export function ChatBubble({ message, isSelf, onReplySelect, onToggleReaction, o
                 {new Date(message.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
               </Typography>
               {isSelf && (() => {
+                const isSending = message.delivery === 'sending';
                 const { label, color } = deliveryIndicator(message.delivery);
                 const isFailed = message.delivery === 'local-only';
                 return (
                   <Box component="span" sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                    <Typography variant="caption" sx={{ color, fontSize: '0.7rem', fontWeight: 600 }}>
-                      {label}
-                    </Typography>
+                    {isSending
+                      ? <CircularProgress size={10} thickness={5} sx={{ color: 'rgba(255,255,255,0.45)' }} />
+                      : <Typography variant="caption" sx={{ color, fontSize: '0.7rem', fontWeight: 600 }}>{label}</Typography>
+                    }
                     {isFailed && onRetryMessage && (
                       <Typography
                         variant="caption"

@@ -267,6 +267,25 @@ export function App() {
     showBiometricUnlock,
   ]);
 
+  // Auto-dial: whenever the user opens a conversation (or the session finishes starting),
+  // attempt a background connection to the remote peer if not already connected.
+  // dialPeerById already does DHT/relay routing, so this is fully async peer-finding.
+  useEffect(() => {
+    if (!selectedConversationId || liveState.status !== 'running') return;
+    const localId = liveState.localPeerId ?? localPeerId ?? getCurrentDevice().peerId;
+    const conv = conversations.find((c) => c.id === selectedConversationId);
+    const remotePeer = conv?.participants.find((p) => p.peerId !== localId);
+    if (!remotePeer) return;
+    const remotePeerId = remotePeer.peerId;
+    // Skip if already live
+    if (connectedPeers.includes(remotePeerId)) return;
+    console.log('[skypier:app] auto-dial: opening conversation with', remotePeerId);
+    void dialPeerById(remotePeerId)
+      .then(() => void updateConversationConnection(remotePeerId, { reachability: 'direct' }))
+      .catch((err) => console.warn('[skypier:app] auto-dial failed:', err instanceof Error ? err.message : err));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedConversationId, liveState.status]);
+
   const showNetworkAlert =
     !networkAlertDismissed &&
     (liveState.status === 'error' || liveState.status === 'stopped' || (liveState.status === 'idle' && isLoaded));
@@ -374,7 +393,13 @@ export function App() {
                 );
                 if (remotePeer) {
                   console.log('[skypier:app] \u21d2 sending message to peer', remotePeer.peerId, 'conv:', message.conversationId);
-                  await sendChatMessageToPeer(message, remotePeer.peerId);
+                  const sent = await sendChatMessageToPeer(message, remotePeer.peerId);
+                  if (!sent) {
+                    // Enqueued for retry — show as failed so user can see the Retry button
+                    await updateMessageDeliveryStatus(message.id, 'local-only');
+                  }
+                } else {
+                  await updateMessageDeliveryStatus(message.id, 'local-only');
                 }
               }
             })();
@@ -392,7 +417,12 @@ export function App() {
                     (p) => p.peerId !== (liveState.localPeerId ?? localPeerId ?? getCurrentDevice().peerId)
                   );
                   if (remotePeer) {
-                    await sendChatMessageToPeer(message, remotePeer.peerId);
+                    const sent = await sendChatMessageToPeer(message, remotePeer.peerId);
+                    if (!sent) {
+                      await updateMessageDeliveryStatus(message.id, 'local-only');
+                    }
+                  } else {
+                    await updateMessageDeliveryStatus(message.id, 'local-only');
                   }
                 }
               } catch (err) {
