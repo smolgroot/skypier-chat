@@ -102,7 +102,7 @@ export function useChatController() {
           devices: [currentDevice],
         },
         {
-          id: `peer-${normalizedPeerId}`,
+          id: normalizedPeerId,
           displayName: title,
           peerId: normalizedPeerId,
           devices: [
@@ -332,7 +332,7 @@ export function useChatController() {
           devices: [getCurrentDevice()],
         },
         {
-          id: `peer-${fromPeerId}`,
+          id: fromPeerId,
           displayName: `Peer ${fromPeerId.slice(0, 10)}…`,
           peerId: fromPeerId,
           devices: [
@@ -355,7 +355,7 @@ export function useChatController() {
     const incomingMessage: ChatMessage = {
       id: `net-${Math.random().toString(36).slice(2, 10)}`,
       conversationId: envelope.conversationId,
-      senderId: `peer-${fromPeerId}`,
+      senderId: fromPeerId,
       senderDisplayName: conversation.title,
       senderDeviceId: `device-${fromPeerId}`,
       createdAt: envelope.sentAt,

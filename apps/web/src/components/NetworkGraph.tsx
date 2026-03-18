@@ -25,7 +25,7 @@ export function NetworkGraph({ localPeerId, connectedPeers }: NetworkGraphProps)
   useEffect(() => {
     if (!svgRef.current) return;
 
-    const width = svgRef.current.clientWidth || 600;
+    const width = svgRef.current.clientWidth || 800;
     const height = 400;
 
     // Clear previous graph

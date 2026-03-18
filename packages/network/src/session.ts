@@ -140,6 +140,20 @@ export function createBrowserLiveSession(options: CreateBrowserLiveSessionOption
 
   // ─── Helpers ───────────────────────────────────────────────────────────
 
+  async function markAsChatPeer(peerIdString: string) {
+    if (!node) return;
+    try {
+      const pid = peerIdFromString(peerIdString);
+      await node.peerStore.merge(pid, {
+        tags: {
+          'chat-peer': { value: 100 }
+        }
+      });
+    } catch (err) {
+      console.warn('[skypier:session] failed to tag chat-peer', peerIdString, err);
+    }
+  }
+
   function persistQueue() {
     const entries: PersistedQueueEntry[] = queue.map((q) => ({
       peerId: q.peerId,
@@ -244,6 +258,8 @@ export function createBrowserLiveSession(options: CreateBrowserLiveSessionOption
       await stream.close();
 
       console.log('[skypier:session] ✓ sent envelope to', peerId, '— kind:', envelope.kind, 'msgId:', envelope.messageId, 'conv:', envelope.conversationId);
+      
+      void markAsChatPeer(peerId);
 
       // Mark as sent
       if (envelope.messageId) {
@@ -397,6 +413,7 @@ export function createBrowserLiveSession(options: CreateBrowserLiveSessionOption
         await node.handle(SKYPIER_CHAT_PROTOCOLS.message, async (stream, connection) => {
           const fromPeerId = connection.remotePeer.toString();
           console.log('[skypier:session] ⇐ inbound stream from', fromPeerId);
+          void markAsChatPeer(fromPeerId);
           try {
             const envelope = await readEnvelopeFromStream(stream);
             console.log('[skypier:session] ⇐ received envelope from', fromPeerId, '— kind:', envelope.kind, 'msgId:', envelope.messageId, 'conv:', envelope.conversationId);
