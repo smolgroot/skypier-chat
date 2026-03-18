@@ -110,6 +110,18 @@ export interface CreateBrowserLiveSessionOptions {
   nodeOptions?: CreateBrowserSkypierNodeOptions;
 }
 
+// ─── Media prefix ─────────────────────────────────────────────────────────────
+/** Prefix placed in WireEnvelope.payload for image messages. */
+export const SKYPIER_MEDIA_PREFIX = 'skypier:img:';
+
+/** Serialise a ChatMessage into a wire payload string. */
+function buildEnvelopePayload(message: ChatMessage): string {
+  if (message.attachments?.length) {
+    return SKYPIER_MEDIA_PREFIX + JSON.stringify(message.attachments[0]);
+  }
+  return message.previewText;
+}
+
 export function createBrowserLiveSession(options: CreateBrowserLiveSessionOptions = {}): BrowserLiveSession {
   let node: SkypierBrowserNode | undefined;
   let retryTimer: ReturnType<typeof setInterval> | undefined;
@@ -688,7 +700,7 @@ export function createBrowserLiveSession(options: CreateBrowserLiveSessionOption
         conversationId: message.conversationId,
         senderPeerId: state.localPeerId ?? 'unknown',
         sentAt: new Date().toISOString(),
-        payload: message.previewText,
+        payload: buildEnvelopePayload(message),
       };
 
       return await this.sendEnvelopeToConnected(envelope);
@@ -701,7 +713,7 @@ export function createBrowserLiveSession(options: CreateBrowserLiveSessionOption
         conversationId: message.conversationId,
         senderPeerId: state.localPeerId ?? 'unknown',
         sentAt: new Date().toISOString(),
-        payload: message.previewText,
+        payload: buildEnvelopePayload(message),
       };
 
       console.log('[skypier:session] sending message to specific peer', targetPeerId, 'conv:', message.conversationId, 'msgId:', message.id);

@@ -5,6 +5,8 @@ import type { ChatMessage } from '@skypier/protocol';
 import { useDrag } from '@use-gesture/react';
 import { animated, useSpring } from '@react-spring/web';
 import ReplyIcon from '@mui/icons-material/Reply';
+import { LinkPreviewCard } from './LinkPreviewCard';
+import { extractFirstUrl } from '../hooks/useLinkPreview';
 
 const BubbleContainer = styled(Box, {
   shouldForwardProp: (prop) => prop !== 'isSelf',
@@ -229,9 +231,31 @@ export function ChatBubble({ message, isSelf, onReplySelect, onToggleReaction, o
               </ReplyBox>
             )}
 
-            <Typography variant="body1" sx={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
-              {message.previewText}
-            </Typography>
+            {message.attachments?.[0] && (
+              <Box
+                component="img"
+                src={message.attachments[0].dataUri}
+                alt="Photo"
+                sx={{
+                  display: 'block',
+                  width: '100%',
+                  maxWidth: 280,
+                  borderRadius: 1.5,
+                  mb: message.previewText !== '📷 Photo' ? 1 : 0.5,
+                  cursor: 'zoom-in',
+                }}
+              />
+            )}
+            {(!message.attachments?.length || message.previewText !== '📷 Photo') && (
+              <Typography variant="body1" sx={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
+                {message.previewText}
+              </Typography>
+            )}
+
+            {/* Link preview — only when the message contains a URL */}
+            {extractFirstUrl(message.previewText) && (
+              <LinkPreviewCard text={message.previewText} isSelf={isSelf} />
+            )}
 
             <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 1, mt: 0.5 }}>
               <Typography variant="caption" sx={{ opacity: 0.6, fontSize: '0.7rem' }}>

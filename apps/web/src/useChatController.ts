@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createEncryptedBackupBundle, createPinataUploadRequest } from '@skypier/backup';
+import { SKYPIER_MEDIA_PREFIX } from '@skypier/network';
 import type { WireEnvelope } from '@skypier/network';
-import type { ChatMessage, LinkedEthAddress } from '@skypier/protocol';
+import type { ChatMessage, LinkedEthAddress, MediaAttachment } from '@skypier/protocol';
 import {
   createChatRepository,
   createLocalMessage,
@@ -13,6 +14,51 @@ import {
 } from '@skypier/storage';
 
 const CURRENT_USER_ID = 'user-1';
+
+// ─── Image compression ────────────────────────────────────────────────────────
+const MAX_IMAGE_BYTES = 2 * 1024 * 1024; // 2 MB hard cap post-compression
+
+async function compressImage(file: File): Promise<{
+  dataUri: string;
+  width: number;
+  height: number;
+  size: number;
+  mimeType: string;
+}> {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    const url = URL.createObjectURL(file);
+    img.onload = () => {
+      URL.revokeObjectURL(url);
+      const MAX_EDGE = 1280;
+      let { naturalWidth: width, naturalHeight: height } = img;
+      if (width > MAX_EDGE || height > MAX_EDGE) {
+        const ratio = Math.min(MAX_EDGE / width, MAX_EDGE / height);
+        width = Math.round(width * ratio);
+        height = Math.round(height * ratio);
+      }
+      const canvas = document.createElement('canvas');
+      canvas.width = width;
+      canvas.height = height;
+      canvas.getContext('2d')!.drawImage(img, 0, 0, width, height);
+      const dataUri = canvas.toDataURL('image/jpeg', 0.75);
+      const base64 = dataUri.split(',')[1] ?? '';
+      const approxBytes = Math.ceil(base64.length * 0.75);
+      if (approxBytes > MAX_IMAGE_BYTES) {
+        reject(new Error(
+          `Image is ${(approxBytes / 1024 / 1024).toFixed(1)} MB after compression. Maximum allowed is 2 MB.`
+        ));
+        return;
+      }
+      resolve({ dataUri, width, height, size: approxBytes, mimeType: 'image/jpeg' });
+    };
+    img.onerror = () => {
+      URL.revokeObjectURL(url);
+      reject(new Error('Failed to load image file.'));
+    };
+    img.src = url;
+  });
+}
 
 export function useChatController() {
   const [state, setState] = useState<PersistedChatState>(createInitialChatState);
@@ -243,6 +289,54 @@ export function useChatController() {
     setReplyTargetId(message.id);
   }, []);
 
+  const sendImageMessage = useCallback(async (file: File): Promise<ChatMessage | undefined> => {
+    if (!selectedConversation) return undefined;
+
+    const { dataUri, width, height, size, mimeType } = await compressImage(file);
+    const attachmentId = `att-${Math.random().toString(36).slice(2, 10)}`;
+
+    const currentDevice = getCurrentDevice();
+    const recipientDeviceIds = selectedConversation.participants
+      .flatMap((p) => p.devices)
+      .filter((d) => d.id !== currentDevice.id)
+      .map((d) => d.id);
+
+    const baseMessage = createLocalMessage({
+      conversationId: selectedConversation.id,
+      senderId: CURRENT_USER_ID,
+      senderDisplayName: stateRef.current.account.displayName,
+      senderDeviceId: currentDevice.id,
+      previewText: '📷 Photo',
+      recipientDeviceIds,
+    });
+
+    const messageWithAttachment: ChatMessage = {
+      ...baseMessage,
+      attachments: [{ id: attachmentId, mimeType, dataUri, width, height, size }],
+    };
+
+    const snap = stateRef.current;
+    const nextMessages = [
+      ...(snap.messagesByConversation[selectedConversation.id] ?? []),
+      messageWithAttachment,
+    ];
+    const nextState: PersistedChatState = {
+      ...snap,
+      conversations: snap.conversations.map((c) =>
+        c.id === selectedConversation.id
+          ? { ...c, lastMessagePreview: '📷 Photo', updatedAt: messageWithAttachment.createdAt }
+          : c
+      ),
+      messagesByConversation: {
+        ...snap.messagesByConversation,
+        [selectedConversation.id]: nextMessages,
+      },
+    };
+
+    await persistState(nextState);
+    return messageWithAttachment;
+  }, [persistState, selectedConversation]);
+
   const exportBackup = useCallback(async () => {
     const bundle = await createEncryptedBackupBundle(stateRef.current);
     const payload = {
@@ -318,6 +412,19 @@ export function useChatController() {
       return;
     }
 
+    // Detect media attachment via wire prefix
+    const isImagePayload = envelope.payload.startsWith(SKYPIER_MEDIA_PREFIX);
+    const payloadPreviewText = isImagePayload ? '📷 Photo' : envelope.payload;
+    let incomingAttachments: MediaAttachment[] | undefined;
+    if (isImagePayload) {
+      try {
+        const att = JSON.parse(envelope.payload.slice(SKYPIER_MEDIA_PREFIX.length)) as MediaAttachment;
+        incomingAttachments = [att];
+      } catch {
+        // malformed payload — fall back to text display
+      }
+    }
+
     const snap = stateRef.current;
     const currentSelectedId = selectedConversationIdRef.current;
     let existingConversation = snap.conversations.find((conversation) => conversation.id === envelope.conversationId);
@@ -354,7 +461,7 @@ export function useChatController() {
           ],
         },
       ],
-      lastMessagePreview: envelope.payload,
+      lastMessagePreview: payloadPreviewText,
       unreadCount: currentSelectedId === envelope.conversationId ? 0 : 1,
       reachability: 'direct' as const,
       updatedAt: envelope.sentAt,
@@ -367,15 +474,17 @@ export function useChatController() {
       senderDisplayName: conversation.title,
       senderDeviceId: `device-${fromPeerId}`,
       createdAt: envelope.sentAt,
-      previewText: envelope.payload,
+      previewText: payloadPreviewText,
       ciphertext: {
         algorithm: 'xchacha20poly1305',
-        ciphertext: btoa(envelope.payload),
+        // transport encryption is handled by libp2p Noise; store a safe placeholder
+        ciphertext: isImagePayload ? '' : (() => { try { return btoa(envelope.payload); } catch { return ''; } })(),
         nonce: 'network-stream',
         recipientDeviceIds: [getCurrentDevice().id],
       },
       delivery: 'delivered',
       reactions: [],
+      ...(incomingAttachments ? { attachments: incomingAttachments } : {}),
     };
 
     const currentMessages = snap.messagesByConversation[conversation.id] ?? [];
@@ -475,6 +584,7 @@ export function useChatController() {
     createConversationWithPeer,
     updateConversationConnection,
     sendMessage,
+    sendImageMessage,
     replyTarget,
     selectReplyTarget,
     clearReplyTarget: () => setReplyTargetId(undefined),

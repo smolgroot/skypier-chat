@@ -35,6 +35,17 @@ export interface MessageCiphertext {
   recipientDeviceIds: string[];
 }
 
+export interface MediaAttachment {
+  id: string;
+  mimeType: string;
+  /** data:<mimeType>;base64,<data> — already base64-encoded */
+  dataUri: string;
+  width?: number;
+  height?: number;
+  /** Approximate decoded byte size after compression */
+  size: number;
+}
+
 export interface ChatMessage {
   id: string;
   conversationId: string;
@@ -47,6 +58,7 @@ export interface ChatMessage {
   delivery: DeliveryState;
   replyTo?: ReplyReference;
   reactions: Reaction[];
+  attachments?: MediaAttachment[];
 }
 
 export interface Conversation {

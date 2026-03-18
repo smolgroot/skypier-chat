@@ -1,5 +1,5 @@
 import { createKeyCustodyPlan, createSecuritySummary } from '@skypier/crypto';
-import { createPresence, createRuntimePlan, type DeliveryStatusEvent, type PeerReachabilityEvent, type DialLogEntry } from '@skypier/network';
+import { createPresence, createRuntimePlan, SKYPIER_MEDIA_PREFIX, type DeliveryStatusEvent, type PeerReachabilityEvent, type DialLogEntry } from '@skypier/network';
 import { getCurrentDevice } from '@skypier/storage';
 import { useCallback, useState, useMemo, useEffect } from 'react';
 import { ThemeProvider, CssBaseline, Snackbar, Alert, Drawer, Box as MuiBox } from '@mui/material';
@@ -34,6 +34,7 @@ export function App() {
     updateConversationConnection,
     deleteConversation,
     sendMessage,
+    sendImageMessage,
     replyTarget,
     clearReplyTarget,
     selectReplyTarget,
@@ -81,7 +82,7 @@ export function App() {
     if (envelope.kind === 'message') {
       notifyIncomingMessage({
         senderName: `Peer ${fromPeerId.slice(0, 10)}…`,
-        messagePreview: envelope.payload,
+        messagePreview: envelope.payload.startsWith(SKYPIER_MEDIA_PREFIX) ? '📷 Photo' : envelope.payload,
       });
     }
   }, [ingestIncomingEnvelope, notifyIncomingMessage]);
@@ -382,6 +383,23 @@ export function App() {
             void retryMessage(messageId);
           }}
           onReplySelect={selectReplyTarget}
+          onSendImage={(file) => {
+            void (async () => {
+              try {
+                const message = await sendImageMessage(file);
+                if (message && selectedConversation) {
+                  const remotePeer = selectedConversation.participants.find(
+                    (p) => p.peerId !== (liveState.localPeerId ?? localPeerId ?? getCurrentDevice().peerId)
+                  );
+                  if (remotePeer) {
+                    await sendChatMessageToPeer(message, remotePeer.peerId);
+                  }
+                }
+              } catch (err) {
+                console.error('[skypier:app] image send failed:', err instanceof Error ? err.message : err);
+              }
+            })();
+          }}
         />
       );
     }

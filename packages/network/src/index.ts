@@ -8,7 +8,7 @@ import {
 } from './protocols';
 
 export { SKYPIER_CHAT_PROTOCOLS, deserializeWireEnvelope, serializeWireEnvelope };
-export { createBrowserLiveSession } from './session';
+export { SKYPIER_MEDIA_PREFIX, createBrowserLiveSession } from './session';
 export { generateNewIdentity, getPeerIdFromProtobuf } from './identity';
 export type { BrowserLiveSession, BrowserLiveSessionEventMap, BrowserLiveSessionState, SessionStatus, PeerReachabilityEvent, DeliveryStatusEvent, DialLogEntry, ConnectionDebugInfo, NetworkDebugSnapshot } from './session';
 

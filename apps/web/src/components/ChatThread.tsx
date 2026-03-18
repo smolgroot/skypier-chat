@@ -23,6 +23,7 @@ interface ChatThreadProps {
   onSendMessage: () => void;
   onRetryMessage?: (messageId: string) => void;
   onReplySelect?: (message: ChatMessage) => void;
+  onSendImage?: (file: File) => void;
 }
 
 export function ChatThread(props: ChatThreadProps) {
@@ -39,13 +40,15 @@ export function ChatThread(props: ChatThreadProps) {
     onSendMessage,
     onRetryMessage,
     onReplySelect,
+    onSendImage,
   } = props;
 
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down('md'));
 
   const scrollRef = useRef<HTMLDivElement>(null);
-  
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
   const [emojiAnchorEl, setEmojiAnchorEl] = useState<HTMLButtonElement | null>(null);
   const showEmojiPicker = Boolean(emojiAnchorEl);
 
@@ -246,13 +249,24 @@ export function ChatThread(props: ChatThreadProps) {
               lazyLoadEmojis
             />
           </Popover>
-          <IconButton size="small">
+          <IconButton size="small" onClick={() => fileInputRef.current?.click()} disabled={!onSendImage}>
             <AttachFileIcon color="action" />
           </IconButton>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/*"
+            style={{ display: 'none' }}
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              if (file && onSendImage) {
+                onSendImage(file);
+                e.target.value = '';
+              }
+            }}
+          />
           <TextField
             fullWidth
-            // multiline
-            // maxRows={1}
             placeholder="  Write a message..."
             value={composerValue}
             onChange={(e) => onComposerChange(e.target.value)}
