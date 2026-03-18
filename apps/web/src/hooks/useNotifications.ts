@@ -12,51 +12,41 @@ function getAudioContext(): AudioContext {
 }
 
 /**
- * Plays a short 8-bit style notification jingle using the Web Audio API.
- *
- * Melody: ascending arpeggio (C5→E5→G5→C6) with square-wave timbre
- * for that classic chiptune feel.
+ * Plays a soft, modern notification chime using the Web Audio API.
+ * Uses smooth sine waves with exponential decay for a clean UI sound.
  */
-function play8BitNotificationSound(): void {
+function playModernNotificationSound(): void {
   try {
     const ctx = getAudioContext();
 
-    // If the context is suspended (autoplay policy), try to resume
     if (ctx.state === 'suspended') {
       void ctx.resume();
     }
 
     const now = ctx.currentTime;
-    // C5, E5, G5, C6 — ascending major arpeggio
-    const notes = [523.25, 659.25, 783.99, 1046.5];
-    const noteDuration = 0.08;
-    const noteGap = 0.02;
+    // Modern soft chime: G5 -> D6
+    const notes = [
+      { freq: 783.99, time: 0 },
+      { freq: 1174.66, time: 0.12 }
+    ];
 
-    const masterGain = ctx.createGain();
-    masterGain.gain.setValueAtTime(0.15, now);
-    masterGain.connect(ctx.destination);
-
-    notes.forEach((freq, i) => {
+    notes.forEach(({ freq, time }) => {
       const osc = ctx.createOscillator();
       const noteGain = ctx.createGain();
 
-      osc.type = 'square';
-      osc.frequency.setValueAtTime(freq, now);
+      osc.type = 'sine'; // Soft rounded tone
+      osc.frequency.setValueAtTime(freq, now + time);
 
-      const noteStart = now + i * (noteDuration + noteGap);
-      const noteEnd = noteStart + noteDuration;
-
-      // Envelope: quick attack, short sustain, fast release
-      noteGain.gain.setValueAtTime(0, noteStart);
-      noteGain.gain.linearRampToValueAtTime(1, noteStart + 0.01);
-      noteGain.gain.setValueAtTime(1, noteEnd - 0.02);
-      noteGain.gain.linearRampToValueAtTime(0, noteEnd);
+      // Envelope: 20ms attack, smooth exponential decay over 400ms
+      noteGain.gain.setValueAtTime(0, now + time);
+      noteGain.gain.linearRampToValueAtTime(0.3, now + time + 0.02);
+      noteGain.gain.exponentialRampToValueAtTime(0.001, now + time + 0.4);
 
       osc.connect(noteGain);
-      noteGain.connect(masterGain);
+      noteGain.connect(ctx.destination);
 
-      osc.start(noteStart);
-      osc.stop(noteEnd + 0.01);
+      osc.start(now + time);
+      osc.stop(now + time + 0.45);
     });
   } catch {
     // Web Audio not available — silently skip
@@ -117,6 +107,16 @@ export interface NotifyMessageOptions {
   messagePreview: string;
 }
 
+function triggerMobileVibration(): void {
+  try {
+    if (typeof navigator !== 'undefined' && 'vibrate' in navigator) {
+      navigator.vibrate([200, 100, 200]);
+    }
+  } catch {
+    // Ignore errors if vibration API fails or is denied
+  }
+}
+
 export function useNotifications() {
   const permissionRef = useRef<NotificationPermission>('default');
 
@@ -152,10 +152,13 @@ export function useNotifications() {
   }, []);
 
   const notifyIncomingMessage = useCallback(({ senderName, messagePreview }: NotifyMessageOptions) => {
-    // 1) Play 8-bit sound (always, even if tab is focused)
-    play8BitNotificationSound();
+    // 1) Play modern UI sound (always, even if tab is focused)
+    playModernNotificationSound();
 
-    // 2) Show OS notification (only if tab is not focused)
+    // 2) Trigger mobile vibration if available
+    triggerMobileVibration();
+
+    // 3) Show OS notification (only if tab is not focused)
     showOsNotification(
       `💬 ${senderName}`,
       messagePreview.length > 100
