@@ -17,6 +17,7 @@ import { SplashScreen } from './components/SplashScreen';
 import { OnboardingWizard } from './components/OnboardingWizard';
 import { BiometricUnlock } from './components/BiometricUnlock';
 import { ContactDetailPage } from './components/ContactDetailPage';
+import { ContactsPage } from './components/ContactsPage';
 import { useNotifications } from './hooks/useNotifications';
 
 export function App() {
@@ -35,6 +36,7 @@ export function App() {
     sendMessage,
     replyTarget,
     clearReplyTarget,
+    selectReplyTarget,
     toggleReaction,
     ingestIncomingEnvelope,
     updateMessageDeliveryStatus,
@@ -47,9 +49,12 @@ export function App() {
     updateAccount,
     identityProtobuf,
     localPeerId,
+    contacts,
+    saveContact,
+    deleteContact,
   } = useChatController();
 
-  const [activeView, setActiveView] = useState<'chat' | 'profile' | 'settings' | 'network'>('chat');
+  const [activeView, setActiveView] = useState<'chat' | 'profile' | 'settings' | 'network' | 'contacts'>('chat');
   const [showContactDetail, setShowContactDetail] = useState(false);
   const [colorMode, setColorMode] = useState<'light' | 'dark'>('dark');
   const [peerIdInput, setPeerIdInput] = useState('');
@@ -285,6 +290,21 @@ export function App() {
         : 'offline';
 
   const renderContent = () => {
+    if (activeView === 'contacts') {
+      return (
+        <ContactsPage
+          contacts={contacts}
+          onSaveContact={saveContact}
+          onDeleteContact={deleteContact}
+          onStartChat={async (peerId, displayName) => {
+            const convId = await createConversationWithPeer(peerId, displayName);
+            setActiveView('chat');
+            setSelectedConversationId(convId);
+          }}
+        />
+      );
+    }
+
     if (activeView === 'profile') {
       return (
         <ProfilePage 
@@ -361,6 +381,7 @@ export function App() {
           onRetryMessage={(messageId) => {
             void retryMessage(messageId);
           }}
+          onReplySelect={selectReplyTarget}
         />
       );
     }

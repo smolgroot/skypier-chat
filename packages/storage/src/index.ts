@@ -159,10 +159,19 @@ export function getCurrentDevice() {
   return participants[0].devices[0];
 }
 
+export interface Contact {
+  id: string; // usually the peerId
+  peerId: string;
+  displayName: string;
+  avatarUrl?: string;
+  addedAt: string;
+}
+
 export interface PersistedChatState {
   account: AccountProfile;
   conversations: Conversation[];
   messagesByConversation: Record<string, ChatMessage[]>;
+  contacts?: Contact[];
 }
 
 export interface ChatRepository {
@@ -190,6 +199,7 @@ export function createInitialChatState(): PersistedChatState {
     },
     conversations: [],
     messagesByConversation: {},
+    contacts: [],
   };
 }
 

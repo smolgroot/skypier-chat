@@ -25,6 +25,7 @@ import ChatIcon from '@mui/icons-material/Chat';
 import AccountCircleIcon from '@mui/icons-material/AccountCircle';
 import SettingsIcon from '@mui/icons-material/Settings';
 import SettingsInputAntennaIcon from '@mui/icons-material/SettingsInputAntenna';
+import PeopleIcon from '@mui/icons-material/People';
 import MenuIcon from '@mui/icons-material/Menu';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import DarkModeIcon from '@mui/icons-material/DarkMode';
@@ -42,8 +43,8 @@ interface MainLayoutProps {
   conversations: Conversation[];
   selectedConversationId?: string;
   onSelectConversation: (id: string) => void;
-  activeView: 'chat' | 'profile' | 'settings' | 'network';
-  setActiveView: (view: 'chat' | 'profile' | 'settings' | 'network') => void;
+  activeView: 'chat' | 'profile' | 'settings' | 'network' | 'contacts';
+  setActiveView: (view: 'chat' | 'profile' | 'settings' | 'network' | 'contacts') => void;
   children: React.ReactNode;
   mode: 'light' | 'dark';
   toggleColorMode: () => void;
@@ -188,6 +189,16 @@ export function MainLayout(props: MainLayoutProps) {
           >
             <ListItemIcon><SettingsIcon color={activeView === 'settings' ? 'primary' : 'inherit'} /></ListItemIcon>
             <ListItemText primary="Settings" />
+          </ListItemButton>
+        </ListItem>
+        <ListItem disablePadding>
+          <ListItemButton 
+            selected={activeView === 'contacts'} 
+            onClick={() => { setActiveView('contacts'); if(isMobile) setMobileOpen(false); }}
+            sx={{ borderRadius: 2 }}
+          >
+            <ListItemIcon><PeopleIcon color={activeView === 'contacts' ? 'primary' : 'inherit'} /></ListItemIcon>
+            <ListItemText primary="Contacts" />
           </ListItemButton>
         </ListItem>
         <ListItem disablePadding>

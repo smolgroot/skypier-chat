@@ -437,6 +437,32 @@ export function useChatController() {
     }
   }, [persistState]);
 
+  const saveContact = useCallback(async (contactId: string, peerId: string, displayName: string, avatarUrl?: string) => {
+    const snap = stateRef.current;
+    const existing = (snap.contacts || []).filter(c => c.id !== contactId);
+    
+    const nextState: PersistedChatState = {
+      ...snap,
+      contacts: [...existing, {
+        id: contactId,
+        peerId,
+        displayName,
+        avatarUrl,
+        addedAt: new Date().toISOString()
+      }]
+    };
+    await persistState(nextState);
+  }, [persistState]);
+
+  const deleteContact = useCallback(async (contactId: string) => {
+    const snap = stateRef.current;
+    const nextState: PersistedChatState = {
+      ...snap,
+      contacts: (snap.contacts || []).filter(c => c.id !== contactId)
+    };
+    await persistState(nextState);
+  }, [persistState]);
+
   return {
     account: state.account,
     conversations: state.conversations,
@@ -454,6 +480,9 @@ export function useChatController() {
     clearReplyTarget: () => setReplyTargetId(undefined),
     toggleReaction,
     deleteConversation,
+    saveContact,
+    deleteContact,
+    contacts: state.contacts ?? [],
     ingestIncomingEnvelope,
     updateMessageDeliveryStatus,
     linkEthAddress,

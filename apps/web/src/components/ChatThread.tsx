@@ -22,6 +22,7 @@ interface ChatThreadProps {
   onToggleReaction: (messageId: string, emoji: string) => void;
   onSendMessage: () => void;
   onRetryMessage?: (messageId: string) => void;
+  onReplySelect?: (message: ChatMessage) => void;
 }
 
 export function ChatThread(props: ChatThreadProps) {
@@ -37,6 +38,7 @@ export function ChatThread(props: ChatThreadProps) {
     onToggleReaction,
     onSendMessage,
     onRetryMessage,
+    onReplySelect,
   } = props;
 
   const theme = useTheme();
@@ -153,6 +155,7 @@ export function ChatThread(props: ChatThreadProps) {
               <ChatBubble
                 message={msg}
                 isSelf={msg.senderDisplayName === currentUserDisplayName}
+                onReplySelect={onReplySelect}
                 onToggleReaction={onToggleReaction}
                 onRetryMessage={onRetryMessage}
               />
@@ -248,8 +251,8 @@ export function ChatThread(props: ChatThreadProps) {
           </IconButton>
           <TextField
             fullWidth
-            multiline
-            maxRows={4}
+            // multiline
+            // maxRows={1}
             placeholder="  Write a message..."
             value={composerValue}
             onChange={(e) => onComposerChange(e.target.value)}

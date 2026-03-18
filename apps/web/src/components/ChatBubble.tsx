@@ -14,7 +14,6 @@ const BubbleContainer = styled(Box, {
   padding: theme.spacing(0.5, 2),
   width: '100%',
   position: 'relative',
-  overflow: 'hidden',
   alignItems: 'center',
   '&:hover .bubble-actions': {
     opacity: 1,
@@ -46,7 +45,7 @@ const StyledBubble = styled(Paper, {
   shouldForwardProp: (prop) => prop !== 'isSelf',
 })<{ isSelf?: boolean }>(({ theme, isSelf }) => ({
   padding: theme.spacing(1.2, 2),
-  maxWidth: '75%',
+  maxWidth: '100%',
   position: 'relative',
   borderRadius: isSelf ? '20px 20px 4px 20px' : '20px 20px 20px 4px',
   background: isSelf 
@@ -110,6 +109,17 @@ function deliveryIndicator(delivery: ChatMessage['delivery']): { label: string; 
   }
 }
 
+const EMOJI_REGEX = /^(\p{Emoji_Presentation}|\p{Extended_Pictographic})(\uFE0F|\u20E3|\uFE0F\u20E3)?([\u200D](\p{Emoji_Presentation}|\p{Extended_Pictographic})(\uFE0F|\u20E3)?)*$/u;
+
+function isEmojiOnly(text: string): boolean {
+  // Strip all emoji (including ZWJ sequences) and whitespace; if nothing remains it's emoji-only
+  const stripped = text.replace(
+    /(\p{Emoji_Presentation}|\p{Extended_Pictographic})[\uFE0F\u20E3]?(\u200D(\p{Emoji_Presentation}|\p{Extended_Pictographic})[\uFE0F\u20E3]?)*/gu,
+    ''
+  ).trim();
+  return text.trim().length > 0 && stripped.length === 0;
+}
+
 export function ChatBubble({ message, isSelf, onReplySelect, onToggleReaction, onRetryMessage }: ChatBubbleProps) {
   const [{ x }, api] = useSpring(() => ({ x: 0 }));
 
@@ -143,84 +153,142 @@ export function ChatBubble({ message, isSelf, onReplySelect, onToggleReaction, o
           <ReplyIcon sx={{ opacity: 0.5 }} />
         </ReplyIndicator>
       )}
-      <animated.div {...(isSelf ? {} : bind())} style={{ x, touchAction: 'pan-y', display: 'flex', maxWidth: '100%' }}>
-        <StyledBubble isSelf={isSelf} elevation={1}>
-          {!isSelf && (
-            <Typography variant="caption" sx={{ fontWeight: 'bold', color: 'secondary.main', display: 'block', mb: 0.5 }}>
-              {message.senderDisplayName}
-            </Typography>
-          )}
-          
-          {message.replyTo && (
-            <ReplyBox onClick={() => {/* Scroll to reply logic could be here */}}>
-              <Typography variant="caption" sx={{ fontWeight: 'bold' }}>
-                {message.replyTo.authorDisplayName}
+      <animated.div {...(isSelf ? {} : bind())} style={{ x, touchAction: 'pan-y', display: 'flex', maxWidth: '60%' }}>
+        {isEmojiOnly(message.previewText) ? (
+          // ── Sticker layout ──────────────────────────────────────────────
+          <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: isSelf ? 'flex-end' : 'flex-start' }}>
+            {!isSelf && (
+              <Typography variant="caption" sx={{ fontWeight: 'bold', color: 'secondary.main', mb: 0.25 }}>
+                {message.senderDisplayName}
               </Typography>
-              <Typography variant="body2" noWrap sx={{ opacity: 0.8 }}>
-                {message.replyTo.excerpt}
-              </Typography>
-            </ReplyBox>
-          )}
-
-          <Typography variant="body1" sx={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
-            {message.previewText}
-          </Typography>
-
-          <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 1, mt: 0.5 }}>
-            <Typography variant="caption" sx={{ opacity: 0.6, fontSize: '0.7rem' }}>
-              {new Date(message.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+            )}
+            <Typography
+              sx={{
+                fontSize: '3.5rem',
+                lineHeight: 1.15,
+                userSelect: 'none',
+                filter: 'drop-shadow(0 2px 6px rgba(0,0,0,0.25))',
+                transition: 'transform 0.15s ease',
+                '&:hover': { transform: 'scale(1.12)' },
+              }}
+            >
+              {message.previewText}
             </Typography>
-            {isSelf && (() => {
-              const { label, color } = deliveryIndicator(message.delivery);
-              const isFailed = message.delivery === 'local-only';
-              return (
-                <Box component="span" sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, mt: 0.25 }}>
+              <Typography variant="caption" sx={{ opacity: 0.5, fontSize: '0.7rem' }}>
+                {new Date(message.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+              </Typography>
+              {isSelf && (() => {
+                const { label, color } = deliveryIndicator(message.delivery);
+                return (
                   <Typography variant="caption" sx={{ color, fontSize: '0.7rem', fontWeight: 600 }}>
                     {label}
                   </Typography>
-                  {isFailed && onRetryMessage && (
-                    <Typography
-                      variant="caption"
-                      onClick={() => onRetryMessage(message.id)}
-                      sx={{
-                        color: 'error.main',
-                        fontSize: '0.65rem',
-                        cursor: 'pointer',
-                        textDecoration: 'underline',
-                        '&:hover': { opacity: 0.8 },
-                      }}
-                    >
-                      Retry
-                    </Typography>
-                  )}
-                </Box>
-              );
-            })()}
-          </Box>
-
-          {message.reactions.length > 0 && (
-            <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5, mt: 1 }}>
-              {message.reactions.map((reaction) => (
-                <Box
-                  key={reaction.emoji}
-                  onClick={() => onToggleReaction?.(message.id, reaction.emoji)}
-                  sx={{
-                    bgcolor: (theme) => theme.palette.mode === 'dark' ? 'rgba(171, 110, 255, 0.15)' : 'rgba(142, 45, 226, 0.1)',
-                    color: (theme) => theme.palette.mode === 'dark' ? '#d4b3ff' : '#8e2de2',
-                    borderRadius: '12px',
-                    px: 0.8,
-                    py: 0.2,
-                    fontSize: '0.75rem',
-                    cursor: 'pointer',
-                    '&:hover': { bgcolor: 'rgba(66, 198, 255, 0.24)' }
-                  }}
-                >
-                  {reaction.emoji} {reaction.authors.length}
-                </Box>
-              ))}
+                );
+              })()}
             </Box>
-          )}
-        </StyledBubble>
+            {message.reactions.length > 0 && (
+              <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5, mt: 0.5 }}>
+                {message.reactions.map((reaction) => (
+                  <Box
+                    key={reaction.emoji}
+                    onClick={() => onToggleReaction?.(message.id, reaction.emoji)}
+                    sx={{
+                      bgcolor: (theme) => theme.palette.mode === 'dark' ? 'rgba(171, 110, 255, 0.15)' : 'rgba(142, 45, 226, 0.1)',
+                      color: (theme) => theme.palette.mode === 'dark' ? '#d4b3ff' : '#8e2de2',
+                      borderRadius: '12px',
+                      px: 0.8, py: 0.2,
+                      fontSize: '0.75rem',
+                      cursor: 'pointer',
+                      '&:hover': { bgcolor: 'rgba(66, 198, 255, 0.24)' }
+                    }}
+                  >
+                    {reaction.emoji} {reaction.authors.length}
+                  </Box>
+                ))}
+              </Box>
+            )}
+          </Box>
+        ) : (
+          // ── Normal bubble layout ─────────────────────────────────────────
+          <StyledBubble isSelf={isSelf} elevation={1}>
+            {!isSelf && (
+              <Typography variant="caption" sx={{ fontWeight: 'bold', color: 'secondary.main', display: 'block', mb: 0.5 }}>
+                {message.senderDisplayName}
+              </Typography>
+            )}
+
+            {message.replyTo && (
+              <ReplyBox onClick={() => {/* Scroll to reply logic could be here */}}>
+                <Typography variant="caption" sx={{ fontWeight: 'bold' }}>
+                  {message.replyTo.authorDisplayName}
+                </Typography>
+                <Typography variant="body2" noWrap sx={{ opacity: 0.8 }}>
+                  {message.replyTo.excerpt}
+                </Typography>
+              </ReplyBox>
+            )}
+
+            <Typography variant="body1" sx={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
+              {message.previewText}
+            </Typography>
+
+            <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 1, mt: 0.5 }}>
+              <Typography variant="caption" sx={{ opacity: 0.6, fontSize: '0.7rem' }}>
+                {new Date(message.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+              </Typography>
+              {isSelf && (() => {
+                const { label, color } = deliveryIndicator(message.delivery);
+                const isFailed = message.delivery === 'local-only';
+                return (
+                  <Box component="span" sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                    <Typography variant="caption" sx={{ color, fontSize: '0.7rem', fontWeight: 600 }}>
+                      {label}
+                    </Typography>
+                    {isFailed && onRetryMessage && (
+                      <Typography
+                        variant="caption"
+                        onClick={() => onRetryMessage(message.id)}
+                        sx={{
+                          color: 'error.main',
+                          fontSize: '0.65rem',
+                          cursor: 'pointer',
+                          textDecoration: 'underline',
+                          '&:hover': { opacity: 0.8 },
+                        }}
+                      >
+                        Retry
+                      </Typography>
+                    )}
+                  </Box>
+                );
+              })()}
+            </Box>
+
+            {message.reactions.length > 0 && (
+              <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5, mt: 1 }}>
+                {message.reactions.map((reaction) => (
+                  <Box
+                    key={reaction.emoji}
+                    onClick={() => onToggleReaction?.(message.id, reaction.emoji)}
+                    sx={{
+                      bgcolor: (theme) => theme.palette.mode === 'dark' ? 'rgba(171, 110, 255, 0.15)' : 'rgba(142, 45, 226, 0.1)',
+                      color: (theme) => theme.palette.mode === 'dark' ? '#d4b3ff' : '#8e2de2',
+                      borderRadius: '12px',
+                      px: 0.8,
+                      py: 0.2,
+                      fontSize: '0.75rem',
+                      cursor: 'pointer',
+                      '&:hover': { bgcolor: 'rgba(66, 198, 255, 0.24)' }
+                    }}
+                  >
+                    {reaction.emoji} {reaction.authors.length}
+                  </Box>
+                ))}
+              </Box>
+            )}
+          </StyledBubble>
+        )}
       </animated.div>
       {onReplySelect && (
         <BubbleActions className="bubble-actions" isSelf={isSelf}>
