@@ -320,7 +320,15 @@ export function useChatController() {
 
     const snap = stateRef.current;
     const currentSelectedId = selectedConversationIdRef.current;
-    const existingConversation = snap.conversations.find((conversation) => conversation.id === envelope.conversationId);
+    let existingConversation = snap.conversations.find((conversation) => conversation.id === envelope.conversationId);
+    
+    // If not found by exact ID, see if we already have a 1-on-1 chat with this peer to prevent duplicate channels
+    if (!existingConversation) {
+      existingConversation = snap.conversations.find((conversation) =>
+        conversation.participants.some((p) => p.peerId === fromPeerId)
+      );
+    }
+
     const conversation = existingConversation ?? {
       id: envelope.conversationId,
       title: `Peer ${fromPeerId.slice(0, 10)}…`,
@@ -354,7 +362,7 @@ export function useChatController() {
 
     const incomingMessage: ChatMessage = {
       id: `net-${Math.random().toString(36).slice(2, 10)}`,
-      conversationId: envelope.conversationId,
+      conversationId: conversation.id,
       senderId: fromPeerId,
       senderDisplayName: conversation.title,
       senderDeviceId: `device-${fromPeerId}`,
