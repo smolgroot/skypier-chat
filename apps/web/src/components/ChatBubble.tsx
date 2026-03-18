@@ -372,9 +372,9 @@ export function ChatBubble({ message, isSelf, onReplySelect, onToggleReaction, o
             </IconButton>
 
             {/* Full-size image */}
-            <Box
+            {lightboxSrc && <Box
               component="img"
-              src={lightboxSrc ?? ''}
+              src={lightboxSrc}
               alt="Full size photo"
               sx={{
                 maxWidth: '90vw',
@@ -384,7 +384,7 @@ export function ChatBubble({ message, isSelf, onReplySelect, onToggleReaction, o
                 boxShadow: '0 8px 48px rgba(0,0,0,0.85)',
                 display: 'block',
               }}
-            />
+            />}
 
             {/* Save button */}
             <IconButton
