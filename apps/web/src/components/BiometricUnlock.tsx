@@ -169,7 +169,7 @@ export function BiometricUnlock(props: BiometricUnlockProps) {
             {isAttempting ? 'Processing…' : passkeyCredentialId ? 'Unlock Now' : 'Create Passkey'}
           </Button>
           <Button variant="text" onClick={handleManualUnlock} disabled={isAttempting} fullWidth sx={{ borderRadius: 3 }}>
-            Manual Skip
+            Manual Skip (Dev mode)
           </Button>
         </Stack>
       </Box>

@@ -1,10 +1,13 @@
-import { Box, Paper, Typography, Badge, IconButton } from '@mui/material';
+import { useState } from 'react';
+import { Box, Paper, Typography, Badge, IconButton, Modal, Fade } from '@mui/material';
 import { styled } from '@mui/material/styles';
 import { reachabilityLabel } from '@skypier/network';
 import type { ChatMessage } from '@skypier/protocol';
 import { useDrag } from '@use-gesture/react';
 import { animated, useSpring } from '@react-spring/web';
 import ReplyIcon from '@mui/icons-material/Reply';
+import CloseIcon from '@mui/icons-material/Close';
+import SaveAltIcon from '@mui/icons-material/SaveAlt';
 import { LinkPreviewCard } from './LinkPreviewCard';
 import { extractFirstUrl } from '../hooks/useLinkPreview';
 
@@ -124,6 +127,7 @@ function isEmojiOnly(text: string): boolean {
 
 export function ChatBubble({ message, isSelf, onReplySelect, onToggleReaction, onRetryMessage }: ChatBubbleProps) {
   const [{ x }, api] = useSpring(() => ({ x: 0 }));
+  const [lightboxSrc, setLightboxSrc] = useState<string | null>(null);
 
   const bind = useDrag(({ down, movement: [mx], cancel, active }) => {
     if (!onReplySelect) return;
@@ -236,6 +240,7 @@ export function ChatBubble({ message, isSelf, onReplySelect, onToggleReaction, o
                 component="img"
                 src={message.attachments[0].dataUri}
                 alt="Photo"
+                onClick={() => setLightboxSrc(message.attachments![0].dataUri)}
                 sx={{
                   display: 'block',
                   width: '100%',
@@ -329,6 +334,85 @@ export function ChatBubble({ message, isSelf, onReplySelect, onToggleReaction, o
           </IconButton>
         </BubbleActions>
       )}
+
+      {/* ── Fullscreen image lightbox ─────────────────────────────── */}
+      <Modal
+        open={lightboxSrc !== null}
+        onClose={() => setLightboxSrc(null)}
+        closeAfterTransition
+        slotProps={{ backdrop: { sx: { bgcolor: 'rgba(0,0,0,0.88)' } } }}
+        sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+      >
+        <Fade in={lightboxSrc !== null}>
+          <Box
+            sx={{
+              position: 'relative',
+              outline: 'none',
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              gap: 2,
+            }}
+          >
+            {/* Close button */}
+            <IconButton
+              onClick={() => setLightboxSrc(null)}
+              size="large"
+              sx={{
+                position: 'absolute',
+                top: -56,
+                right: -8,
+                color: 'white',
+                bgcolor: 'rgba(0,0,0,0.45)',
+                backdropFilter: 'blur(6px)',
+                '&:hover': { bgcolor: 'rgba(0,0,0,0.72)' },
+              }}
+            >
+              <CloseIcon />
+            </IconButton>
+
+            {/* Full-size image */}
+            <Box
+              component="img"
+              src={lightboxSrc ?? ''}
+              alt="Full size photo"
+              sx={{
+                maxWidth: '90vw',
+                maxHeight: '80vh',
+                objectFit: 'contain',
+                borderRadius: 2,
+                boxShadow: '0 8px 48px rgba(0,0,0,0.85)',
+                display: 'block',
+              }}
+            />
+
+            {/* Save button */}
+            <IconButton
+              onClick={() => {
+                const a = document.createElement('a');
+                a.href = lightboxSrc!;
+                a.download = 'skypier-photo.jpg';
+                a.click();
+              }}
+              sx={{
+                color: 'white',
+                bgcolor: 'rgba(255,255,255,0.12)',
+                backdropFilter: 'blur(6px)',
+                borderRadius: 6,
+                px: 3,
+                py: 1,
+                gap: 1,
+                '&:hover': { bgcolor: 'rgba(255,255,255,0.24)' },
+              }}
+            >
+              <SaveAltIcon />
+              <Typography variant="button" sx={{ color: 'white', ml: 0.5 }}>
+                Save
+              </Typography>
+            </IconButton>
+          </Box>
+        </Fade>
+      </Modal>
     </BubbleContainer>
   );
 }
