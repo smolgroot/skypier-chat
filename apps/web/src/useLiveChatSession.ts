@@ -22,6 +22,24 @@ const DEFAULT_BOOTSTRAP_MULTIADDRS = [
   '/dnsaddr/bootstrap.libp2p.io/p2p/QmcZf59bWwK5XFi76CZX8cbJ4BhTzzA3gU1ZjYZcYW3dwt',
 ];
 
+/**
+ * Optional dedicated relay bootstrap(s), configured via env.
+ *
+ * Example:
+ * VITE_RELAY_BOOTSTRAP_MULTIADDRS=/dns4/relay.skypier.chat/tcp/443/tls/ws/p2p/12D3KooW.../p2p-circuit
+ *
+ * Multiple values can be comma-separated.
+ */
+const RELAY_BOOTSTRAP_MULTIADDRS = (import.meta.env.VITE_RELAY_BOOTSTRAP_MULTIADDRS ?? '')
+  .split(',')
+  .map((value) => value.trim())
+  .filter(Boolean);
+
+const EFFECTIVE_BOOTSTRAP_MULTIADDRS = [
+  ...RELAY_BOOTSTRAP_MULTIADDRS,
+  ...DEFAULT_BOOTSTRAP_MULTIADDRS,
+];
+
 const INITIAL_STATE: BrowserLiveSessionState = {
   status: 'idle',
   connectedPeers: [],
@@ -56,7 +74,7 @@ export function useLiveChatSession(options: UseLiveChatSessionOptions) {
   useEffect(() => {
     const session = createBrowserLiveSession({
       nodeOptions: {
-        bootstrapMultiaddrs: DEFAULT_BOOTSTRAP_MULTIADDRS,
+        bootstrapMultiaddrs: EFFECTIVE_BOOTSTRAP_MULTIADDRS,
         ...(options.identityProtobuf ? {
           identityProtobuf: (() => {
             const binary = atob(options.identityProtobuf);
