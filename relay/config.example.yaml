@@ -1,0 +1,36 @@
+# Skypier Relay — example config
+# Copy to /etc/skypier-relay/config.yaml and edit before first run.
+#
+# On first 'skypier-relay serve', if identity_key is empty a new Ed25519 key is
+# generated and written back into this file automatically.  Note the printed
+# peer ID and update your DNS + JS bootstrap list accordingly.
+
+# Your relay hostname.  A Let's Encrypt certificate is obtained automatically
+# via TLS-ALPN-01 (no port 80 required).
+dns_name: relay.skypier.chat
+
+# libp2p multiaddr to listen on.  Port 443 is recommended (WSS is required by
+# browser clients).
+listen_addr: /ip4/0.0.0.0/tcp/443/tls/ws
+
+# Auto-generated on first run — do not edit manually.
+identity_key: ""
+
+# Directory where autocert stores ACME/Let's Encrypt certificates.
+acme_cache_dir: /var/cache/skypier-relay/acme
+
+# Maximum simultaneous relay reservations (one per browser peer).
+max_reservations: 512
+
+# How long a reservation is valid.  Peers must re-reserve before expiry.
+reservation_ttl: 1h
+
+# Maximum lifetime of a single relayed circuit.
+# Raise this so browser sessions survive longer than the libp2p default (2m).
+circuit_duration: 15m
+
+# Maximum data transferred per relayed circuit (megabytes).
+circuit_data_mb: 512
+
+# Path where the JSON status snapshot is written (read by 'status' subcommand).
+status_file: /run/skypier-relay/status.json

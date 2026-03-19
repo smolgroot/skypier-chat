@@ -45,9 +45,22 @@ export async function createBrowserSkypierNode(options: CreateBrowserSkypierNode
 
   const transports = [
     safelyCreate(() => webSockets()),
-    safelyCreate(() => webRTC()),
+    safelyCreate(() => webRTC({
+      rtcConfiguration: {
+        iceServers: [
+          {
+            urls: [
+              'stun:stun.l.google.com:19302',
+              'stun:stun1.l.google.com:19302',
+              'stun:global.stun.twilio.com:3478',
+            ],
+          },
+        ],
+      },
+    })),
     safelyCreate(() => circuitRelayTransport({
       reservationConcurrency: 2,
+      discoverRelays: 1,
     })),
   ].filter((transport): transport is NonNullable<typeof transport> => transport != null);
 
@@ -72,10 +85,11 @@ export async function createBrowserSkypierNode(options: CreateBrowserSkypierNode
       listen: options.listenAddresses ?? ['/webrtc', '/p2p-circuit'],
     },
     connectionManager: {
+      minConnections: 5,
       maxConnections: options.maxConnections ?? 100,
       maxParallelDials: 20,
       dialTimeout: 30_000,
-      maxPeerAddrsToDial: 1000,
+      maxPeerAddrsToDial: 10,
     },
     transports,
     connectionGater: {

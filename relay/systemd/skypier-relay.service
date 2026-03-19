@@ -1,0 +1,44 @@
+[Unit]
+Description=Skypier libp2p Circuit Relay v2 Server
+Documentation=https://github.com/skypier/relay
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/var/lib/skypier-relay
+
+ExecStart=/usr/local/bin/skypier-relay serve --config /etc/skypier-relay/config.yaml
+
+Restart=on-failure
+RestartSec=5s
+
+# Allow enough open file descriptors for many concurrent connections.
+LimitNOFILE=65536
+
+# Give the process time to drain existing circuits on shutdown.
+TimeoutStopSec=30s
+
+# Basic hardening (compatible with running as root).
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+
+# Create runtime directory /run/skypier-relay/ automatically (for status file).
+RuntimeDirectory=skypier-relay
+RuntimeDirectoryMode=0755
+
+# Persistent state (ACME certs, etc.)
+StateDirectory=skypier-relay
+StateDirectoryMode=0700
+
+# Log to journal with a syslog identifier.
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=skypier-relay
+
+[Install]
+WantedBy=multi-user.target
