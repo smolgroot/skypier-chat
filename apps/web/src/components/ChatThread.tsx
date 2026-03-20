@@ -224,8 +224,8 @@ export function ChatThread(props: ChatThreadProps) {
             PaperProps={{
               sx: {
                 bgcolor: (theme) => theme.palette.mode === 'dark' ? 'rgba(10, 5, 20, 0.4)' : 'rgba(255, 255, 255, 0.4)',
-                backdropFilter: (theme) => `blur(30px) saturate(190%) url(#liquid-glass-refraction-${theme.palette.mode})`,
-                WebkitBackdropFilter: (theme) => `blur(30px) saturate(190%) url(#liquid-glass-refraction-${theme.palette.mode})`,
+                backdropFilter: (theme) => `blur(15px) saturate(190%) url(#liquid-glass-refraction-${theme.palette.mode})`,
+                WebkitBackdropFilter: (theme) => `blur(15px) saturate(190%) url(#liquid-glass-refraction-${theme.palette.mode})`,
                 filter: (theme) => `url(#liquid-glass-gloss-${theme.palette.mode})`,
                 borderRadius: '16px',
                 border: (theme) => 

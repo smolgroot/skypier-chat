@@ -29,8 +29,8 @@ const GlassPaper = ({ children, sx = {} }: { children: React.ReactNode, sx?: any
         theme.palette.mode === 'dark' 
           ? 'rgba(14, 8, 28, 0.2)' 
           : 'rgba(255, 255, 255, 0.2)',
-      backdropFilter: (theme: any) => `blur(30px) saturate(190%) url(#liquid-glass-refraction-${theme.palette.mode})`,
-      WebkitBackdropFilter: (theme: any) => `blur(30px) saturate(190%) url(#liquid-glass-refraction-${theme.palette.mode})`,
+      backdropFilter: (theme: any) => `blur(15px) saturate(190%) url(#liquid-glass-refraction-${theme.palette.mode})`,
+      WebkitBackdropFilter: (theme: any) => `blur(15px) saturate(190%) url(#liquid-glass-refraction-${theme.palette.mode})`,
       filter: (theme: any) => `url(#liquid-glass-gloss-${theme.palette.mode})`,
       border: (theme: any) => 
         theme.palette.mode === 'dark' 
