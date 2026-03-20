@@ -413,6 +413,7 @@ function normalizePersistedState(raw: PersistedChatState): PersistedChatState {
     },
     conversations: raw.conversations ?? [],
     messagesByConversation: raw.messagesByConversation ?? {},
+    contacts: raw.contacts ?? [],
   };
 }
 

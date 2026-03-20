@@ -40,9 +40,15 @@ function stripRelayCircuitSuffix(value: string): string {
   return value.replace(/\/p2p-circuit$/, '');
 }
 
+function appendRelayCircuitSuffix(value: string): string {
+  return value.endsWith('/p2p-circuit') ? value : `${value}/p2p-circuit`;
+}
+
 const CONFIGURED_RELAY_DIRECT_MULTIADDRS = Array.from(
   new Set(RELAY_BOOTSTRAP_MULTIADDRS.map(stripRelayCircuitSuffix)),
 );
+
+const CONFIGURED_RELAY_LISTEN_MULTIADDRS = CONFIGURED_RELAY_DIRECT_MULTIADDRS.map(appendRelayCircuitSuffix);
 
 const EFFECTIVE_BOOTSTRAP_MULTIADDRS = Array.from(
   new Set([
@@ -54,6 +60,7 @@ const EFFECTIVE_BOOTSTRAP_MULTIADDRS = Array.from(
 const EFFECTIVE_LISTEN_ADDRESSES = Array.from(
   new Set([
     '/webrtc',
+    ...CONFIGURED_RELAY_LISTEN_MULTIADDRS,
     '/p2p-circuit',
   ]),
 );
