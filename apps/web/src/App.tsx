@@ -395,8 +395,8 @@ export function App() {
                   console.log('[skypier:app] \u21d2 sending message to peer', remotePeer.peerId, 'conv:', message.conversationId);
                   const sent = await sendChatMessageToPeer(message, remotePeer.peerId);
                   if (!sent) {
-                    // Enqueued for retry — show as failed so user can see the Retry button
-                    await updateMessageDeliveryStatus(message.id, 'local-only');
+                    // Not sent immediately (likely dialing / transient network): keep queued.
+                    await updateMessageDeliveryStatus(message.id, 'queued');
                   }
                 } else {
                   await updateMessageDeliveryStatus(message.id, 'local-only');
@@ -419,7 +419,7 @@ export function App() {
                   if (remotePeer) {
                     const sent = await sendChatMessageToPeer(message, remotePeer.peerId);
                     if (!sent) {
-                      await updateMessageDeliveryStatus(message.id, 'local-only');
+                      await updateMessageDeliveryStatus(message.id, 'queued');
                     }
                   } else {
                     await updateMessageDeliveryStatus(message.id, 'local-only');

@@ -39,12 +39,29 @@ func New(ctx context.Context, cfg *config.Config, priv crypto.PrivKey, m *metric
 		Cache:      autocert.DirCache(cfg.ACMECacheDir),
 	}
 	tlsCfg := acmeManager.TLSConfig()
-	// Fallback to a self-signed cert when running locally / without a real domain.
-	// In production with dns_name set this is never reached.
+	// Some clients may not send SNI. In that case, attempt certificate lookup
+	// using the configured relay DNS name so handshakes can still succeed.
 	tlsCfg.GetCertificate = func(hello *tls.ClientHelloInfo) (*tls.Certificate, error) {
-		cert, err := acmeManager.GetCertificate(hello)
+		if hello == nil {
+			cert, err := acmeManager.GetCertificate(hello)
+			if err != nil {
+				log.Printf("[relay] TLS cert lookup failed (nil client hello): %v", err)
+			}
+			return cert, err
+		}
+
+		requestedServerName := hello.ServerName
+		lookupServerName := requestedServerName
+		if lookupServerName == "" {
+			lookupServerName = cfg.DNSName
+		}
+
+		helloCopy := *hello
+		helloCopy.ServerName = lookupServerName
+
+		cert, err := acmeManager.GetCertificate(&helloCopy)
 		if err != nil {
-			log.Printf("[relay] ACME cert unavailable for %s: %v — falling back to self-signed", hello.ServerName, err)
+			log.Printf("[relay] TLS cert lookup failed for requested_sni=%q lookup_sni=%q: %v", requestedServerName, lookupServerName, err)
 		}
 		return cert, err
 	}
