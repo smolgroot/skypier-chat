@@ -26,19 +26,37 @@ const DEFAULT_BOOTSTRAP_MULTIADDRS = [
  * Optional dedicated relay bootstrap(s), configured via env.
  *
  * Example:
- * VITE_RELAY_BOOTSTRAP_MULTIADDRS=/dns4/relay.skypier.chat/tcp/443/tls/ws/p2p/12D3KooW.../p2p-circuit
+ * VITE_RELAY_BOOTSTRAP_MULTIADDRS=/dns4/relay.skypier.chat/tcp/443/tls/ws/p2p/12D3KooW...
  *
- * Multiple values can be comma-separated.
+ * Multiple values can be comma-separated. Older values that already include
+ * `/p2p-circuit` are accepted and normalized automatically.
  */
 const RELAY_BOOTSTRAP_MULTIADDRS = String(import.meta.env.VITE_RELAY_BOOTSTRAP_MULTIADDRS ?? '')
   .split(',')
   .map((value: string) => value.trim())
   .filter(Boolean);
 
-const EFFECTIVE_BOOTSTRAP_MULTIADDRS = [
-  ...RELAY_BOOTSTRAP_MULTIADDRS,
-  ...DEFAULT_BOOTSTRAP_MULTIADDRS,
-];
+function stripRelayCircuitSuffix(value: string): string {
+  return value.replace(/\/p2p-circuit$/, '');
+}
+
+const CONFIGURED_RELAY_DIRECT_MULTIADDRS = Array.from(
+  new Set(RELAY_BOOTSTRAP_MULTIADDRS.map(stripRelayCircuitSuffix)),
+);
+
+const EFFECTIVE_BOOTSTRAP_MULTIADDRS = Array.from(
+  new Set([
+    ...CONFIGURED_RELAY_DIRECT_MULTIADDRS,
+    ...DEFAULT_BOOTSTRAP_MULTIADDRS,
+  ]),
+);
+
+const EFFECTIVE_LISTEN_ADDRESSES = Array.from(
+  new Set([
+    '/webrtc',
+    '/p2p-circuit',
+  ]),
+);
 
 const MAX_BROWSER_CONNECTIONS = (() => {
   const raw = Number(import.meta.env.VITE_LIBP2P_MAX_CONNECTIONS ?? '16');
@@ -81,6 +99,7 @@ export function useLiveChatSession(options: UseLiveChatSessionOptions) {
     const session = createBrowserLiveSession({
       nodeOptions: {
         bootstrapMultiaddrs: EFFECTIVE_BOOTSTRAP_MULTIADDRS,
+        listenAddresses: EFFECTIVE_LISTEN_ADDRESSES,
         maxConnections: MAX_BROWSER_CONNECTIONS,
         ...(options.identityProtobuf ? {
           identityProtobuf: (() => {

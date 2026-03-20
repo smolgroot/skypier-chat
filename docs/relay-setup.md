@@ -149,12 +149,19 @@ skypier-relay keygen
 Set this environment variable for the web app:
 
 ```bash
-VITE_RELAY_BOOTSTRAP_MULTIADDRS=/dns4/relay.skypier.chat/tcp/443/tls/ws/p2p/<RELAY_PEER_ID>/p2p-circuit
+VITE_RELAY_BOOTSTRAP_MULTIADDRS=/dns4/relay.skypier.chat/tcp/443/tls/ws/p2p/<RELAY_PEER_ID>
 ```
 
 Multiple relays can be provided as comma-separated values.
 
-The app prepends these to default bootstrap peers in `apps/web/src/useLiveChatSession.ts`.
+The app uses the direct relay address for bootstrap/discovery and automatically
+adds `/p2p-circuit` internally when asking that relay for a reservation.
+Older env values that already include `/p2p-circuit` are still accepted and
+normalized for backwards compatibility.
+
+Relay reservations are refreshed automatically by libp2p before expiry, and the
+Skypier session loop re-dials the configured relay if the reservation disappears
+ after a network flap or relay restart.
 
 ## 8) Validate end-to-end
 
@@ -175,6 +182,7 @@ The app prepends these to default bootstrap peers in `apps/web/src/useLiveChatSe
 
 - Verify multiaddr uses `/tls/ws` and port `443`
 - Verify `VITE_RELAY_BOOTSTRAP_MULTIADDRS` contains the correct relay peer ID
+- Prefer the direct relay multiaddr in env; the app appends `/p2p-circuit` when reserving
 - Restart web app after env changes
 
 ### Service runs but no peers connect

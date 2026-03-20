@@ -63,6 +63,9 @@ export interface NetworkDebugSnapshot {
   connections: ConnectionDebugInfo[];
   listenAddresses: string[];
   hasRelayReservation: boolean;
+  relayListenAddresses: string[];
+  relayPeerIds: string[];
+  configuredRelayAddresses: string[];
   hasWebRTCAddress: boolean;
   totalConnections: number;
   relayedConnections: number;
@@ -126,6 +129,8 @@ export function createBrowserLiveSession(options: CreateBrowserLiveSessionOption
   let node: SkypierBrowserNode | undefined;
   let retryTimer: ReturnType<typeof setInterval> | undefined;
   let relayKeepaliveTimer: ReturnType<typeof setInterval> | undefined;
+  let hadRelayReservation = false;
+  let relayReservationKey = '';
 
   let state: BrowserLiveSessionState = {
     status: 'idle',
@@ -150,6 +155,12 @@ export function createBrowserLiveSession(options: CreateBrowserLiveSessionOption
     deliveryStatus: new Set<(payload: DeliveryStatusEvent) => void>(),
     dialLog: new Set<(payload: DialLogEntry) => void>(),
   };
+
+  const configuredRelayAddresses = Array.from(new Set(
+    (options.nodeOptions?.bootstrapMultiaddrs ?? [])
+      .filter((addr) => !addr.includes('/dnsaddr/bootstrap.libp2p.io/'))
+      .map((addr) => addr.endsWith('/p2p-circuit') ? addr : `${addr}/p2p-circuit`),
+  ));
 
   // ─── Helpers ───────────────────────────────────────────────────────────
 
@@ -206,6 +217,73 @@ export function createBrowserLiveSession(options: CreateBrowserLiveSessionOption
       timestamp: new Date().toISOString(),
     };
     listeners.dialLog.forEach((handler) => handler(entry));
+  }
+
+  function extractPeerIdFromMultiaddr(address: string): string | undefined {
+    const match = address.match(/\/p2p\/([^/]+)(?:\/p2p-circuit)?$/);
+    return match?.[1];
+  }
+
+  function getRelayReservationAddresses(): string[] {
+    return node?.getMultiaddrs().map((ma) => ma.toString()).filter((addr) => addr.includes('/p2p-circuit')) ?? [];
+  }
+
+  function getRelayPeerIds(addresses: string[]): string[] {
+    return Array.from(new Set(addresses.map((addr) => extractPeerIdFromMultiaddr(addr)).filter((peerId): peerId is string => peerId != null)));
+  }
+
+  function describeRelay(address: string): string {
+    const peerId = extractPeerIdFromMultiaddr(address);
+    if (peerId == null) {
+      return address;
+    }
+
+    return `${peerId.slice(0, 12)}…`;
+  }
+
+  function getDefaultRelayLogPeerId(): string {
+    return extractPeerIdFromMultiaddr(configuredRelayAddresses[0] ?? '') ?? 'relay';
+  }
+
+  function syncRelayReservationState(source: 'startup' | 'keepalive') {
+    const relayAddresses = getRelayReservationAddresses();
+    const nextKey = relayAddresses.slice().sort().join('|');
+
+    if (relayAddresses.length === 0) {
+      if (hadRelayReservation) {
+        emitDialLog(getDefaultRelayLogPeerId(), 'warn', 'Relay reservation disappeared; attempting to restore it.');
+      }
+
+      hadRelayReservation = false;
+      relayReservationKey = '';
+      return relayAddresses;
+    }
+
+    if (!hadRelayReservation) {
+      for (const address of relayAddresses) {
+        emitDialLog(
+          extractPeerIdFromMultiaddr(address) ?? 'relay',
+          'success',
+          `${source === 'keepalive' ? 'Relay reservation restored' : 'Relay reservation active'} via ${describeRelay(address)}.`,
+        );
+      }
+      emitDialLog(getDefaultRelayLogPeerId(), 'info', 'libp2p will auto-renew active relay reservations before expiry.');
+    } else if (nextKey !== relayReservationKey) {
+      const previous = new Set(relayReservationKey.split('|').filter(Boolean));
+      for (const address of relayAddresses) {
+        if (!previous.has(address)) {
+          emitDialLog(
+            extractPeerIdFromMultiaddr(address) ?? 'relay',
+            'success',
+            `Additional relay reservation active via ${describeRelay(address)}.`,
+          );
+        }
+      }
+    }
+
+    hadRelayReservation = true;
+    relayReservationKey = nextKey;
+    return relayAddresses;
   }
 
   function enqueue(peerId: string, envelope: WireEnvelope, retryCount = 0) {
@@ -418,13 +496,17 @@ export function createBrowserLiveSession(options: CreateBrowserLiveSessionOption
     relayKeepaliveTimer = setInterval(async () => {
       if (!node) return;
 
-      const hasRelay = node.getMultiaddrs().some((ma) => ma.toString().includes('/p2p-circuit'));
+      const hasRelay = syncRelayReservationState('keepalive').length > 0;
       if (!hasRelay) {
         console.log('[skypier:session] 🔄 relay reservation gone — re-dialing bootstrap peers…');
         for (const addr of bootstrapMultiaddrs) {
+          const relayPeerId = extractPeerIdFromMultiaddr(addr) ?? 'relay';
           try {
+            emitDialLog(relayPeerId, 'info', `Re-dialing relay control connection ${describeRelay(addr)}…`);
             await node.dial(multiaddr(addr));
+            emitDialLog(relayPeerId, 'info', `Connected to ${describeRelay(addr)}; waiting for reservation confirmation.`);
           } catch {
+            emitDialLog(relayPeerId, 'warn', `Could not re-dial ${describeRelay(addr)} right now.`);
             // ignore individual failures — peer may be temporarily unreachable
           }
         }
@@ -453,6 +535,16 @@ export function createBrowserLiveSession(options: CreateBrowserLiveSessionOption
 
       try {
         node = await createBrowserSkypierNode(options.nodeOptions);
+
+        if (configuredRelayAddresses.length > 0) {
+          for (const address of configuredRelayAddresses) {
+            emitDialLog(
+              extractPeerIdFromMultiaddr(address) ?? 'relay',
+              'info',
+              `Configured relay target ${describeRelay(address)}; requesting a reservation.`,
+            );
+          }
+        }
 
         // ─── Register MESSAGE protocol handler ───────────────────────
         console.log('[skypier:session] registering protocol handler:', SKYPIER_CHAT_PROTOCOLS.message);
@@ -553,18 +645,27 @@ export function createBrowserLiveSession(options: CreateBrowserLiveSessionOption
 
         // Log relay discovery progress every 5 s until a reservation is acquired;
         // the relay keepalive loop then maintains it indefinitely after that.
+        let relayProbeCount = 0;
         const relayCheckInterval = setInterval(() => {
           if (!node) {
             clearInterval(relayCheckInterval);
             return;
           }
           const addrs = node.getMultiaddrs().map((ma) => ma.toString());
-          const relayAddrs = addrs.filter((a) => a.includes('/p2p-circuit'));
+          const relayAddrs = syncRelayReservationState('startup');
           const webrtcAddrs = addrs.filter((a) => a.includes('/webrtc'));
           const conns = node.getConnections().length;
+          relayProbeCount += 1;
           console.log(
             `[skypier:session] 🔍 relay status: ${relayAddrs.length} relay addr(s), ${webrtcAddrs.length} webrtc addr(s), ${conns} connection(s)`,
           );
+          if (relayAddrs.length === 0) {
+            if (relayProbeCount === 1) {
+              emitDialLog(getDefaultRelayLogPeerId(), 'info', 'Waiting for relay reservation to appear in announced listen addresses…');
+            } else if (relayProbeCount % 6 === 0) {
+              emitDialLog(getDefaultRelayLogPeerId(), 'warn', 'Still waiting for a relay reservation; keeping the relay control connection alive.');
+            }
+          }
           if (relayAddrs.length > 0) {
             console.log('[skypier:session] ✓ relay reservation acquired:', relayAddrs[0]);
             emitState(); // update UI with new listen addresses
@@ -827,12 +928,16 @@ export function createBrowserLiveSession(options: CreateBrowserLiveSessionOption
       });
 
       const listenAddrs = node.getMultiaddrs().map((ma) => ma.toString());
+      const relayListenAddresses = listenAddrs.filter((a) => a.includes('/p2p-circuit'));
 
       return {
         peerId: node.peerId.toString(),
         connections,
         listenAddresses: listenAddrs,
-        hasRelayReservation: listenAddrs.some((a) => a.includes('/p2p-circuit')),
+        hasRelayReservation: relayListenAddresses.length > 0,
+        relayListenAddresses,
+        relayPeerIds: getRelayPeerIds(relayListenAddresses),
+        configuredRelayAddresses,
         hasWebRTCAddress: listenAddrs.some((a) => a.includes('/webrtc')),
         totalConnections: connections.length,
         relayedConnections: connections.filter((c) => c.transportType === 'relay').length,

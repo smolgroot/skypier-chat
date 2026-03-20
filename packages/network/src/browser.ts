@@ -23,6 +23,14 @@ export interface CreateBrowserSkypierNodeOptions {
 
 export type SkypierBrowserNode = Libp2p;
 
+function stripRelayCircuitSuffix(address: string): string {
+  return address.replace(/\/p2p-circuit$/, '');
+}
+
+function dedupe(values: string[]): string[] {
+  return Array.from(new Set(values));
+}
+
 export async function createBrowserSkypierNode(options: CreateBrowserSkypierNodeOptions = {}): Promise<SkypierBrowserNode> {
   let importedPrivateKey: unknown;
 
@@ -40,8 +48,11 @@ export async function createBrowserSkypierNode(options: CreateBrowserSkypierNode
     importedPrivateKey = privateKeyFromProtobuf(rawPrivateKeyBytes);
   }
 
-  const peerDiscovery = options.bootstrapMultiaddrs != null && options.bootstrapMultiaddrs.length > 0
-    ? [bootstrap({ list: options.bootstrapMultiaddrs })]
+  const normalizedBootstrapMultiaddrs = dedupe((options.bootstrapMultiaddrs ?? []).map(stripRelayCircuitSuffix));
+  const normalizedListenAddresses = dedupe(options.listenAddresses ?? ['/webrtc', '/p2p-circuit']);
+
+  const peerDiscovery = normalizedBootstrapMultiaddrs.length > 0
+    ? [bootstrap({ list: normalizedBootstrapMultiaddrs })]
     : [];
 
   const transports = [
@@ -82,7 +93,7 @@ export async function createBrowserSkypierNode(options: CreateBrowserSkypierNode
     start: options.start ?? false,
     ...(importedPrivateKey != null ? { privateKey: importedPrivateKey as any } : {}),
     addresses: {
-      listen: options.listenAddresses ?? ['/webrtc', '/p2p-circuit'],
+      listen: normalizedListenAddresses,
     },
     connectionManager: {
       maxConnections: options.maxConnections ?? 16,

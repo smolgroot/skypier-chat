@@ -292,6 +292,64 @@ export function NetworkStatusPage({ sessionState, networkLog = [], getDebugInfo 
                   />
                 </Box>
 
+                <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+                  <Typography variant="caption" color="text.secondary">
+                    Configured relay targets
+                  </Typography>
+                  {debugSnapshot.configuredRelayAddresses.length > 0 ? (
+                    <List disablePadding dense>
+                      {debugSnapshot.configuredRelayAddresses.map((addr, idx) => (
+                        <ListItem
+                          key={`${addr}-${idx}`}
+                          divider={idx < debugSnapshot.configuredRelayAddresses.length - 1}
+                          sx={{ px: 0, py: 0.5 }}
+                        >
+                          <ListItemText
+                            primary={
+                              <Typography variant="caption" sx={{ fontFamily: 'monospace', wordBreak: 'break-all' }}>
+                                {addr}
+                              </Typography>
+                            }
+                          />
+                        </ListItem>
+                      ))}
+                    </List>
+                  ) : (
+                    <Typography variant="caption" color="text.secondary">
+                      No explicit relay targets configured.
+                    </Typography>
+                  )}
+                </Box>
+
+                <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+                  <Typography variant="caption" color="text.secondary">
+                    Active reservation addresses
+                  </Typography>
+                  {debugSnapshot.relayListenAddresses.length > 0 ? (
+                    <List disablePadding dense>
+                      {debugSnapshot.relayListenAddresses.map((addr, idx) => (
+                        <ListItem
+                          key={`${addr}-${idx}`}
+                          divider={idx < debugSnapshot.relayListenAddresses.length - 1}
+                          sx={{ px: 0, py: 0.5 }}
+                        >
+                          <ListItemText
+                            primary={
+                              <Typography variant="caption" sx={{ fontFamily: 'monospace', wordBreak: 'break-all' }}>
+                                {addr}
+                              </Typography>
+                            }
+                          />
+                        </ListItem>
+                      ))}
+                    </List>
+                  ) : (
+                    <Typography variant="caption" color="text.secondary">
+                      Reservation not announced yet.
+                    </Typography>
+                  )}
+                </Box>
+
                 {/* Per-peer list */}
                 {debugSnapshot.connections.length > 0 && (
                   <List disablePadding dense>
