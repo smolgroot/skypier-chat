@@ -16,6 +16,7 @@ export interface CreateBrowserSkypierNodeOptions {
   bootstrapMultiaddrs?: string[];
   identityProtobuf?: Uint8Array;
   listenAddresses?: string[];
+  /** Upper cap on active libp2p connections (defaults to a mobile-friendly value). */
   maxConnections?: number;
   start?: boolean;
 }
@@ -60,7 +61,6 @@ export async function createBrowserSkypierNode(options: CreateBrowserSkypierNode
     })),
     safelyCreate(() => circuitRelayTransport({
       reservationConcurrency: 2,
-      discoverRelays: 1,
     })),
   ].filter((transport): transport is NonNullable<typeof transport> => transport != null);
 
@@ -85,9 +85,8 @@ export async function createBrowserSkypierNode(options: CreateBrowserSkypierNode
       listen: options.listenAddresses ?? ['/webrtc', '/p2p-circuit'],
     },
     connectionManager: {
-      minConnections: 5,
-      maxConnections: options.maxConnections ?? 100,
-      maxParallelDials: 20,
+      maxConnections: options.maxConnections ?? 16,
+      maxParallelDials: 8,
       dialTimeout: 30_000,
       maxPeerAddrsToDial: 10,
     },

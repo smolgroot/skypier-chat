@@ -30,15 +30,21 @@ const DEFAULT_BOOTSTRAP_MULTIADDRS = [
  *
  * Multiple values can be comma-separated.
  */
-const RELAY_BOOTSTRAP_MULTIADDRS = (import.meta.env.VITE_RELAY_BOOTSTRAP_MULTIADDRS ?? '')
+const RELAY_BOOTSTRAP_MULTIADDRS = String(import.meta.env.VITE_RELAY_BOOTSTRAP_MULTIADDRS ?? '')
   .split(',')
-  .map((value) => value.trim())
+  .map((value: string) => value.trim())
   .filter(Boolean);
 
 const EFFECTIVE_BOOTSTRAP_MULTIADDRS = [
   ...RELAY_BOOTSTRAP_MULTIADDRS,
   ...DEFAULT_BOOTSTRAP_MULTIADDRS,
 ];
+
+const MAX_BROWSER_CONNECTIONS = (() => {
+  const raw = Number(import.meta.env.VITE_LIBP2P_MAX_CONNECTIONS ?? '16');
+  if (!Number.isFinite(raw)) return 16;
+  return Math.max(4, Math.min(32, Math.floor(raw)));
+})();
 
 const INITIAL_STATE: BrowserLiveSessionState = {
   status: 'idle',
@@ -75,6 +81,7 @@ export function useLiveChatSession(options: UseLiveChatSessionOptions) {
     const session = createBrowserLiveSession({
       nodeOptions: {
         bootstrapMultiaddrs: EFFECTIVE_BOOTSTRAP_MULTIADDRS,
+        maxConnections: MAX_BROWSER_CONNECTIONS,
         ...(options.identityProtobuf ? {
           identityProtobuf: (() => {
             const binary = atob(options.identityProtobuf);
