@@ -125,6 +125,7 @@ function buildEnvelopePayload(message: ChatMessage): string {
 export function createBrowserLiveSession(options: CreateBrowserLiveSessionOptions = {}): BrowserLiveSession {
   let node: SkypierBrowserNode | undefined;
   let retryTimer: ReturnType<typeof setInterval> | undefined;
+  let relayKeepaliveTimer: ReturnType<typeof setInterval> | undefined;
 
   let state: BrowserLiveSessionState = {
     status: 'idle',
@@ -406,6 +407,39 @@ export function createBrowserLiveSession(options: CreateBrowserLiveSessionOption
     }
   }
 
+  // ─── Relay reservation keepalive ───────────────────────────────────────
+  // Runs every 30 s indefinitely. If no /p2p-circuit address is present the
+  // reservation was lost (relay restarted, TTL expired, network blip) — re-dial
+  // all bootstrap peers so the circuit-relay transport can reacquire it.
+
+  function startRelayKeepalive(bootstrapMultiaddrs: string[]) {
+    if (relayKeepaliveTimer != null || bootstrapMultiaddrs.length === 0) return;
+
+    relayKeepaliveTimer = setInterval(async () => {
+      if (!node) return;
+
+      const hasRelay = node.getMultiaddrs().some((ma) => ma.toString().includes('/p2p-circuit'));
+      if (!hasRelay) {
+        console.log('[skypier:session] 🔄 relay reservation gone — re-dialing bootstrap peers…');
+        for (const addr of bootstrapMultiaddrs) {
+          try {
+            await node.dial(multiaddr(addr));
+          } catch {
+            // ignore individual failures — peer may be temporarily unreachable
+          }
+        }
+        emitState();
+      }
+    }, 30_000);
+  }
+
+  function stopRelayKeepalive() {
+    if (relayKeepaliveTimer != null) {
+      clearInterval(relayKeepaliveTimer);
+      relayKeepaliveTimer = undefined;
+    }
+  }
+
   // ─── Public API ────────────────────────────────────────────────────────
 
   return {
@@ -517,14 +551,13 @@ export function createBrowserLiveSession(options: CreateBrowserLiveSessionOption
         console.log('[skypier:session]   listen addrs:', node.getMultiaddrs().map((ma) => ma.toString()));
         emitState();
 
-        // Log relay discovery progress periodically
-        let relayCheckCount = 0;
+        // Log relay discovery progress every 5 s until a reservation is acquired;
+        // the relay keepalive loop then maintains it indefinitely after that.
         const relayCheckInterval = setInterval(() => {
-          if (!node || relayCheckCount >= 12) {  // stop after ~60 s
+          if (!node) {
             clearInterval(relayCheckInterval);
             return;
           }
-          relayCheckCount++;
           const addrs = node.getMultiaddrs().map((ma) => ma.toString());
           const relayAddrs = addrs.filter((a) => a.includes('/p2p-circuit'));
           const webrtcAddrs = addrs.filter((a) => a.includes('/webrtc'));
@@ -541,6 +574,7 @@ export function createBrowserLiveSession(options: CreateBrowserLiveSessionOption
 
         // Start background retry loop & flush any queued items
         startRetryLoop();
+        startRelayKeepalive(options.nodeOptions?.bootstrapMultiaddrs ?? []);
         await this.flushQueue();
       } catch (error) {
         state = {
@@ -554,6 +588,7 @@ export function createBrowserLiveSession(options: CreateBrowserLiveSessionOption
 
     async stop() {
       stopRetryLoop();
+      stopRelayKeepalive();
 
       if (!node) {
         state = { ...state, status: 'stopped' };

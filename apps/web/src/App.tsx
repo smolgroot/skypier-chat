@@ -57,7 +57,7 @@ export function App() {
 
   const [activeView, setActiveView] = useState<'chat' | 'profile' | 'settings' | 'network' | 'contacts'>('chat');
   const [showContactDetail, setShowContactDetail] = useState(false);
-  const [colorMode, setColorMode] = useState<'light' | 'dark'>('dark');
+  const [colorMode, setColorMode] = useState<'light' | 'dark'>('light');
   const [peerIdInput, setPeerIdInput] = useState('');
   const [dialError, setDialError] = useState<string | undefined>();
   const [walletBusy, setWalletBusy] = useState(false);

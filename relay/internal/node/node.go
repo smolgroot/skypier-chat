@@ -98,7 +98,10 @@ func New(ctx context.Context, cfg *config.Config, priv crypto.PrivKey, m *metric
 	}
 
 	// ── DHT in server mode ────────────────────────────────────────────────────
-	kadDHT, err := dht.New(ctx, h, dht.Mode(dht.ModeServer))
+	// Bootstrap peers are provided so the relay joins the wider libp2p DHT and
+	// is reachable via peer routing even when clients only know the relay's
+	// peer ID (not its current multiaddr).
+	kadDHT, err := dht.New(ctx, h, dht.Mode(dht.ModeServer), dht.BootstrapPeers(dht.GetDefaultBootstrapPeerAddrInfos()...))
 	if err != nil {
 		h.Close()
 		return nil, fmt.Errorf("build DHT: %w", err)

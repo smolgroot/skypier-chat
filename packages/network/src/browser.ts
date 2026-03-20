@@ -60,7 +60,7 @@ export async function createBrowserSkypierNode(options: CreateBrowserSkypierNode
       },
     })),
     safelyCreate(() => circuitRelayTransport({
-      reservationConcurrency: 2,
+      reservationConcurrency: 3,
     })),
   ].filter((transport): transport is NonNullable<typeof transport> => transport != null);
 
