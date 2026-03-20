@@ -14,6 +14,34 @@ import {
 } from '@skypier/storage';
 
 const CURRENT_USER_ID = 'user-1';
+const PLACEHOLDER_LOCAL_PEER_ID = '12D3KooWLocalPeer';
+
+function isPlaceholderLocalPeerId(peerId: string | undefined): boolean {
+  if (!peerId) return true;
+  return peerId === PLACEHOLDER_LOCAL_PEER_ID || peerId.includes('LocalPeer');
+}
+
+function resolveLocalPeerId(snap: PersistedChatState): string {
+  const accountPeerId = snap.account.localPeerId?.trim();
+  if (accountPeerId && !isPlaceholderLocalPeerId(accountPeerId)) {
+    return accountPeerId;
+  }
+
+  for (const conversation of snap.conversations) {
+    const selfParticipant = conversation.participants.find((participant) => participant.id === CURRENT_USER_ID);
+    const peerId = selfParticipant?.peerId?.trim();
+    if (peerId && !isPlaceholderLocalPeerId(peerId)) {
+      return peerId;
+    }
+  }
+
+  const devicePeerId = getCurrentDevice().peerId?.trim();
+  if (devicePeerId && !isPlaceholderLocalPeerId(devicePeerId)) {
+    return devicePeerId;
+  }
+
+  return accountPeerId ?? devicePeerId ?? PLACEHOLDER_LOCAL_PEER_ID;
+}
 
 // ─── Image compression ────────────────────────────────────────────────────────
 const MAX_IMAGE_BYTES = 2 * 1024 * 1024; // 2 MB hard cap post-compression
@@ -134,6 +162,7 @@ export function useChatController() {
     }
 
     const currentDevice = getCurrentDevice();
+    const localPeerId = resolveLocalPeerId(stateRef.current);
     const conversationId = `conv-${normalizedPeerId.slice(-8)}-${Math.random().toString(36).slice(2, 6)}`;
     const title = (displayName?.trim() || `Peer ${normalizedPeerId.slice(0, 10)}…`);
 
@@ -144,7 +173,7 @@ export function useChatController() {
         {
           id: CURRENT_USER_ID,
           displayName: stateRef.current.account.displayName,
-          peerId: stateRef.current.account.localPeerId ?? currentDevice.peerId,
+          peerId: localPeerId,
           devices: [currentDevice],
         },
         {
@@ -426,6 +455,7 @@ export function useChatController() {
     }
 
     const snap = stateRef.current;
+    const localPeerId = resolveLocalPeerId(snap);
     const currentSelectedId = selectedConversationIdRef.current;
     let existingConversation = snap.conversations.find((conversation) => conversation.id === envelope.conversationId);
     
@@ -443,7 +473,7 @@ export function useChatController() {
         {
           id: CURRENT_USER_ID,
           displayName: snap.account.displayName,
-          peerId: getCurrentDevice().peerId,
+          peerId: localPeerId,
           devices: [getCurrentDevice()],
         },
         {

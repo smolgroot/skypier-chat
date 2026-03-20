@@ -20,6 +20,22 @@ import { ContactDetailPage } from './components/ContactDetailPage';
 import { ContactsPage } from './components/ContactsPage';
 import { useNotifications } from './hooks/useNotifications';
 
+const PLACEHOLDER_LOCAL_PEER_ID = '12D3KooWLocalPeer';
+
+function isPlaceholderLocalPeerId(peerId: string | undefined): boolean {
+  if (!peerId) return true;
+  return peerId === PLACEHOLDER_LOCAL_PEER_ID || peerId.includes('LocalPeer');
+}
+
+function findRemoteParticipant(
+  participants: Array<{ peerId: string }>,
+  localId: string,
+): { peerId: string } | undefined {
+  return participants.find((p) => p.peerId !== localId && !isPlaceholderLocalPeerId(p.peerId))
+    ?? participants.find((p) => p.peerId !== localId)
+    ?? participants[0];
+}
+
 export function App() {
   const {
     account,
@@ -120,6 +136,12 @@ export function App() {
     onDialLog: (log) => setDialLogs(prev => [...prev, log]),
     identityProtobuf
   });
+
+  useEffect(() => {
+    if (!liveState.localPeerId) return;
+    if (account.localPeerId === liveState.localPeerId) return;
+    void updateAccount({ localPeerId: liveState.localPeerId });
+  }, [account.localPeerId, liveState.localPeerId, updateAccount]);
 
   // Automatically start the session once the app is loaded
   useEffect(() => {
@@ -388,8 +410,9 @@ export function App() {
               const message = await sendMessage();
               if (message && selectedConversation) {
                 // Find the remote peer in the conversation to send targeted
-                const remotePeer = selectedConversation.participants.find(
-                  (p) => p.peerId !== (liveState.localPeerId ?? localPeerId ?? getCurrentDevice().peerId)
+                const remotePeer = findRemoteParticipant(
+                  selectedConversation.participants,
+                  liveState.localPeerId ?? localPeerId ?? getCurrentDevice().peerId,
                 );
                 if (remotePeer) {
                   console.log('[skypier:app] \u21d2 sending message to peer', remotePeer.peerId, 'conv:', message.conversationId);
@@ -413,8 +436,9 @@ export function App() {
               try {
                 const message = await sendImageMessage(file);
                 if (message && selectedConversation) {
-                  const remotePeer = selectedConversation.participants.find(
-                    (p) => p.peerId !== (liveState.localPeerId ?? localPeerId ?? getCurrentDevice().peerId)
+                  const remotePeer = findRemoteParticipant(
+                    selectedConversation.participants,
+                    liveState.localPeerId ?? localPeerId ?? getCurrentDevice().peerId,
                   );
                   if (remotePeer) {
                     const sent = await sendChatMessageToPeer(message, remotePeer.peerId);

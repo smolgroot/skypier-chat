@@ -472,7 +472,19 @@ export function MainLayout(props: MainLayoutProps) {
               onDeleteConversation={onDeleteConversation}
             />
           </Box>
-        ) : children}
+        ) : (
+          <Box
+            sx={{
+              pt: isMobile && !(activeView === 'chat' && !!selectedConversationId)
+                ? 'calc(env(safe-area-inset-top) + 68px)'
+                : 0,
+              minHeight: 0,
+              height: '100%',
+            }}
+          >
+            {children}
+          </Box>
+        )}
       </Box>
     </Box>
   );

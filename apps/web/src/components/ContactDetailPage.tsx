@@ -5,6 +5,13 @@ import type { Conversation } from '@skypier/protocol';
 import { reachabilityLabel, type DialLogEntry } from '@skypier/network';
 import { UserAvatar } from './UserAvatar';
 
+const PLACEHOLDER_LOCAL_PEER_ID = '12D3KooWLocalPeer';
+
+function isPlaceholderLocalPeerId(peerId: string | undefined): boolean {
+  if (!peerId) return true;
+  return peerId === PLACEHOLDER_LOCAL_PEER_ID || peerId.includes('LocalPeer');
+}
+
 interface ContactDetailPageProps {
   conversation: Conversation;
   localPeerId: string;
@@ -19,7 +26,9 @@ interface ContactDetailPageProps {
 export function ContactDetailPage(props: ContactDetailPageProps) {
   const { conversation, localPeerId, isDialing, dialError, dialSuccess, dialLogs = [], onDialPeer, onOpenChat } = props;
 
-  const remoteParticipant = conversation.participants.find((participant) => participant.peerId !== localPeerId);
+  const remoteParticipant = conversation.participants.find(
+    (participant) => participant.peerId !== localPeerId && !isPlaceholderLocalPeerId(participant.peerId),
+  ) ?? conversation.participants.find((participant) => participant.peerId !== localPeerId);
 
   if (!remoteParticipant) {
     return (
@@ -30,7 +39,7 @@ export function ContactDetailPage(props: ContactDetailPageProps) {
   }
 
   return (
-    <Box sx={{ p: 4, pt: 2, maxWidth: 600, mx: 'auto', width: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+    <Box sx={{ p: { xs: 4, sm: 4 }, pt: { xs: 8, sm: 2 }, maxWidth: 600, mx: 'auto', width: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
       {/* Drawer Handle */}
       <Box sx={{ 
         width: 40, 
