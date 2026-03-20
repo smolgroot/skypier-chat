@@ -101,6 +101,12 @@ export async function createBrowserSkypierNode(options: CreateBrowserSkypierNode
       dialTimeout: 30_000,
       maxPeerAddrsToDial: 10,
     },
+    transportManager: {
+      // FaultTolerance.NO_FATAL = 1 — allow individual listen address failures
+      // (e.g. relay reservation refused when relay is temporarily offline)
+      // without crashing the whole node startup.
+      faultTolerance: 1,
+    },
     transports,
     connectionGater: {
       denyDialMultiaddr: (addr) => {

@@ -73,16 +73,19 @@ func New(ctx context.Context, cfg *config.Config, priv crypto.PrivKey, m *metric
 	}
 
 	// ── Relay resource limits ─────────────────────────────────────────────────
-	resources := relayv2.Resources{
-		Limit: &relayv2.RelayLimit{
-			Duration: cfg.CircuitDuration.Duration,
-			Data:     int64(cfg.CircuitDataMB) * 1024 * 1024,
-		},
-		ReservationTTL:  cfg.ReservationTTL.Duration,
-		MaxReservations: cfg.MaxReservations,
-		MaxCircuits:     32, // per-peer concurrent circuits
-		BufferSize:      4096,
+	// Start from defaults so that MaxReservationsPerIP / MaxReservationsPerASN
+	// / MaxReservationsPerPeer are populated correctly. Constructing Resources{}
+	// from scratch leaves those fields at 0, which makes len(x) >= 0 always
+	// true and causes every RESERVE request to be refused immediately.
+	resources := relayv2.DefaultResources()
+	resources.Limit = &relayv2.RelayLimit{
+		Duration: cfg.CircuitDuration.Duration,
+		Data:     int64(cfg.CircuitDataMB) * 1024 * 1024,
 	}
+	resources.ReservationTTL = cfg.ReservationTTL.Duration
+	resources.MaxReservations = cfg.MaxReservations
+	resources.MaxCircuits = 64 // per-relay concurrent circuits
+	resources.BufferSize = 4096
 
 	// ── Build libp2p host ─────────────────────────────────────────────────────
 	h, err := libp2p.New(
@@ -162,6 +165,8 @@ func (r *Relay) PollMetrics(ctx context.Context, interval time.Duration, extraAd
 				}
 				addrs = append(addrs, extraAddrs...)
 
+				// relay.Stat() does not exist in go-libp2p v0.38 — reservation count
+				// tracking via the public API is not available; omit for now.
 				if err := r.Metrics.WriteStatus(metrics.Snapshot{
 					PeerID:      peerID,
 					ListenAddrs: addrs,

@@ -57,6 +57,23 @@ const EFFECTIVE_BOOTSTRAP_MULTIADDRS = Array.from(
   ]),
 );
 
+/**
+ * Listen addresses include explicit relay multiaddrs to trigger RESERVE requests.
+ * 
+ * libp2p's circuit-relay-v2 transport only sends RESERVE requests when a relay's
+ * explicit multiaddr (with /p2p-circuit suffix) is in the listen addresses.
+ * Without them, no reservations are requested, and peers become unreachable via relay.
+ * 
+ * However, this can cause startup failures if:
+ * - The relay is offline
+ * - The relay is refusing reservations
+ * - The relay address is misconfigured
+ * 
+ * To handle this, we include the addresses but rely on error recovery:
+ * - Startup catches reservation errors and allows partial listen (some addresses fail)
+ * - The keepalive loop periodically re-dials to recover reservations if lost
+ * - If all listen addresses fail, the node is still usable via other transports
+ */
 const EFFECTIVE_LISTEN_ADDRESSES = Array.from(
   new Set([
     '/webrtc',
