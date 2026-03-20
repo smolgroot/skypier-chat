@@ -53,6 +53,9 @@ importers:
       d3:
         specifier: ^7.9.0
         version: 7.9.0
+      earcons:
+        specifier: ^0.4.0
+        version: 0.4.0
       emoji-picker-react:
         specifier: ^4.18.0
         version: 4.18.0(react@19.2.4)
@@ -1828,6 +1831,9 @@ packages:
 
   dom-helpers@5.2.1:
     resolution: {integrity: sha512-nRCa7CK3VTrM2NmGkIy4cbK7IZlgBE/PYMn55rrXefr5xXDP0LdtfPnblFDoVdcAfslJ7or6iqAUnx0CCGIWQA==}
+
+  earcons@0.4.0:
+    resolution: {integrity: sha512-iAAsbh3n7WWKSZH3ZeYT0u1Rb4wYzd765/JQkjraAvX77sMryrmeGCHQXubgjNmwyIUBsaSreauMbsoIPtNoUg==}
 
   ee-first@1.1.1:
     resolution: {integrity: sha512-WMwm9LhRUo+WUaRN+vRuETqG89IgZphVSNkdFgeb6sS/E4OrDIN7t48CAewSHXc6C8lefD8KKfr5vY61brQlow==}
@@ -5178,6 +5184,8 @@ snapshots:
     dependencies:
       '@babel/runtime': 7.29.2
       csstype: 3.2.3
+
+  earcons@0.4.0: {}
 
   ee-first@1.1.1: {}
 

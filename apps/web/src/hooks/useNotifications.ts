@@ -1,55 +1,38 @@
+import { playMessage } from 'earcons';
 import { useCallback, useEffect, useRef } from 'react';
-
-// ─── 8-bit notification sound via Web Audio API ──────────────────────────
 
 let sharedAudioCtx: AudioContext | undefined;
 
-function getAudioContext(): AudioContext {
+function getAudioContext(): AudioContext | undefined {
+  if (typeof window === 'undefined' || typeof AudioContext === 'undefined') {
+    return undefined;
+  }
+
   if (!sharedAudioCtx || sharedAudioCtx.state === 'closed') {
     sharedAudioCtx = new AudioContext();
   }
+
   return sharedAudioCtx;
 }
 
-/**
- * Plays a soft, modern notification chime using the Web Audio API.
- * Uses smooth sine waves with exponential decay for a clean UI sound.
- */
-function playModernNotificationSound(): void {
+async function playIncomingMessageSound(): Promise<void> {
   try {
     const ctx = getAudioContext();
-
-    if (ctx.state === 'suspended') {
-      void ctx.resume();
+    if (!ctx) {
+      return;
     }
 
-    const now = ctx.currentTime;
-    // Modern soft chime: G5 -> D6
-    const notes = [
-      { freq: 783.99, time: 0 },
-      { freq: 1174.66, time: 0.12 }
-    ];
+    if (ctx.state === 'suspended') {
+      await ctx.resume();
+    }
 
-    notes.forEach(({ freq, time }) => {
-      const osc = ctx.createOscillator();
-      const noteGain = ctx.createGain();
-
-      osc.type = 'sine'; // Soft rounded tone
-      osc.frequency.setValueAtTime(freq, now + time);
-
-      // Envelope: 20ms attack, smooth exponential decay over 400ms
-      noteGain.gain.setValueAtTime(0, now + time);
-      noteGain.gain.linearRampToValueAtTime(0.3, now + time + 0.02);
-      noteGain.gain.exponentialRampToValueAtTime(0.001, now + time + 0.4);
-
-      osc.connect(noteGain);
-      noteGain.connect(ctx.destination);
-
-      osc.start(now + time);
-      osc.stop(now + time + 0.45);
+    await playMessage({
+      audioContext: ctx,
+      variant: 'medium',
+      volume: 0.42,
     });
   } catch {
-    // Web Audio not available — silently skip
+    // Audio playback can be blocked by browser policy or unsupported APIs.
   }
 }
 
@@ -131,7 +114,7 @@ export function useNotifications() {
   useEffect(() => {
     const unlock = () => {
       const ctx = getAudioContext();
-      if (ctx.state === 'suspended') {
+      if (ctx?.state === 'suspended') {
         void ctx.resume();
       }
       // Remove after first interaction
@@ -152,8 +135,8 @@ export function useNotifications() {
   }, []);
 
   const notifyIncomingMessage = useCallback(({ senderName, messagePreview }: NotifyMessageOptions) => {
-    // 1) Play modern UI sound (always, even if tab is focused)
-    playModernNotificationSound();
+    // 1) Play chat earcon (always, even if tab is focused)
+    void playIncomingMessageSound();
 
     // 2) Trigger mobile vibration if available
     triggerMobileVibration();
