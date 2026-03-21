@@ -246,10 +246,7 @@ export function createBrowserLiveSession(options: CreateBrowserLiveSessionOption
       return relayAddresses;
     }
 
-    return relayAddresses.filter((addr) => {
-      const relayPeerId = extractPeerIdFromMultiaddr(addr);
-      return relayPeerId != null && configuredRelayPeerIds.includes(relayPeerId);
-    });
+    return relayAddresses.filter((addr) => configuredRelayPeerIds.some((peerId) => addr.includes(`/p2p/${peerId}/p2p-circuit`)));
   }
 
   function getRelayPeerIds(addresses: string[]): string[] {
