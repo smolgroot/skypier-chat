@@ -44,8 +44,24 @@ function appendRelayCircuitSuffix(value: string): string {
   return value.endsWith('/p2p-circuit') ? value : `${value}/p2p-circuit`;
 }
 
+function toWebTransportRelayMultiaddr(value: string): string | null {
+  const match = value.match(/^(\/dns4\/[^/]+|\/dns6\/[^/]+)\/tcp\/443\/tls\/ws(\/p2p\/[^/]+)$/);
+  if (!match) {
+    return null;
+  }
+  return `${match[1]}/udp/443/quic-v1/webtransport${match[2]}`;
+}
+
 const CONFIGURED_RELAY_DIRECT_MULTIADDRS = Array.from(
   new Set(RELAY_BOOTSTRAP_MULTIADDRS.map(stripRelayCircuitSuffix)),
+);
+
+const CONFIGURED_RELAY_WEBTRANSPORT_MULTIADDRS = Array.from(
+  new Set(
+    CONFIGURED_RELAY_DIRECT_MULTIADDRS
+      .map(toWebTransportRelayMultiaddr)
+      .filter((value): value is string => Boolean(value)),
+  ),
 );
 
 const CONFIGURED_RELAY_LISTEN_MULTIADDRS = CONFIGURED_RELAY_DIRECT_MULTIADDRS.map(appendRelayCircuitSuffix);
@@ -53,6 +69,7 @@ const CONFIGURED_RELAY_LISTEN_MULTIADDRS = CONFIGURED_RELAY_DIRECT_MULTIADDRS.ma
 const EFFECTIVE_BOOTSTRAP_MULTIADDRS = Array.from(
   new Set([
     ...CONFIGURED_RELAY_DIRECT_MULTIADDRS,
+    ...CONFIGURED_RELAY_WEBTRANSPORT_MULTIADDRS,
     ...DEFAULT_BOOTSTRAP_MULTIADDRS,
   ]),
 );

@@ -15,6 +15,7 @@ import (
 	"github.com/libp2p/go-libp2p/core/host"
 	"github.com/libp2p/go-libp2p/core/network"
 	relayv2 "github.com/libp2p/go-libp2p/p2p/protocol/circuitv2/relay"
+	wt "github.com/libp2p/go-libp2p/p2p/transport/webtransport"
 	ws "github.com/libp2p/go-libp2p/p2p/transport/websocket"
 	ma "github.com/multiformats/go-multiaddr"
 
@@ -66,10 +67,19 @@ func New(ctx context.Context, cfg *config.Config, priv crypto.PrivKey, m *metric
 		return cert, err
 	}
 
-	// ── Parse listen multiaddr ────────────────────────────────────────────────
+	// ── Parse listen multiaddrs ───────────────────────────────────────────────
 	listenMA, err := ma.NewMultiaddr(cfg.ListenAddr)
 	if err != nil {
 		return nil, fmt.Errorf("invalid listen_addr %q: %w", cfg.ListenAddr, err)
+	}
+
+	listenAddrs := []ma.Multiaddr{listenMA}
+	if cfg.WebTransportListenAddr != "" {
+		wtMA, wtErr := ma.NewMultiaddr(cfg.WebTransportListenAddr)
+		if wtErr != nil {
+			return nil, fmt.Errorf("invalid webtransport_listen_addr %q: %w", cfg.WebTransportListenAddr, wtErr)
+		}
+		listenAddrs = append(listenAddrs, wtMA)
 	}
 
 	// ── Relay resource limits ─────────────────────────────────────────────────
@@ -90,8 +100,9 @@ func New(ctx context.Context, cfg *config.Config, priv crypto.PrivKey, m *metric
 	// ── Build libp2p host ─────────────────────────────────────────────────────
 	h, err := libp2p.New(
 		libp2p.Identity(priv),
-		libp2p.ListenAddrs(listenMA),
+		libp2p.ListenAddrs(listenAddrs...),
 		libp2p.Transport(ws.New, ws.WithTLSConfig(tlsCfg)),
+		libp2p.Transport(wt.New),
 		libp2p.EnableHolePunching(),
 		libp2p.UserAgent("skypier-relay/1.0.0"),
 		libp2p.DisableRelay(), // relay server is created explicitly below via relayv2.New

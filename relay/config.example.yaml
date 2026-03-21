@@ -13,6 +13,11 @@ dns_name: relay.skypier.chat
 # browser clients).
 listen_addr: /ip4/0.0.0.0/tcp/443/tls/ws
 
+# Optional WebTransport listener (QUIC over UDP). Keep this enabled to allow
+# browser peers to dial the relay over WebTransport in addition to WSS.
+# Set to "" to disable.
+webtransport_listen_addr: /ip4/0.0.0.0/udp/443/quic-v1/webtransport
+
 # Auto-generated on first run — do not edit manually.
 identity_key: ""
 

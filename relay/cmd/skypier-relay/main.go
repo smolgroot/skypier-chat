@@ -78,6 +78,9 @@ func serveCmd() *cobra.Command {
 			if cfg.DNSName != "" {
 				peerIDStr := r.Host.ID().String()
 				log.Printf("[relay] announce multiaddr: /dns4/%s/tcp/443/tls/ws/p2p/%s", cfg.DNSName, peerIDStr)
+				if cfg.WebTransportListenAddr != "" {
+					log.Printf("[relay] announce webtransport: /dns4/%s/udp/443/quic-v1/webtransport/p2p/%s", cfg.DNSName, peerIDStr)
+				}
 				log.Printf("[relay] circuit listen:      /dns4/%s/tcp/443/tls/ws/p2p/%s/p2p-circuit", cfg.DNSName, peerIDStr)
 			}
 

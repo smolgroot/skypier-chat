@@ -21,6 +21,11 @@ type Config struct {
 	// Default: /ip4/0.0.0.0/tcp/443/tls/ws
 	ListenAddr string `yaml:"listen_addr"`
 
+	// WebTransportListenAddr is the libp2p WebTransport listen multiaddr.
+	// Default: /ip4/0.0.0.0/udp/443/quic-v1/webtransport
+	// Set empty string to disable WebTransport listener.
+	WebTransportListenAddr string `yaml:"webtransport_listen_addr"`
+
 	// IdentityKey is the base64-encoded protobuf-serialised Ed25519 private key.
 	// Leave empty on first run — a key is generated and written back automatically.
 	IdentityKey string `yaml:"identity_key"`
@@ -71,6 +76,7 @@ func Defaults() Config {
 	return Config{
 		DNSName:         "relay.skypier.chat",
 		ListenAddr:      "/ip4/0.0.0.0/tcp/443/tls/ws",
+		WebTransportListenAddr: "/ip4/0.0.0.0/udp/443/quic-v1/webtransport",
 		ACMECacheDir:    "/var/cache/skypier-relay/acme",
 		MaxReservations: 512,
 		ReservationTTL:  Duration{time.Hour},

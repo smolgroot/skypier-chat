@@ -9,6 +9,7 @@ import { kadDHT, removePrivateAddressesMapper } from '@libp2p/kad-dht';
 import { createFromProtobuf } from '@libp2p/peer-id-factory';
 import { ping } from '@libp2p/ping';
 import { webRTC } from '@libp2p/webrtc';
+import { webTransport } from '@libp2p/webtransport';
 import { webSockets } from '@libp2p/websockets';
 import { createLibp2p, type Libp2p } from 'libp2p';
 
@@ -57,6 +58,7 @@ export async function createBrowserSkypierNode(options: CreateBrowserSkypierNode
 
   const transports = [
     safelyCreate(() => webSockets()),
+    safelyCreate(() => webTransport()),
     safelyCreate(() => webRTC({
       rtcConfiguration: {
         iceServers: [
@@ -124,7 +126,7 @@ export async function createBrowserSkypierNode(options: CreateBrowserSkypierNode
         // peers can't accept incoming WSS connections, so dialing them always
         // fails. Infrastructure relays/bootstrap nodes use port 4001 or 443.
         if (addrStr.includes('.libp2p.direct')) {
-          const portMatch = addrStr.match(/\/tcp\/(\d+)\//);
+          const portMatch = addrStr.match(/\/(?:tcp|udp)\/(\d+)\//);
           const port = portMatch ? Number(portMatch[1]) : 0;
           if (port !== 4001 && port !== 443) {
             return true;
