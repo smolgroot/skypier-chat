@@ -1,7 +1,7 @@
 import { createKeyCustodyPlan, createSecuritySummary } from '@skypier/crypto';
 import { createPresence, createRuntimePlan, SKYPIER_MEDIA_PREFIX, type DeliveryStatusEvent, type PeerReachabilityEvent, type DialLogEntry } from '@skypier/network';
 import { getCurrentDevice } from '@skypier/storage';
-import { useCallback, useState, useMemo, useEffect } from 'react';
+import { useCallback, useState, useMemo, useEffect, useRef } from 'react';
 import { ThemeProvider, CssBaseline, Snackbar, Alert, Drawer, Box as MuiBox } from '@mui/material';
 import { useChatController } from './useChatController';
 import { useLiveChatSession } from './useLiveChatSession';
@@ -123,6 +123,7 @@ export function App() {
     connectedPeers,
     startSession,
     stopSession,
+    recoverConnectivity,
     dialPeer,
     dialPeerById,
     broadcastChatMessage,
@@ -137,6 +138,8 @@ export function App() {
     identityProtobuf
   });
 
+  const lastRecoveryAtRef = useRef(0);
+
   useEffect(() => {
     if (!liveState.localPeerId) return;
     if (account.localPeerId === liveState.localPeerId) return;
@@ -149,6 +152,48 @@ export function App() {
       void startSession().catch(console.error);
     }
   }, [isLoaded, liveState.status, startSession]);
+
+  // Resume-driven connectivity recovery (no background libp2p daemon in SW).
+  useEffect(() => {
+    if (!isLoaded || !account.displayName || !identityProtobuf) {
+      return;
+    }
+
+    const runRecovery = (reason: Parameters<typeof recoverConnectivity>[0]) => {
+      const now = Date.now();
+      if (now - lastRecoveryAtRef.current < 4_000) {
+        return;
+      }
+      lastRecoveryAtRef.current = now;
+      void recoverConnectivity(reason).catch((error) => {
+        console.warn('[skypier:app] recoverConnectivity failed:', error instanceof Error ? error.message : error);
+      });
+    };
+
+    const handleOnline = () => runRecovery('online');
+    const handleVisibility = () => {
+      if (document.visibilityState === 'visible') {
+        runRecovery('visibility');
+      }
+    };
+    const handlePageShow = () => runRecovery('resume');
+    const handleFocus = () => runRecovery('resume');
+    const handleSwRecovery = () => runRecovery('service-worker');
+
+    window.addEventListener('online', handleOnline);
+    document.addEventListener('visibilitychange', handleVisibility);
+    window.addEventListener('pageshow', handlePageShow);
+    window.addEventListener('focus', handleFocus);
+    window.addEventListener('skypier:recover-connectivity', handleSwRecovery as EventListener);
+
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      document.removeEventListener('visibilitychange', handleVisibility);
+      window.removeEventListener('pageshow', handlePageShow);
+      window.removeEventListener('focus', handleFocus);
+      window.removeEventListener('skypier:recover-connectivity', handleSwRecovery as EventListener);
+    };
+  }, [isLoaded, account.displayName, identityProtobuf, recoverConnectivity]);
 
   const handleLinkWallet = useCallback(() => {
     void (async () => {
@@ -566,7 +611,10 @@ export function App() {
       <MainLayout
         conversations={conversations}
         selectedConversationId={selectedConversationId}
-        onSelectConversation={setSelectedConversationId}
+        onSelectConversation={(id) => {
+          setSelectedConversationId(id);
+          setActiveView('chat');
+        }}
         activeView={activeView}
         setActiveView={setActiveView}
         mode={colorMode}

@@ -75,6 +75,8 @@ export interface NetworkDebugSnapshot {
 export interface BrowserLiveSession {
   start(): Promise<void>;
   stop(): Promise<void>;
+  recoverConnectivity(reason?: 'resume' | 'online' | 'visibility' | 'service-worker'): Promise<void>;
+  requestSyncWithConnectedPeers(reason?: 'resume' | 'manual'): Promise<number>;
   dialPeer(address: string): Promise<string>;
   dialPeerById(peerId: string): Promise<string>;
   sendEnvelopeToConnected(envelope: WireEnvelope): Promise<number>;
@@ -94,6 +96,15 @@ interface QueuedEnvelope {
   retryCount: number;
   /** ISO timestamp: when to attempt the next retry */
   nextRetryAt: string;
+}
+
+interface SyncPayload {
+  type: 'request' | 'state';
+  generatedAt: string;
+  requestedSince?: string;
+  connectedPeers?: number;
+  queuedOutgoing?: number;
+  hasPreferredRelayReservation?: boolean;
 }
 
 // ─── Retry constants ─────────────────────────────────────────────────────
@@ -123,6 +134,21 @@ function buildEnvelopePayload(message: ChatMessage): string {
     return SKYPIER_MEDIA_PREFIX + JSON.stringify(message.attachments[0]);
   }
   return message.previewText;
+}
+
+function tryParseSyncPayload(payload: string): SyncPayload | null {
+  try {
+    const parsed = JSON.parse(payload) as Partial<SyncPayload>;
+    if (parsed.type !== 'request' && parsed.type !== 'state') {
+      return null;
+    }
+    if (typeof parsed.generatedAt !== 'string') {
+      return null;
+    }
+    return parsed as SyncPayload;
+  } catch {
+    return null;
+  }
 }
 
 export function createBrowserLiveSession(options: CreateBrowserLiveSessionOptions = {}): BrowserLiveSession {
@@ -472,6 +498,31 @@ export function createBrowserLiveSession(options: CreateBrowserLiveSessionOption
     }
   }
 
+  async function sendSyncStateToPeer(peerId: string, requestedSince?: string) {
+    if (!node) return;
+
+    const envelope: WireEnvelope = {
+      kind: 'sync',
+      messageId: `sync-state-${Date.now().toString(36)}`,
+      conversationId: '__sync__',
+      senderPeerId: state.localPeerId ?? 'unknown',
+      sentAt: new Date().toISOString(),
+      payload: JSON.stringify({
+        type: 'state',
+        generatedAt: new Date().toISOString(),
+        requestedSince,
+        connectedPeers: node.getConnections().length,
+        queuedOutgoing: queue.length,
+        hasPreferredRelayReservation: getPreferredRelayReservationAddresses().length > 0,
+      } satisfies SyncPayload),
+    };
+
+    const sent = await sendEnvelopeToPeer(peerId, envelope);
+    if (!sent) {
+      emitDialLog(peerId, 'warn', 'Unable to send sync state response right now.');
+    }
+  }
+
   // ─── Read a full envelope from an inbound length-prefixed stream ───────
 
   async function readEnvelopeFromStream(source: AsyncIterable<any>): Promise<WireEnvelope> {
@@ -617,6 +668,16 @@ export function createBrowserLiveSession(options: CreateBrowserLiveSessionOption
             const envelope = await readEnvelopeFromStream(stream);
             console.log('[skypier:session] ⇐ received envelope from', fromPeerId, '— kind:', envelope.kind, 'msgId:', envelope.messageId, 'conv:', envelope.conversationId);
             emitInbound({ fromPeerId, envelope });
+
+            if (envelope.kind === 'sync') {
+              const syncPayload = tryParseSyncPayload(envelope.payload);
+              if (syncPayload?.type === 'request') {
+                emitDialLog(fromPeerId, 'info', 'Received sync request; responding with local network state.');
+                await sendSyncStateToPeer(fromPeerId, syncPayload.requestedSince);
+              } else if (syncPayload?.type === 'state') {
+                emitDialLog(fromPeerId, 'info', 'Received sync state from peer.');
+              }
+            }
 
             // Send delivery receipt back
             if (envelope.kind === 'message' && envelope.messageId) {
@@ -772,6 +833,71 @@ export function createBrowserLiveSession(options: CreateBrowserLiveSessionOption
       };
       persistQueue();
       emitState();
+    },
+
+    async recoverConnectivity(reason = 'resume') {
+      if (state.status === 'starting') {
+        return;
+      }
+
+      if (state.status === 'idle' || state.status === 'stopped' || !node) {
+        emitDialLog(getDefaultRelayLogPeerId(), 'info', `Recovery (${reason}): starting live session…`);
+        await this.start();
+        return;
+      }
+
+      if (state.status !== 'running') {
+        return;
+      }
+
+      emitDialLog(getDefaultRelayLogPeerId(), 'info', `Recovery (${reason}): re-checking relay reservation and flushing queue…`);
+      await dialConfiguredRelays('keepalive');
+      syncRelayReservationState('keepalive');
+      await this.flushQueue();
+      await this.requestSyncWithConnectedPeers('resume');
+      emitState();
+    },
+
+    async requestSyncWithConnectedPeers(reason = 'manual') {
+      if (!node || state.status !== 'running') {
+        return 0;
+      }
+
+      const peers = Array.from(new Set(
+        node.getConnections()
+          .map((connection) => connection.remotePeer.toString())
+          .filter((peerId) => peerId !== state.localPeerId),
+      ));
+
+      if (peers.length === 0) {
+        return 0;
+      }
+
+      let sentCount = 0;
+      const requestedSince = new Date(Date.now() - 10 * 60_000).toISOString();
+
+      for (const peerId of peers) {
+        const envelope: WireEnvelope = {
+          kind: 'sync',
+          messageId: `sync-req-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`,
+          conversationId: '__sync__',
+          senderPeerId: state.localPeerId ?? 'unknown',
+          sentAt: new Date().toISOString(),
+          payload: JSON.stringify({
+            type: 'request',
+            generatedAt: new Date().toISOString(),
+            requestedSince,
+          } satisfies SyncPayload),
+        };
+
+        const result = await sendEnvelopeToPeer(peerId, envelope);
+        if (result === true) {
+          sentCount += 1;
+        }
+      }
+
+      emitDialLog(getDefaultRelayLogPeerId(), 'info', `Sync request (${reason}) sent to ${sentCount}/${peers.length} connected peers.`);
+      return sentCount;
     },
 
     async dialPeer(address: string) {

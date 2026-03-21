@@ -436,6 +436,11 @@ export function useChatController() {
   }, [persistState]);
 
   const ingestIncomingEnvelope = useCallback(async (envelope: WireEnvelope, fromPeerId: string) => {
+    if (envelope.kind === 'sync') {
+      console.log('[skypier:controller] sync envelope received from', fromPeerId);
+      return;
+    }
+
     if (envelope.kind !== 'message') {
       console.log('[skypier:controller] ignoring non-message envelope kind:', envelope.kind);
       return;

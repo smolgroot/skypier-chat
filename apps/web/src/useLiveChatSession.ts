@@ -207,6 +207,15 @@ export function useLiveChatSession(options: UseLiveChatSessionOptions) {
     setState(sessionRef.current.getState());
   }, []);
 
+  const recoverConnectivity = useCallback(async (reason: 'resume' | 'online' | 'visibility' | 'service-worker' = 'resume') => {
+    if (!sessionRef.current) {
+      return;
+    }
+
+    await sessionRef.current.recoverConnectivity(reason);
+    setState(sessionRef.current.getState());
+  }, []);
+
   const dialPeer = useCallback(async (address: string) => {
     if (!sessionRef.current) {
       throw new Error('Session is not initialized');
@@ -257,6 +266,16 @@ export function useLiveChatSession(options: UseLiveChatSessionOptions) {
     return success;
   }, []);
 
+  const requestSyncWithConnectedPeers = useCallback(async (reason: 'resume' | 'manual' = 'manual') => {
+    if (!sessionRef.current) {
+      return 0;
+    }
+
+    const requested = await sessionRef.current.requestSyncWithConnectedPeers(reason);
+    setState(sessionRef.current.getState());
+    return requested;
+  }, []);
+
   const getDebugInfo = useCallback((): NetworkDebugSnapshot | null => {
     return sessionRef.current?.getDebugInfo() ?? null;
   }, []);
@@ -265,11 +284,13 @@ export function useLiveChatSession(options: UseLiveChatSessionOptions) {
     state,
     startSession,
     stopSession,
+    recoverConnectivity,
     dialPeer,
     dialPeerById,
     broadcastChatMessage,
     sendChatMessageToPeer,
     retryMessage,
+    requestSyncWithConnectedPeers,
     getDebugInfo,
     connectedPeers: useMemo(() => state.connectedPeers, [state.connectedPeers]),
   };

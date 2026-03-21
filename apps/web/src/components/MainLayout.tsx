@@ -161,16 +161,18 @@ export function MainLayout(props: MainLayoutProps) {
       </Box>
       <Divider />
       <List sx={{ px: 1 }}>
-        <ListItem disablePadding>
-          <ListItemButton 
-            selected={activeView === 'chat'} 
-            onClick={() => { setActiveView('chat'); if(isMobile) setMobileOpen(false); }}
-            sx={{ borderRadius: 2 }}
-          >
-            <ListItemIcon><ChatIcon color={activeView === 'chat' ? 'primary' : 'inherit'} /></ListItemIcon>
-            <ListItemText primary="All Chats" />
-          </ListItemButton>
-        </ListItem>
+        {isMobile && (
+          <ListItem disablePadding>
+            <ListItemButton 
+              selected={activeView === 'chat'} 
+              onClick={() => { setActiveView('chat'); if(isMobile) setMobileOpen(false); }}
+              sx={{ borderRadius: 2 }}
+            >
+              <ListItemIcon><ChatIcon color={activeView === 'chat' ? 'primary' : 'inherit'} /></ListItemIcon>
+              <ListItemText primary="All Chats" />
+            </ListItemButton>
+          </ListItem>
+        )}
         <ListItem disablePadding>
           <ListItemButton 
             selected={activeView === 'profile'} 
@@ -179,16 +181,6 @@ export function MainLayout(props: MainLayoutProps) {
           >
             <ListItemIcon><AccountCircleIcon color={activeView === 'profile' ? 'primary' : 'inherit'} /></ListItemIcon>
             <ListItemText primary="My Profile" />
-          </ListItemButton>
-        </ListItem>
-        <ListItem disablePadding>
-          <ListItemButton 
-            selected={activeView === 'settings'} 
-            onClick={() => { setActiveView('settings'); if(isMobile) setMobileOpen(false); }}
-            sx={{ borderRadius: 2 }}
-          >
-            <ListItemIcon><SettingsIcon color={activeView === 'settings' ? 'primary' : 'inherit'} /></ListItemIcon>
-            <ListItemText primary="Settings" />
           </ListItemButton>
         </ListItem>
         <ListItem disablePadding>
@@ -209,6 +201,16 @@ export function MainLayout(props: MainLayoutProps) {
           >
             <ListItemIcon><SettingsInputAntennaIcon color={activeView === 'network' ? 'primary' : 'inherit'} /></ListItemIcon>
             <ListItemText primary="P2P Status" />
+          </ListItemButton>
+        </ListItem>
+        <ListItem disablePadding>
+          <ListItemButton 
+            selected={activeView === 'settings'} 
+            onClick={() => { setActiveView('settings'); if(isMobile) setMobileOpen(false); }}
+            sx={{ borderRadius: 2 }}
+          >
+            <ListItemIcon><SettingsIcon color={activeView === 'settings' ? 'primary' : 'inherit'} /></ListItemIcon>
+            <ListItemText primary="Settings" />
           </ListItemButton>
         </ListItem>
       </List>
