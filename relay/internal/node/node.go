@@ -5,6 +5,7 @@ import (
 	"crypto/tls"
 	"fmt"
 	"log"
+	"net"
 	"time"
 
 	"golang.org/x/crypto/acme/autocert"
@@ -15,6 +16,7 @@ import (
 	"github.com/libp2p/go-libp2p/core/host"
 	"github.com/libp2p/go-libp2p/core/network"
 	relayv2 "github.com/libp2p/go-libp2p/p2p/protocol/circuitv2/relay"
+	pbv2 "github.com/libp2p/go-libp2p/p2p/protocol/circuitv2/pb"
 	ws "github.com/libp2p/go-libp2p/p2p/transport/websocket"
 	wt "github.com/libp2p/go-libp2p/p2p/transport/webtransport"
 	ma "github.com/multiformats/go-multiaddr"
@@ -31,6 +33,49 @@ type Relay struct {
 	relay   *relayv2.Relay
 }
 
+type relayMetricsTracer struct {
+	m *metrics.Metrics
+}
+
+func newRelayMetricsTracer(m *metrics.Metrics) *relayMetricsTracer {
+	return &relayMetricsTracer{m: m}
+}
+
+func (t *relayMetricsTracer) RelayStatus(enabled bool) {}
+
+func (t *relayMetricsTracer) ConnectionOpened() {}
+
+func (t *relayMetricsTracer) ConnectionClosed(_ time.Duration) {}
+
+func (t *relayMetricsTracer) ConnectionRequestHandled(status pbv2.Status) {
+	if status == pbv2.Status_NO_RESERVATION {
+		log.Printf("[relay] connect request denied: no reservation")
+	}
+}
+
+func (t *relayMetricsTracer) ReservationAllowed(isRenewal bool) {
+	if !isRenewal {
+		t.m.AddReservations(1)
+		log.Printf("[relay] reservation opened (active=%d)", t.m.Reservations())
+	}
+}
+
+func (t *relayMetricsTracer) ReservationClosed(cnt int) {
+	if cnt <= 0 {
+		return
+	}
+	t.m.AddReservations(-int64(cnt))
+	log.Printf("[relay] reservation closed count=%d (active=%d)", cnt, t.m.Reservations())
+}
+
+func (t *relayMetricsTracer) ReservationRequestHandled(status pbv2.Status) {
+	if status != pbv2.Status_OK {
+		log.Printf("[relay] reservation request rejected: %s", status.String())
+	}
+}
+
+func (t *relayMetricsTracer) BytesTransferred(_ int) {}
+
 // New builds and starts the libp2p relay node.
 func New(ctx context.Context, cfg *config.Config, priv crypto.PrivKey, m *metrics.Metrics) (*Relay, error) {
 	// ── TLS via Let's Encrypt ACME (TLS-ALPN-01, no port 80 needed) ──────────
@@ -44,6 +89,7 @@ func New(ctx context.Context, cfg *config.Config, priv crypto.PrivKey, m *metric
 	// using the configured relay DNS name so handshakes can still succeed.
 	tlsCfg.GetCertificate = func(hello *tls.ClientHelloInfo) (*tls.Certificate, error) {
 		if hello == nil {
+			hello = &tls.ClientHelloInfo{ServerName: cfg.DNSName}
 			cert, err := acmeManager.GetCertificate(hello)
 			if err != nil {
 				log.Printf("[relay] TLS cert lookup failed (nil client hello): %v", err)
@@ -53,7 +99,7 @@ func New(ctx context.Context, cfg *config.Config, priv crypto.PrivKey, m *metric
 
 		requestedServerName := hello.ServerName
 		lookupServerName := requestedServerName
-		if lookupServerName == "" {
+		if lookupServerName == "" || net.ParseIP(lookupServerName) != nil || lookupServerName != cfg.DNSName {
 			lookupServerName = cfg.DNSName
 		}
 
@@ -128,7 +174,11 @@ func New(ctx context.Context, cfg *config.Config, priv crypto.PrivKey, m *metric
 	// EnableRelayService embeds a relay inside the host option chain, but does
 	// not expose a handle. We create a separate relayv2.Relay that we control
 	// explicitly and close on shutdown.
-	rv2, err := relayv2.New(h, relayv2.WithResources(resources))
+	rv2, err := relayv2.New(
+		h,
+		relayv2.WithResources(resources),
+		relayv2.WithMetricsTracer(newRelayMetricsTracer(m)),
+	)
 	if err != nil {
 		h.Close()
 		return nil, fmt.Errorf("relay service: %w", err)
@@ -176,8 +226,8 @@ func (r *Relay) PollMetrics(ctx context.Context, interval time.Duration, extraAd
 				}
 				addrs = append(addrs, extraAddrs...)
 
-				// relay.Stat() does not exist in go-libp2p v0.38 — reservation count
-				// tracking via the public API is not available; omit for now.
+				// Reservation count is tracked from relay lifecycle callbacks via
+				// relayv2.WithMetricsTracer(newRelayMetricsTracer(...)).
 				if err := r.Metrics.WriteStatus(metrics.Snapshot{
 					PeerID:      peerID,
 					ListenAddrs: addrs,

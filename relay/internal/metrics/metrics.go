@@ -43,6 +43,21 @@ func (m *Metrics) SetReservations(n int64) {
 	m.reservations.Store(n)
 }
 
+// AddReservations applies a signed delta to the active reservation count.
+// The value is clamped at zero to avoid underflow from out-of-order events.
+func (m *Metrics) AddReservations(delta int64) {
+	for {
+		current := m.reservations.Load()
+		next := current + delta
+		if next < 0 {
+			next = 0
+		}
+		if m.reservations.CompareAndSwap(current, next) {
+			return
+		}
+	}
+}
+
 // ConnectedPeers returns the number of currently connected peers.
 func (m *Metrics) ConnectedPeers() int64 { return m.connectedPeers.Load() }
 
