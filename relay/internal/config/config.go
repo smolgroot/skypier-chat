@@ -74,15 +74,15 @@ func (d *Duration) UnmarshalYAML(value *yaml.Node) error {
 // Defaults returns a Config pre-filled with sensible defaults.
 func Defaults() Config {
 	return Config{
-		DNSName:         "relay.skypier.chat",
-		ListenAddr:      "/ip4/0.0.0.0/tcp/443/tls/ws",
+		DNSName:                "relay.skypier.chat",
+		ListenAddr:             "/ip4/0.0.0.0/tcp/443/tls/ws",
 		WebTransportListenAddr: "/ip4/0.0.0.0/udp/443/quic-v1/webtransport",
-		ACMECacheDir:    "/var/cache/skypier-relay/acme",
-		MaxReservations: 512,
-		ReservationTTL:  Duration{time.Hour},
-		CircuitDuration: Duration{15 * time.Minute},
-		CircuitDataMB:   512,
-		StatusFile:      "/run/skypier-relay/status.json",
+		ACMECacheDir:           "/var/cache/skypier-relay/acme",
+		MaxReservations:        512,
+		ReservationTTL:         Duration{time.Hour},
+		CircuitDuration:        Duration{15 * time.Minute},
+		CircuitDataMB:          512,
+		StatusFile:             "/run/skypier-relay/status.json",
 	}
 }
 

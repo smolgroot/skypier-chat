@@ -15,8 +15,8 @@ import (
 	"github.com/libp2p/go-libp2p/core/host"
 	"github.com/libp2p/go-libp2p/core/network"
 	relayv2 "github.com/libp2p/go-libp2p/p2p/protocol/circuitv2/relay"
-	wt "github.com/libp2p/go-libp2p/p2p/transport/webtransport"
 	ws "github.com/libp2p/go-libp2p/p2p/transport/websocket"
+	wt "github.com/libp2p/go-libp2p/p2p/transport/webtransport"
 	ma "github.com/multiformats/go-multiaddr"
 
 	"github.com/skypier/relay/internal/config"
