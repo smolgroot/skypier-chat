@@ -57,6 +57,7 @@ export function App() {
     toggleReaction,
     ingestIncomingEnvelope,
     updateMessageDeliveryStatus,
+    getRecentMessagesForPeer,
     linkEthAddress,
     unlinkEthAddress,
     exportBackup,
@@ -135,6 +136,7 @@ export function App() {
     onPeerReachabilityChange: handlePeerReachabilityChange,
     onDeliveryStatus: handleDeliveryStatus,
     onDialLog: (log) => setDialLogs(prev => [...prev, log]),
+    onSyncRequest: getRecentMessagesForPeer,
     identityProtobuf
   });
 

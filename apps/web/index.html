@@ -57,6 +57,37 @@
       </filter>
     </defs>
   </svg>
+  <script>
+    (() => {
+      const isLocalhost =
+        location.hostname === 'localhost' ||
+        location.hostname === '127.0.0.1' ||
+        location.hostname === '::1' ||
+        location.hostname === '[::1]';
+
+      if (!isLocalhost || !('serviceWorker' in navigator) || !window.sessionStorage) {
+        return;
+      }
+
+      const resetKey = 'skypier-dev-sw-reset-v1';
+      if (sessionStorage.getItem(resetKey) === 'done') {
+        return;
+      }
+
+      navigator.serviceWorker.getRegistrations().then((registrations) => {
+        if (registrations.length === 0) {
+          sessionStorage.setItem(resetKey, 'done');
+          return;
+        }
+
+        Promise.all(registrations.map((registration) => registration.unregister()))
+          .finally(() => {
+            sessionStorage.setItem(resetKey, 'done');
+            location.reload();
+          });
+      });
+    })();
+  </script>
   <script type="module" src="/src/main.tsx"></script>
 </body>
 

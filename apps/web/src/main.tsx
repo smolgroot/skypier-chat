@@ -8,16 +8,25 @@ function emitConnectivityRecoveryRequest(source: string) {
 }
 
 if ('serviceWorker' in navigator) {
-  navigator.serviceWorker.addEventListener('message', (event) => {
-    const data = event.data ?? {};
-    if (data.type === 'SKYPIER_RECOVER_CONNECTIVITY') {
-      emitConnectivityRecoveryRequest(data.source ?? 'service-worker');
-    }
-  });
+  if (import.meta.env.PROD) {
+    navigator.serviceWorker.addEventListener('message', (event) => {
+      const data = event.data ?? {};
+      if (data.type === 'SKYPIER_RECOVER_CONNECTIVITY') {
+        emitConnectivityRecoveryRequest(data.source ?? 'service-worker');
+      }
+    });
 
-  void navigator.serviceWorker.register('/sw.js').then((registration) => {
-    registration.active?.postMessage({ type: 'SKYPIER_REQUEST_RECOVERY' });
-  });
+    void navigator.serviceWorker.register('/sw.js').then((registration) => {
+      registration.active?.postMessage({ type: 'SKYPIER_REQUEST_RECOVERY' });
+    });
+  } else {
+    // Avoid stale SW controlling localhost during Vite development.
+    void navigator.serviceWorker.getRegistrations().then((registrations) => {
+      for (const registration of registrations) {
+        void registration.unregister();
+      }
+    });
+  }
 }
 
 ReactDOM.createRoot(document.getElementById('root')!).render(

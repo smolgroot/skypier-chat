@@ -77,6 +77,7 @@ export interface BrowserLiveSession {
   stop(): Promise<void>;
   recoverConnectivity(reason?: 'resume' | 'online' | 'visibility' | 'service-worker'): Promise<void>;
   requestSyncWithConnectedPeers(reason?: 'resume' | 'manual'): Promise<number>;
+  respondToSyncRequest(peerId: string, messages: SyncMessageEntry[], requestedSince?: string): Promise<void>;
   dialPeer(address: string): Promise<string>;
   dialPeerById(peerId: string): Promise<string>;
   sendEnvelopeToConnected(envelope: WireEnvelope): Promise<number>;
@@ -98,6 +99,17 @@ interface QueuedEnvelope {
   nextRetryAt: string;
 }
 
+export interface SyncMessageEntry {
+  /** Original ChatMessage.id (e.g. "msg-xxxx") — used for deduplication on the receiver side */
+  messageId: string;
+  conversationId: string;
+  sentAt: string;
+  /** Wire payload — plain text or SKYPIER_MEDIA_PREFIX+json for image messages */
+  payload: string;
+  /** libp2p peer ID of the message sender */
+  senderPeerId: string;
+}
+
 interface SyncPayload {
   type: 'request' | 'state';
   generatedAt: string;
@@ -105,6 +117,8 @@ interface SyncPayload {
   connectedPeers?: number;
   queuedOutgoing?: number;
   hasPreferredRelayReservation?: boolean;
+  /** Phase 2.1: outbox messages the responder is replaying for the requester */
+  messages?: SyncMessageEntry[];
 }
 
 // ─── Retry constants ─────────────────────────────────────────────────────
@@ -498,7 +512,7 @@ export function createBrowserLiveSession(options: CreateBrowserLiveSessionOption
     }
   }
 
-  async function sendSyncStateToPeer(peerId: string, requestedSince?: string) {
+  async function sendSyncStateToPeer(peerId: string, requestedSince?: string, messages: SyncMessageEntry[] = []) {
     if (!node) return;
 
     const envelope: WireEnvelope = {
@@ -514,6 +528,7 @@ export function createBrowserLiveSession(options: CreateBrowserLiveSessionOption
         connectedPeers: node.getConnections().length,
         queuedOutgoing: queue.length,
         hasPreferredRelayReservation: getPreferredRelayReservationAddresses().length > 0,
+        messages: messages.length > 0 ? messages : undefined,
       } satisfies SyncPayload),
     };
 
@@ -898,6 +913,12 @@ export function createBrowserLiveSession(options: CreateBrowserLiveSessionOption
 
       emitDialLog(getDefaultRelayLogPeerId(), 'info', `Sync request (${reason}) sent to ${sentCount}/${peers.length} connected peers.`);
       return sentCount;
+    },
+
+    async respondToSyncRequest(peerId: string, messages: SyncMessageEntry[], requestedSince?: string) {
+      if (messages.length === 0) return;
+      emitDialLog(peerId, 'info', `Responding to sync request with ${messages.length} message(s) since ${requestedSince ?? 'all time'}.`);
+      await sendSyncStateToPeer(peerId, requestedSince, messages);
     },
 
     async dialPeer(address: string) {

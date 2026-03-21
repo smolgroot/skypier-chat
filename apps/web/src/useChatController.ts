@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createEncryptedBackupBundle, createPinataUploadRequest } from '@skypier/backup';
-import { SKYPIER_MEDIA_PREFIX } from '@skypier/network';
+import { SKYPIER_MEDIA_PREFIX, type SyncMessageEntry } from '@skypier/network';
 import type { WireEnvelope } from '@skypier/network';
 import type { ChatMessage, LinkedEthAddress, MediaAttachment } from '@skypier/protocol';
 import {
@@ -438,6 +438,105 @@ export function useChatController() {
   const ingestIncomingEnvelope = useCallback(async (envelope: WireEnvelope, fromPeerId: string) => {
     if (envelope.kind === 'sync') {
       console.log('[skypier:controller] sync envelope received from', fromPeerId);
+      try {
+        const syncData = JSON.parse(envelope.payload) as { type?: string; messages?: SyncMessageEntry[] };
+        if (syncData.type === 'state' && Array.isArray(syncData.messages) && syncData.messages.length > 0) {
+          // Build a dedup set of all known message IDs across all conversations
+          let snap = stateRef.current;
+          const knownIds = new Set<string>(
+            Object.values(snap.messagesByConversation).flatMap((msgs) => msgs.map((m) => m.id)),
+          );
+          let changed = false;
+
+          for (const entry of syncData.messages) {
+            const stableId = `net-${entry.messageId}`;
+            if (knownIds.has(stableId)) continue; // already ingested
+            knownIds.add(stableId); // prevent double-ingest within this batch
+
+            const isImagePayload = entry.payload.startsWith(SKYPIER_MEDIA_PREFIX);
+            const payloadPreviewText = isImagePayload ? '📷 Photo' : entry.payload;
+            let incomingAttachments: MediaAttachment[] | undefined;
+            if (isImagePayload) {
+              try {
+                const att = JSON.parse(entry.payload.slice(SKYPIER_MEDIA_PREFIX.length)) as MediaAttachment;
+                incomingAttachments = [att];
+              } catch { /* ignore malformed */ }
+            }
+
+            const currentSelectedId = selectedConversationIdRef.current;
+            const existingConversation =
+              snap.conversations.find((c) => c.id === entry.conversationId) ??
+              snap.conversations.find((c) => c.participants.some((p) => p.peerId === entry.senderPeerId));
+
+            const conversation = existingConversation ?? {
+              id: entry.conversationId,
+              title: `Peer ${entry.senderPeerId.slice(0, 10)}…`,
+              participants: [
+                { id: CURRENT_USER_ID, displayName: snap.account.displayName, peerId: resolveLocalPeerId(snap), devices: [getCurrentDevice()] },
+                {
+                  id: entry.senderPeerId,
+                  displayName: `Peer ${entry.senderPeerId.slice(0, 10)}…`,
+                  peerId: entry.senderPeerId,
+                  devices: [{ id: `device-${entry.senderPeerId}`, label: 'Remote device', peerId: entry.senderPeerId, platform: 'web' as const, trustLevel: 'software' as const }],
+                },
+              ],
+              lastMessagePreview: payloadPreviewText,
+              unreadCount: currentSelectedId === entry.conversationId ? 0 : 1,
+              reachability: 'direct' as const,
+              updatedAt: entry.sentAt,
+            };
+
+            const incomingMessage: ChatMessage = {
+              id: stableId,
+              conversationId: conversation.id,
+              senderId: entry.senderPeerId,
+              senderDisplayName: existingConversation?.title ?? conversation.title,
+              senderDeviceId: `device-${entry.senderPeerId}`,
+              createdAt: entry.sentAt,
+              previewText: payloadPreviewText,
+              ciphertext: {
+                algorithm: 'xchacha20poly1305',
+                ciphertext: isImagePayload ? '' : (() => { try { return btoa(entry.payload); } catch { return ''; } })(),
+                nonce: 'sync-replay',
+                recipientDeviceIds: [getCurrentDevice().id],
+              },
+              delivery: 'delivered',
+              reactions: [],
+              ...(incomingAttachments ? { attachments: incomingAttachments } : {}),
+            };
+
+            const currentMessages = snap.messagesByConversation[conversation.id] ?? [];
+            const nextMessages = [...currentMessages, incomingMessage];
+            const nextConversations = existingConversation
+              ? snap.conversations.map((c) =>
+                  c.id === conversation.id
+                    ? {
+                        ...c,
+                        lastMessagePreview: incomingMessage.previewText,
+                        updatedAt: incomingMessage.createdAt,
+                        unreadCount: currentSelectedId === conversation.id ? c.unreadCount : c.unreadCount + 1,
+                      }
+                    : c,
+                )
+              : [conversation, ...snap.conversations];
+
+            snap = {
+              ...snap,
+              conversations: nextConversations,
+              messagesByConversation: { ...snap.messagesByConversation, [conversation.id]: nextMessages },
+            };
+            changed = true;
+            console.log('[skypier:controller] sync replay: ingested missed message', entry.messageId, 'from', entry.senderPeerId, 'in conv', entry.conversationId);
+          }
+
+          if (changed) {
+            console.log('[skypier:controller] sync replay complete from', fromPeerId, '(persisting state)');
+            await persistState(snap);
+          }
+        }
+      } catch (err) {
+        console.warn('[skypier:controller] failed to process sync payload:', err instanceof Error ? err.message : err);
+      }
       return;
     }
 
@@ -503,7 +602,7 @@ export function useChatController() {
     };
 
     const incomingMessage: ChatMessage = {
-      id: `net-${Math.random().toString(36).slice(2, 10)}`,
+      id: envelope.messageId ? `net-${envelope.messageId}` : `net-${Math.random().toString(36).slice(2, 10)}`,
       conversationId: conversation.id,
       senderId: fromPeerId,
       senderDisplayName: conversation.title,
@@ -607,6 +706,48 @@ export function useChatController() {
     await persistState(nextState);
   }, [persistState]);
 
+  /**
+   * Returns the local user's recently-sent messages for a given peer's conversation,
+   * filtered to those sent at or after `since` (ISO timestamp).
+   *
+   * Called by useLiveChatSession when a peer sends a sync/request — we respond
+   * with these messages so the peer can ingest anything they missed.
+   */
+  const getRecentMessagesForPeer = useCallback((targetPeerId: string, since: string | undefined): SyncMessageEntry[] => {
+    const snap = stateRef.current;
+    const localPeerId = resolveLocalPeerId(snap);
+    // Default to the last 10 minutes if no window is specified
+    const effectiveSince = since ?? new Date(Date.now() - 10 * 60_000).toISOString();
+    const sinceTime = new Date(effectiveSince).getTime();
+    const results: SyncMessageEntry[] = [];
+
+    for (const conv of snap.conversations) {
+      // Only conversations involving the requesting peer
+      if (!conv.participants.some((p) => p.peerId === targetPeerId)) continue;
+      const msgs = snap.messagesByConversation[conv.id] ?? [];
+      for (const msg of msgs) {
+        // Only messages sent by us
+        if (msg.senderId !== CURRENT_USER_ID) continue;
+        // Only messages after the requested window
+        if (new Date(msg.createdAt).getTime() < sinceTime) continue;
+        const payload = msg.attachments?.length
+          ? `${SKYPIER_MEDIA_PREFIX}${JSON.stringify(msg.attachments[0])}`
+          : msg.previewText;
+        results.push({
+          messageId: msg.id,
+          conversationId: msg.conversationId,
+          sentAt: msg.createdAt,
+          payload,
+          senderPeerId: localPeerId,
+        });
+      }
+    }
+
+    // Return at most 50, oldest first so the peer ingests them in order
+    results.sort((a, b) => new Date(a.sentAt).getTime() - new Date(b.sentAt).getTime());
+    return results.slice(0, 50);
+  }, []); // stateRef is a stable ref — no reactive deps needed
+
   return {
     account: state.account,
     conversations: state.conversations,
@@ -630,6 +771,7 @@ export function useChatController() {
     contacts: state.contacts ?? [],
     ingestIncomingEnvelope,
     updateMessageDeliveryStatus,
+    getRecentMessagesForPeer,
     linkEthAddress,
     unlinkEthAddress,
     exportBackup,

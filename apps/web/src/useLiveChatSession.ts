@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { createBrowserLiveSession, type BrowserLiveSession, type BrowserLiveSessionState, type DeliveryStatusEvent, type NetworkDebugSnapshot, type PeerReachabilityEvent } from '@skypier/network';
+import { createBrowserLiveSession, type BrowserLiveSession, type BrowserLiveSessionState, type DeliveryStatusEvent, type NetworkDebugSnapshot, type PeerReachabilityEvent, type SyncMessageEntry } from '@skypier/network';
 import type { ChatMessage } from '@skypier/protocol';
 
 interface UseLiveChatSessionOptions {
@@ -8,6 +8,12 @@ interface UseLiveChatSessionOptions {
   onDeliveryStatus?: (event: DeliveryStatusEvent) => void;
   onDialLog?: (event: import('@skypier/network').DialLogEntry) => void;
   identityProtobuf?: string;
+  /**
+   * Called when a connected peer sends a sync/request envelope.
+   * Return the messages (from your outbox) that the peer may have missed.
+   * The session will automatically send them back as a sync/state response.
+   */
+  onSyncRequest?: (fromPeerId: string, requestedSince: string | undefined) => SyncMessageEntry[];
 }
 
 /**
@@ -136,6 +142,11 @@ export function useLiveChatSession(options: UseLiveChatSessionOptions) {
     dialLogHandlerRef.current = options.onDialLog;
   }, [options.onDialLog]);
 
+  const syncRequestHandlerRef = useRef(options.onSyncRequest);
+  useEffect(() => {
+    syncRequestHandlerRef.current = options.onSyncRequest;
+  }, [options.onSyncRequest]);
+
   useEffect(() => {
     const session = createBrowserLiveSession({
       nodeOptions: {
@@ -162,6 +173,21 @@ export function useLiveChatSession(options: UseLiveChatSessionOptions) {
 
     const unsubscribeInbound = session.subscribe('inbound', (payload) => {
       void inboundHandlerRef.current(payload);
+
+      // Phase 2.1: when peer sends a sync/request, respond with our outbox history
+      if (payload.envelope.kind === 'sync') {
+        try {
+          const syncData = JSON.parse(payload.envelope.payload) as { type?: string; requestedSince?: string };
+          if (syncData.type === 'request' && syncRequestHandlerRef.current) {
+            const messages = syncRequestHandlerRef.current(payload.fromPeerId, syncData.requestedSince);
+            if (messages.length > 0) {
+              void session.respondToSyncRequest(payload.fromPeerId, messages, syncData.requestedSince);
+            }
+          }
+        } catch {
+          // malformed sync payload — ignore
+        }
+      }
     });
 
     const unsubscribePeerReachability = session.subscribe('peerReachability', (payload) => {
