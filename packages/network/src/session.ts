@@ -162,6 +162,18 @@ export function createBrowserLiveSession(options: CreateBrowserLiveSessionOption
       .map((addr) => addr.endsWith('/p2p-circuit') ? addr : `${addr}/p2p-circuit`),
   ));
 
+  const configuredRelayBootstrapAddresses = Array.from(new Set(
+    (options.nodeOptions?.bootstrapMultiaddrs ?? [])
+      .filter((addr) => !addr.includes('/dnsaddr/bootstrap.libp2p.io/'))
+      .map((addr) => addr.replace(/\/p2p-circuit$/, '')),
+  ));
+
+  const configuredRelayPeerIds = Array.from(new Set(
+    configuredRelayAddresses
+      .map((addr) => extractPeerIdFromMultiaddr(addr))
+      .filter((peerId): peerId is string => peerId != null),
+  ));
+
   // ─── Helpers ───────────────────────────────────────────────────────────
 
   async function markAsChatPeer(peerIdString: string) {
@@ -228,6 +240,18 @@ export function createBrowserLiveSession(options: CreateBrowserLiveSessionOption
     return node?.getMultiaddrs().map((ma) => ma.toString()).filter((addr) => addr.includes('/p2p-circuit')) ?? [];
   }
 
+  function getPreferredRelayReservationAddresses(): string[] {
+    const relayAddresses = getRelayReservationAddresses();
+    if (configuredRelayPeerIds.length === 0) {
+      return relayAddresses;
+    }
+
+    return relayAddresses.filter((addr) => {
+      const relayPeerId = extractPeerIdFromMultiaddr(addr);
+      return relayPeerId != null && configuredRelayPeerIds.includes(relayPeerId);
+    });
+  }
+
   function getRelayPeerIds(addresses: string[]): string[] {
     return Array.from(new Set(addresses.map((addr) => extractPeerIdFromMultiaddr(addr)).filter((peerId): peerId is string => peerId != null)));
   }
@@ -245,22 +269,72 @@ export function createBrowserLiveSession(options: CreateBrowserLiveSessionOption
     return extractPeerIdFromMultiaddr(configuredRelayAddresses[0] ?? '') ?? 'relay';
   }
 
+  async function dialConfiguredRelays(reason: 'startup' | 'keepalive') {
+    if (!node || configuredRelayBootstrapAddresses.length === 0) {
+      return;
+    }
+
+    for (const address of configuredRelayBootstrapAddresses) {
+      const relayPeerId = extractPeerIdFromMultiaddr(address) ?? 'relay';
+      const alreadyConnected = relayPeerId !== 'relay'
+        && node.getConnections().some((connection) => connection.remotePeer.toString() === relayPeerId);
+
+      if (alreadyConnected) {
+        emitDialLog(
+          relayPeerId,
+          'info',
+          `${reason === 'startup' ? 'Relay control connection already active' : 'Relay control connection still active'} for ${describeRelay(address)}.`,
+        );
+        continue;
+      }
+
+      try {
+        emitDialLog(
+          relayPeerId,
+          'info',
+          `${reason === 'startup' ? 'Dialing' : 'Re-dialing'} relay control connection ${describeRelay(address)}…`,
+        );
+        await node.dial(multiaddr(address));
+        emitDialLog(relayPeerId, 'info', `Connected to ${describeRelay(address)}; waiting for reservation confirmation.`);
+      } catch (error) {
+        emitDialLog(
+          relayPeerId,
+          'warn',
+          `${reason === 'startup' ? 'Could not dial' : 'Could not re-dial'} ${describeRelay(address)}: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        );
+      }
+    }
+  }
+
   function syncRelayReservationState(source: 'startup' | 'keepalive') {
     const relayAddresses = getRelayReservationAddresses();
-    const nextKey = relayAddresses.slice().sort().join('|');
+    const preferredRelayAddresses = getPreferredRelayReservationAddresses();
+    const activeRelayAddresses = preferredRelayAddresses.length > 0 ? preferredRelayAddresses : relayAddresses;
+    const nextKey = activeRelayAddresses.slice().sort().join('|');
 
-    if (relayAddresses.length === 0) {
+    if (activeRelayAddresses.length === 0) {
       if (hadRelayReservation) {
         emitDialLog(getDefaultRelayLogPeerId(), 'warn', 'Relay reservation disappeared; attempting to restore it.');
       }
 
       hadRelayReservation = false;
       relayReservationKey = '';
-      return relayAddresses;
+      return activeRelayAddresses;
+    }
+
+    if (configuredRelayPeerIds.length > 0 && preferredRelayAddresses.length === 0) {
+      emitDialLog(
+        getDefaultRelayLogPeerId(),
+        'warn',
+        'A relay reservation exists, but not on the preferred Skypier relay; restoring preferred reservation.',
+      );
+      hadRelayReservation = false;
+      relayReservationKey = '';
+      return [];
     }
 
     if (!hadRelayReservation) {
-      for (const address of relayAddresses) {
+      for (const address of activeRelayAddresses) {
         emitDialLog(
           extractPeerIdFromMultiaddr(address) ?? 'relay',
           'success',
@@ -270,7 +344,7 @@ export function createBrowserLiveSession(options: CreateBrowserLiveSessionOption
       emitDialLog(getDefaultRelayLogPeerId(), 'info', 'libp2p will auto-renew active relay reservations before expiry.');
     } else if (nextKey !== relayReservationKey) {
       const previous = new Set(relayReservationKey.split('|').filter(Boolean));
-      for (const address of relayAddresses) {
+      for (const address of activeRelayAddresses) {
         if (!previous.has(address)) {
           emitDialLog(
             extractPeerIdFromMultiaddr(address) ?? 'relay',
@@ -283,7 +357,7 @@ export function createBrowserLiveSession(options: CreateBrowserLiveSessionOption
 
     hadRelayReservation = true;
     relayReservationKey = nextKey;
-    return relayAddresses;
+    return activeRelayAddresses;
   }
 
   function enqueue(peerId: string, envelope: WireEnvelope, retryCount = 0) {
@@ -490,8 +564,8 @@ export function createBrowserLiveSession(options: CreateBrowserLiveSessionOption
   // reservation was lost (relay restarted, TTL expired, network blip) — re-dial
   // all bootstrap peers so the circuit-relay transport can reacquire it.
 
-  function startRelayKeepalive(bootstrapMultiaddrs: string[]) {
-    if (relayKeepaliveTimer != null || bootstrapMultiaddrs.length === 0) return;
+  function startRelayKeepalive() {
+    if (relayKeepaliveTimer != null || configuredRelayBootstrapAddresses.length === 0) return;
 
     relayKeepaliveTimer = setInterval(async () => {
       if (!node) return;
@@ -499,20 +573,10 @@ export function createBrowserLiveSession(options: CreateBrowserLiveSessionOption
       const hasRelay = syncRelayReservationState('keepalive').length > 0;
       if (!hasRelay) {
         console.log('[skypier:session] 🔄 relay reservation gone — re-dialing bootstrap peers…');
-        for (const addr of bootstrapMultiaddrs) {
-          const relayPeerId = extractPeerIdFromMultiaddr(addr) ?? 'relay';
-          try {
-            emitDialLog(relayPeerId, 'info', `Re-dialing relay control connection ${describeRelay(addr)}…`);
-            await node.dial(multiaddr(addr));
-            emitDialLog(relayPeerId, 'info', `Connected to ${describeRelay(addr)}; waiting for reservation confirmation.`);
-          } catch {
-            emitDialLog(relayPeerId, 'warn', `Could not re-dial ${describeRelay(addr)} right now.`);
-            // ignore individual failures — peer may be temporarily unreachable
-          }
-        }
+        await dialConfiguredRelays('keepalive');
         emitState();
       }
-    }, 30_000);
+    }, 15_000);
   }
 
   function stopRelayKeepalive() {
@@ -643,6 +707,11 @@ export function createBrowserLiveSession(options: CreateBrowserLiveSessionOption
         console.log('[skypier:session]   listen addrs:', node.getMultiaddrs().map((ma) => ma.toString()));
         emitState();
 
+        if (configuredRelayBootstrapAddresses.length > 0) {
+          await dialConfiguredRelays('startup');
+          emitState();
+        }
+
         // Log relay discovery progress every 5 s until a reservation is acquired;
         // the relay keepalive loop then maintains it indefinitely after that.
         let relayProbeCount = 0;
@@ -675,7 +744,7 @@ export function createBrowserLiveSession(options: CreateBrowserLiveSessionOption
 
         // Start background retry loop & flush any queued items
         startRetryLoop();
-        startRelayKeepalive(options.nodeOptions?.bootstrapMultiaddrs ?? []);
+        startRelayKeepalive();
         await this.flushQueue();
       } catch (error) {
         state = {
