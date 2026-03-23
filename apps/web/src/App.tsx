@@ -36,6 +36,8 @@ function findRemoteParticipant(
     ?? participants[0];
 }
 
+const OFFLINE_ALERT_MESSAGE = "You're offline. Couldn't connect to send new messages.";
+
 export function App() {
   const {
     account,
@@ -86,10 +88,16 @@ export function App() {
   const [contactDialError, setContactDialError] = useState<string | undefined>();
   const [contactDialSuccess, setContactDialSuccess] = useState<string | undefined>();
   const [dialLogs, setDialLogs] = useState<DialLogEntry[]>([]);
+  const [isBrowserOffline, setIsBrowserOffline] = useState(() => typeof navigator !== 'undefined' ? !navigator.onLine : false);
+  const [offlineAlertOpen, setOfflineAlertOpen] = useState(false);
 
   const networkLog = useNetworkLog();
   const currentTheme = useMemo(() => theme(colorMode), [colorMode]);
   const { notifyIncomingMessage } = useNotifications();
+
+  const showOfflineAlert = useCallback(() => {
+    setOfflineAlertOpen(true);
+  }, []);
 
   const handleInboundMessage = useCallback(async ({ fromPeerId, envelope }: { fromPeerId: string; envelope: { kind: 'message' | 'receipt' | 'presence' | 'sync'; conversationId: string; senderPeerId: string; sentAt: string; payload: string } }) => {
     console.log('[skypier:app] \u21d0 inbound message from', fromPeerId, '\u2014 kind:', envelope.kind, 'conv:', envelope.conversationId, 'payload:', envelope.payload.slice(0, 80));
@@ -196,6 +204,25 @@ export function App() {
       window.removeEventListener('skypier:recover-connectivity', handleSwRecovery as EventListener);
     };
   }, [isLoaded, account.displayName, identityProtobuf, recoverConnectivity]);
+
+  useEffect(() => {
+    const handleOffline = () => {
+      setIsBrowserOffline(true);
+      showOfflineAlert();
+    };
+
+    const handleOnline = () => {
+      setIsBrowserOffline(false);
+    };
+
+    window.addEventListener('offline', handleOffline);
+    window.addEventListener('online', handleOnline);
+
+    return () => {
+      window.removeEventListener('offline', handleOffline);
+      window.removeEventListener('online', handleOnline);
+    };
+  }, [showOfflineAlert]);
 
   const handleLinkWallet = useCallback(() => {
     void (async () => {
@@ -456,6 +483,12 @@ export function App() {
             void (async () => {
               const message = await sendMessage();
               if (message && selectedConversation) {
+                if (!navigator.onLine || isBrowserOffline) {
+                  await updateMessageDeliveryStatus(message.id, 'local-only');
+                  showOfflineAlert();
+                  return;
+                }
+
                 // Find the remote peer in the conversation to send targeted
                 const remotePeer = findRemoteParticipant(
                   selectedConversation.participants,
@@ -467,6 +500,9 @@ export function App() {
                   if (!sent) {
                     // Not sent immediately (likely dialing / transient network): keep queued.
                     await updateMessageDeliveryStatus(message.id, 'queued');
+                    if (!navigator.onLine) {
+                      showOfflineAlert();
+                    }
                   }
                 } else {
                   await updateMessageDeliveryStatus(message.id, 'local-only');
@@ -483,6 +519,12 @@ export function App() {
               try {
                 const message = await sendImageMessage(file);
                 if (message && selectedConversation) {
+                  if (!navigator.onLine || isBrowserOffline) {
+                    await updateMessageDeliveryStatus(message.id, 'local-only');
+                    showOfflineAlert();
+                    return;
+                  }
+
                   const remotePeer = findRemoteParticipant(
                     selectedConversation.participants,
                     liveState.localPeerId ?? localPeerId ?? getCurrentDevice().peerId,
@@ -491,6 +533,9 @@ export function App() {
                     const sent = await sendChatMessageToPeer(message, remotePeer.peerId);
                     if (!sent) {
                       await updateMessageDeliveryStatus(message.id, 'queued');
+                      if (!navigator.onLine) {
+                        showOfflineAlert();
+                      }
                     }
                   } else {
                     await updateMessageDeliveryStatus(message.id, 'local-only');
@@ -608,6 +653,20 @@ export function App() {
           sx={{ width: '100%' }}
         >
           {networkAlertMessage}
+        </Alert>
+      </Snackbar>
+      <Snackbar
+        open={offlineAlertOpen}
+        autoHideDuration={4500}
+        onClose={() => setOfflineAlertOpen(false)}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
+      >
+        <Alert
+          onClose={() => setOfflineAlertOpen(false)}
+          severity="warning"
+          sx={{ width: '100%' }}
+        >
+          {OFFLINE_ALERT_MESSAGE}
         </Alert>
       </Snackbar>
       <MainLayout

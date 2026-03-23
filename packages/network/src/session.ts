@@ -129,6 +129,8 @@ const BASE_RETRY_DELAY_MS = 2_000;
 const MAX_RETRY_DELAY_MS = 5 * 60 * 1_000;
 /** How often the background loop ticks (10 s) */
 const RETRY_TICK_INTERVAL_MS = 10_000;
+const RELAY_RESERVATION_WAIT_TIMEOUT_MS = 12_000;
+const RELAY_RESERVATION_POLL_INTERVAL_MS = 500;
 
 function computeNextRetryDelay(retryCount: number): number {
   return Math.min(BASE_RETRY_DELAY_MS * Math.pow(2, retryCount), MAX_RETRY_DELAY_MS);
@@ -304,6 +306,34 @@ export function createBrowserLiveSession(options: CreateBrowserLiveSessionOption
 
   function getDefaultRelayLogPeerId(): string {
     return extractPeerIdFromMultiaddr(configuredRelayAddresses[0] ?? '') ?? 'relay';
+  }
+
+  function buildExplicitRelayDialAddresses(targetPeerId: string): string[] {
+    if (targetPeerId.trim().length === 0) {
+      return [];
+    }
+
+    return Array.from(new Set(
+      configuredRelayBootstrapAddresses.map((relayAddr) => {
+        const normalizedRelayAddr = relayAddr.replace(/\/p2p-circuit$/, '');
+        return `${normalizedRelayAddr}/p2p-circuit/p2p/${targetPeerId}`;
+      }),
+    ));
+  }
+
+  async function waitForPreferredRelayReservation(timeoutMs = RELAY_RESERVATION_WAIT_TIMEOUT_MS): Promise<boolean> {
+    const deadline = Date.now() + timeoutMs;
+
+    while (Date.now() <= deadline) {
+      const activeRelayAddrs = syncRelayReservationState('keepalive');
+      if (activeRelayAddrs.length > 0) {
+        return true;
+      }
+
+      await new Promise((resolve) => setTimeout(resolve, RELAY_RESERVATION_POLL_INTERVAL_MS));
+    }
+
+    return false;
   }
 
   async function dialConfiguredRelays(reason: 'startup' | 'keepalive') {
@@ -938,21 +968,79 @@ export function createBrowserLiveSession(options: CreateBrowserLiveSessionOption
         throw new Error('Session is not running. Start the session first.');
       }
 
-      const targetPeerId = peerIdFromString(peerIdString.trim());
+      const normalizedPeerId = peerIdString.trim();
+      const targetPeerId = peerIdFromString(normalizedPeerId);
 
       try {
-        console.log('[skypier:session] dialPeerById: attempting direct dial to', peerIdString);
-        emitDialLog(peerIdString, 'info', 'Attempting direct dial via known addresses...');
+        console.log('[skypier:session] dialPeerById: attempting direct dial to', normalizedPeerId);
+        emitDialLog(normalizedPeerId, 'info', 'Attempting direct dial via known addresses...');
         const connection = await node.dial(targetPeerId);
         const peerId = connection.remotePeer.toString();
         console.log('[skypier:session] dialPeerById: ✓ connected to', peerId);
-        emitDialLog(peerIdString, 'success', 'Direct connection established!');
+        emitDialLog(normalizedPeerId, 'success', 'Direct connection established!');
         emitState();
         await this.flushQueue();
         return peerId;
       } catch (directErr) {
-        console.warn('[skypier:session] dialPeerById: direct dial failed, trying peer routing…', directErr instanceof Error ? directErr.message : directErr);
-        emitDialLog(peerIdString, 'warn', `Direct dial failed: ${directErr instanceof Error ? directErr.message : 'Unknown'}. Trying DHT peer routing...`);
+        console.warn('[skypier:session] dialPeerById: direct dial failed, checking explicit relay routes…', directErr instanceof Error ? directErr.message : directErr);
+        emitDialLog(normalizedPeerId, 'warn', `Direct dial failed: ${directErr instanceof Error ? directErr.message : 'Unknown'}. Trying configured relay route...`);
+      }
+
+      const explicitRelayDialAddresses = buildExplicitRelayDialAddresses(normalizedPeerId);
+      if (explicitRelayDialAddresses.length > 0) {
+        try {
+          await dialConfiguredRelays('keepalive');
+
+          const hasPreferredReservation = await waitForPreferredRelayReservation();
+          if (!hasPreferredReservation) {
+            emitDialLog(
+              normalizedPeerId,
+              'warn',
+              'Preferred relay reservation is not active yet; attempting explicit relay route anyway.',
+            );
+          } else {
+            emitDialLog(normalizedPeerId, 'info', 'Preferred relay reservation confirmed; dialing explicit relay route.');
+          }
+
+          let lastExplicitRelayError: unknown;
+          for (const relayDialAddress of explicitRelayDialAddresses) {
+            try {
+              emitDialLog(
+                normalizedPeerId,
+                'info',
+                `Trying explicit relay route: ${relayDialAddress.length > 56 ? `...${relayDialAddress.slice(-53)}` : relayDialAddress}`,
+              );
+              const connection = await node.dial(multiaddr(relayDialAddress));
+              const peerId = connection.remotePeer.toString();
+              console.log('[skypier:session] dialPeerById: ✓ connected via explicit relay route to', peerId, 'route:', relayDialAddress);
+              emitDialLog(normalizedPeerId, 'success', 'Connected via configured relay reservation route!');
+              emitState();
+              await this.flushQueue();
+              return peerId;
+            } catch (relayDialErr) {
+              lastExplicitRelayError = relayDialErr;
+              emitDialLog(
+                normalizedPeerId,
+                'warn',
+                `Explicit relay route failed: ${relayDialErr instanceof Error ? relayDialErr.message : 'Unknown error'}`,
+              );
+            }
+          }
+
+          if (lastExplicitRelayError != null) {
+            console.warn(
+              '[skypier:session] dialPeerById: explicit relay route failed for',
+              normalizedPeerId,
+              lastExplicitRelayError instanceof Error ? lastExplicitRelayError.message : lastExplicitRelayError,
+            );
+          }
+        } catch (explicitRelayErr) {
+          emitDialLog(
+            normalizedPeerId,
+            'warn',
+            `Configured relay preparation failed: ${explicitRelayErr instanceof Error ? explicitRelayErr.message : 'Unknown error'}`,
+          );
+        }
       }
 
       try {
@@ -960,12 +1048,12 @@ export function createBrowserLiveSession(options: CreateBrowserLiveSessionOption
         const addrs = peerInfo?.multiaddrs ?? [];
 
         if (addrs.length === 0) {
-          emitDialLog(peerIdString, 'error', 'Peer found in DHT but returned no dialable addresses.');
+          emitDialLog(normalizedPeerId, 'error', 'Peer found in DHT but returned no dialable addresses.');
           throw new Error('Peer was found in DHT but has no dialable addresses.');
         }
 
         console.log('[skypier:session] dialPeerById: found', addrs.length, 'addresses via DHT, dialing…');
-        emitDialLog(peerIdString, 'info', `Found ${addrs.length} addresses in DHT. Testing candidates...`);
+        emitDialLog(normalizedPeerId, 'info', `Found ${addrs.length} addresses in DHT. Testing candidates...`);
 
         // Dial each address individually — relay circuit addresses embed
         // different relay peer IDs, so passing them all to a single dial()
@@ -975,17 +1063,17 @@ export function createBrowserLiveSession(options: CreateBrowserLiveSessionOption
           try {
             const addrStr = addr.toString();
             console.log('[skypier:session] dialPeerById: trying', addrStr);
-            emitDialLog(peerIdString, 'info', `Trying: ${addrStr.length > 40 ? '...' + addrStr.slice(-37) : addrStr}`);
+            emitDialLog(normalizedPeerId, 'info', `Trying: ${addrStr.length > 40 ? '...' + addrStr.slice(-37) : addrStr}`);
             const connection = await node.dial(addr);
             const peerId = connection.remotePeer.toString();
             console.log('[skypier:session] dialPeerById: ✓ connected to', peerId, 'via DHT');
-            emitDialLog(peerIdString, 'success', `Connected via ${addrStr.includes('p2p-circuit') ? 'Relay' : 'Direct path'}!`);
+            emitDialLog(normalizedPeerId, 'success', `Connected via ${addrStr.includes('p2p-circuit') ? 'Relay' : 'Direct path'}!`);
             emitState();
             await this.flushQueue();
             return peerId;
           } catch (addrErr) {
             console.warn('[skypier:session] dialPeerById: addr failed:', addr.toString(), addrErr instanceof Error ? addrErr.message : addrErr);
-            emitDialLog(peerIdString, 'warn', `Route failed: ${addrErr instanceof Error ? addrErr.message : 'Unknown'}`);
+            emitDialLog(normalizedPeerId, 'warn', `Route failed: ${addrErr instanceof Error ? addrErr.message : 'Unknown'}`);
             lastErr = addrErr;
           }
         }
@@ -993,8 +1081,8 @@ export function createBrowserLiveSession(options: CreateBrowserLiveSessionOption
         throw lastErr ?? new Error('All DHT addresses failed');
       } catch (routingErr) {
         const msg = routingErr instanceof Error ? routingErr.message : 'Unknown error';
-        console.error('[skypier:session] dialPeerById: ✗ all dial attempts failed for', peerIdString, msg);
-        throw new Error(`Could not reach peer ${peerIdString.slice(0, 16)}…: ${msg}`);
+        console.error('[skypier:session] dialPeerById: ✗ all dial attempts failed for', normalizedPeerId, msg);
+        throw new Error(`Could not reach peer ${normalizedPeerId.slice(0, 16)}…: ${msg}`);
       }
     },
 
