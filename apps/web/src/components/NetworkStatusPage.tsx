@@ -49,12 +49,21 @@ const GlassPaper = ({ children, sx = {} }: { children: React.ReactNode, sx?: any
 );
 
 export function NetworkStatusPage({ sessionState, networkLog = [], getDebugInfo }: NetworkStatusPageProps) {
-  const logEndRef = React.useRef<HTMLDivElement>(null);
+  const logContainerRef = React.useRef<HTMLDivElement>(null);
   const [debugSnapshot, setDebugSnapshot] = React.useState<NetworkDebugSnapshot | null>(null);
   const [copied, setCopied] = React.useState(false);
 
   React.useEffect(() => {
-    logEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    const container = logContainerRef.current;
+    if (!container) return;
+
+    // Keep auto-follow behavior only when the user is already at (or near) the bottom.
+    const distanceFromBottom = container.scrollHeight - container.scrollTop - container.clientHeight;
+    const isNearBottom = distanceFromBottom <= 48;
+
+    if (isNearBottom || networkLog.length <= 1) {
+      container.scrollTop = container.scrollHeight;
+    }
   }, [networkLog.length]);
   const plan = createRuntimePlan('browser-pwa');
 
@@ -414,6 +423,7 @@ export function NetworkStatusPage({ sessionState, networkLog = [], getDebugInfo 
             <Divider sx={{ mb: 1, opacity: 0.1 }} />
 
             <Box
+              ref={logContainerRef}
               sx={{
                 maxHeight: 360,
                 overflowY: 'auto',
@@ -466,7 +476,6 @@ export function NetworkStatusPage({ sessionState, networkLog = [], getDebugInfo 
                   </Box>
                 ))
               )}
-              <div ref={logEndRef} />
             </Box>
           </GlassPaper>
         </Grid>
