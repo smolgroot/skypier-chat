@@ -19,6 +19,7 @@ import { BiometricUnlock } from './components/BiometricUnlock';
 import { ContactDetailPage } from './components/ContactDetailPage';
 import { ContactsPage } from './components/ContactsPage';
 import { useNotifications } from './hooks/useNotifications';
+import { matchPath, useLocation, useNavigate } from 'react-router-dom';
 
 const PLACEHOLDER_LOCAL_PEER_ID = '12D3KooWLocalPeer';
 
@@ -38,7 +39,50 @@ function findRemoteParticipant(
 
 const OFFLINE_ALERT_MESSAGE = "You're offline. Couldn't connect to send new messages.";
 
+function sanitizeReturnToPath(value: unknown): string {
+  if (typeof value !== 'string') {
+    return '/chats';
+  }
+
+  if (!value.startsWith('/') || value.startsWith('//')) {
+    return '/chats';
+  }
+
+  if (value === '/splash' || value === '/onboarding' || value === '/unlock') {
+    return '/chats';
+  }
+
+  return value;
+}
+
+function pathForView(view: 'chat' | 'profile' | 'settings' | 'network' | 'contacts'): string {
+  switch (view) {
+    case 'profile':
+      return '/profile';
+    case 'settings':
+      return '/settings';
+    case 'network':
+      return '/network';
+    case 'contacts':
+      return '/contacts';
+    case 'chat':
+    default:
+      return '/chats';
+  }
+}
+
+function resolveActiveView(pathname: string): 'chat' | 'profile' | 'settings' | 'network' | 'contacts' {
+  if (pathname.startsWith('/profile')) return 'profile';
+  if (pathname.startsWith('/settings')) return 'settings';
+  if (pathname.startsWith('/network')) return 'network';
+  if (pathname.startsWith('/contacts')) return 'contacts';
+  return 'chat';
+}
+
 export function App() {
+  const location = useLocation();
+  const navigate = useNavigate();
+
   const {
     account,
     conversations,
@@ -74,15 +118,13 @@ export function App() {
     deleteContact,
   } = useChatController();
 
-  const [activeView, setActiveView] = useState<'chat' | 'profile' | 'settings' | 'network' | 'contacts'>('chat');
-  const [showContactDetail, setShowContactDetail] = useState(false);
+  const activeView = resolveActiveView(location.pathname);
   const [colorMode, setColorMode] = useState<'light' | 'dark'>('light');
   const [peerIdInput, setPeerIdInput] = useState('');
   const [dialError, setDialError] = useState<string | undefined>();
   const [walletBusy, setWalletBusy] = useState(false);
   const [walletError, setWalletError] = useState<string | undefined>();
   const [networkAlertDismissed, setNetworkAlertDismissed] = useState(false);
-  const [showBiometricUnlock, setShowBiometricUnlock] = useState(false);
   const [biometricSessionUnlocked, setBiometricSessionUnlocked] = useState(false);
   const [contactDialBusy, setContactDialBusy] = useState(false);
   const [contactDialError, setContactDialError] = useState<string | undefined>();
@@ -90,6 +132,14 @@ export function App() {
   const [dialLogs, setDialLogs] = useState<DialLogEntry[]>([]);
   const [isBrowserOffline, setIsBrowserOffline] = useState(() => typeof navigator !== 'undefined' ? !navigator.onLine : false);
   const [offlineAlertOpen, setOfflineAlertOpen] = useState(false);
+  const deepLinkBaseInjectedRef = useRef(false);
+
+  const chatContactMatch = matchPath('/chats/:conversationId/contact', location.pathname);
+  const chatMatch = matchPath('/chats/:conversationId', location.pathname);
+  const routeConversationId = chatContactMatch?.params.conversationId
+    ?? (location.pathname.startsWith('/chats/') ? chatMatch?.params.conversationId : undefined);
+  const isChatContactRoute = chatContactMatch != null;
+  const isChatRoute = location.pathname === '/chats' || routeConversationId != null;
 
   const networkLog = useNetworkLog();
   const currentTheme = useMemo(() => theme(colorMode), [colorMode]);
@@ -224,6 +274,90 @@ export function App() {
     };
   }, [showOfflineAlert]);
 
+  useEffect(() => {
+    const nextId = routeConversationId ?? '';
+    if (selectedConversationId !== nextId) {
+      setSelectedConversationId(nextId);
+    }
+  }, [routeConversationId, selectedConversationId, setSelectedConversationId]);
+
+  useEffect(() => {
+    if (!isLoaded) {
+      if (location.pathname !== '/splash') {
+        navigate('/splash', {
+          replace: true,
+          state: {
+            returnTo: sanitizeReturnToPath(location.pathname),
+          },
+        });
+      }
+      return;
+    }
+
+    const needsOnboarding = !account.displayName || !identityProtobuf;
+    if (needsOnboarding) {
+      if (location.pathname !== '/onboarding') {
+        navigate('/onboarding', {
+          replace: true,
+          state: {
+            returnTo: sanitizeReturnToPath(location.pathname),
+          },
+        });
+      }
+      return;
+    }
+
+    const needsUnlock = account.biometricUnlockEnabled && !biometricSessionUnlocked;
+    if (needsUnlock) {
+      if (location.pathname !== '/unlock') {
+        navigate('/unlock', {
+          replace: true,
+          state: {
+            returnTo: sanitizeReturnToPath(location.pathname),
+          },
+        });
+      }
+      return;
+    }
+
+    if (location.pathname === '/' || location.pathname === '/splash' || location.pathname === '/onboarding' || location.pathname === '/unlock') {
+      const fromState = (location.state as { returnTo?: string } | null)?.returnTo;
+      const returnTo = sanitizeReturnToPath(fromState);
+      navigate(returnTo === '/splash' ? '/chats' : returnTo, { replace: true });
+    }
+  }, [
+    account.biometricUnlockEnabled,
+    account.displayName,
+    biometricSessionUnlocked,
+    identityProtobuf,
+    isLoaded,
+    location.pathname,
+    location.state,
+    navigate,
+  ]);
+
+  useEffect(() => {
+    if (!routeConversationId || deepLinkBaseInjectedRef.current) {
+      return;
+    }
+
+    const state = location.state as { __baseInjected?: boolean } | null;
+    if (state?.__baseInjected) {
+      return;
+    }
+
+    if (window.history.length > 1) {
+      return;
+    }
+
+    deepLinkBaseInjectedRef.current = true;
+    const targetPath = location.pathname;
+    navigate('/chats', { replace: true, state: { __baseInjected: true } });
+    setTimeout(() => {
+      navigate(targetPath, { replace: false, state: { __fromBaseInjection: true } });
+    }, 0);
+  }, [location.pathname, location.state, navigate, routeConversationId]);
+
   const handleLinkWallet = useCallback(() => {
     void (async () => {
       try {
@@ -256,19 +390,17 @@ export function App() {
     void updateAccount({ biometricUnlockEnabled: enabled });
 
     if (!enabled) {
-      setShowBiometricUnlock(false);
       setBiometricSessionUnlocked(false);
     }
   }, [updateAccount]);
 
   const handleBiometricUnlocked = useCallback(() => {
     setBiometricSessionUnlocked(true);
-    setShowBiometricUnlock(false);
   }, []);
 
   const handleCreateChat = useCallback(async (peerId: string, displayName?: string) => {
-    await createConversationWithPeer(peerId, displayName);
-    setActiveView('chat');
+    const conversationId = await createConversationWithPeer(peerId, displayName);
+    navigate(`/chats/${conversationId}`);
 
     if (liveState.status !== 'running') {
       await updateConversationConnection(peerId, {
@@ -297,16 +429,16 @@ export function App() {
       });
       setDialError(error instanceof Error ? error.message : 'Unable to dial peer right now.');
     }
-  }, [createConversationWithPeer, dialPeerById, liveState.status, updateConversationConnection]);
+  }, [createConversationWithPeer, dialPeerById, liveState.status, navigate, updateConversationConnection]);
 
   const openSelectedContact = useCallback(() => {
-    if (!selectedConversation) {
+    if (!selectedConversationId) {
       return;
     }
     setContactDialError(undefined);
     setContactDialSuccess(undefined);
-    setShowContactDetail(true);
-  }, [selectedConversation]);
+    navigate(`/chats/${selectedConversationId}/contact`);
+  }, [navigate, selectedConversationId]);
 
   const handleContactDial = useCallback(async (peerId: string) => {
     setContactDialBusy(true);
@@ -343,25 +475,6 @@ export function App() {
       setNetworkAlertDismissed(false);
     }
   }, [liveState.status]);
-
-  // Show biometric unlock on app load if enabled (after onboarding is complete)
-  useEffect(() => {
-    if (isLoaded && !account.displayName) return; // Still in onboarding
-    if (
-      isLoaded
-      && account.biometricUnlockEnabled
-      && !biometricSessionUnlocked
-      && !showBiometricUnlock
-    ) {
-      setShowBiometricUnlock(true);
-    }
-  }, [
-    isLoaded,
-    account.biometricUnlockEnabled,
-    account.displayName,
-    biometricSessionUnlocked,
-    showBiometricUnlock,
-  ]);
 
   // Auto-dial: whenever the user opens a conversation (or the session finishes starting),
   // attempt a background connection to the remote peer if not already connected.
@@ -406,7 +519,7 @@ export function App() {
         : 'offline';
 
   const renderContent = () => {
-    if (activeView === 'contacts') {
+    if (location.pathname === '/contacts') {
       return (
         <ContactsPage
           contacts={contacts}
@@ -414,14 +527,13 @@ export function App() {
           onDeleteContact={deleteContact}
           onStartChat={async (peerId, displayName) => {
             const convId = await createConversationWithPeer(peerId, displayName);
-            setActiveView('chat');
-            setSelectedConversationId(convId);
+            navigate(`/chats/${convId}`);
           }}
         />
       );
     }
 
-    if (activeView === 'profile') {
+    if (location.pathname === '/profile') {
       return (
         <ProfilePage 
           peerId={liveState.localPeerId ?? localPeerId ?? getCurrentDevice().peerId} 
@@ -431,7 +543,7 @@ export function App() {
       );
     }
 
-    if (activeView === 'settings') {
+    if (location.pathname === '/settings') {
       return (
         <SettingsPage 
           keyCustodyPlan={keyCustodyPlan}
@@ -460,9 +572,33 @@ export function App() {
       );
     }
 
-    if (activeView === 'network') {
+    if (location.pathname === '/network') {
       return (
         <NetworkStatusPage sessionState={liveState} networkLog={networkLog} getDebugInfo={getDebugInfo} />
+      );
+    }
+
+    if (routeConversationId && !selectedConversation) {
+      return (
+        <MuiBox sx={{ height: '100%', display: 'grid', placeItems: 'center', px: 3 }}>
+          <MuiBox sx={{ textAlign: 'center', maxWidth: 420 }}>
+            <Alert severity="warning" sx={{ mb: 2 }}>This chat was not found.</Alert>
+            <MuiBox sx={{ display: 'flex', justifyContent: 'center', gap: 1.5 }}>
+              <button
+                type="button"
+                onClick={() => navigate('/chats')}
+                style={{
+                  padding: '8px 14px',
+                  borderRadius: 8,
+                  border: 'none',
+                  cursor: 'pointer',
+                }}
+              >
+                Back to chats
+              </button>
+            </MuiBox>
+          </MuiBox>
+        </MuiBox>
       );
     }
 
@@ -550,6 +686,14 @@ export function App() {
       );
     }
 
+    if (location.pathname !== '/chats') {
+      return (
+        <MuiBox sx={{ height: '100%', display: 'grid', placeItems: 'center', px: 3 }}>
+          <Alert severity="info">Page not found. Redirecting to chats is available from the menu.</Alert>
+        </MuiBox>
+      );
+    }
+
     return (
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', opacity: 0.5 }}>
         <h3>Select a chat to start messaging</h3>
@@ -557,47 +701,64 @@ export function App() {
     );
   };
 
-  if (!isLoaded) {
-    return (
-      <ThemeProvider theme={currentTheme}>
-        <CssBaseline />
-        <SplashScreen />
-      </ThemeProvider>
-    );
-  }
-
-  const needsOnboarding = !account.displayName || !identityProtobuf;
-
-  if (needsOnboarding) {
-    return (
-      <ThemeProvider theme={currentTheme}>
-        <CssBaseline />
-        <OnboardingWizard 
-          onComplete={(data) => {
-            void updateAccount(data);
-          }} 
-        />
-      </ThemeProvider>
-    );
-  }
+  const isSplashRoute = location.pathname === '/splash';
+  const isOnboardingRoute = location.pathname === '/onboarding';
+  const isUnlockRoute = location.pathname === '/unlock';
+  const showContactDetail = isChatContactRoute && !!selectedConversation;
 
   return (
     <ThemeProvider theme={currentTheme}>
       <CssBaseline />
-      <BiometricUnlock
-        open={showBiometricUnlock}
-        passkeyCredentialId={account.biometricCredentialId}
-        userDisplayName={account.displayName}
-        onPasskeyCreated={(credentialId) => {
-          void updateAccount({ biometricCredentialId: credentialId });
-        }}
-        onUnlocked={handleBiometricUnlocked}
-        onCancel={handleBiometricUnlocked}
-      />
-      <Drawer
+
+      {isSplashRoute ? <SplashScreen /> : null}
+
+      {isOnboardingRoute ? (
+        <OnboardingWizard
+          onComplete={(data) => {
+            void updateAccount(data);
+            const returnTo = sanitizeReturnToPath((location.state as { returnTo?: string } | null)?.returnTo);
+            navigate(returnTo, { replace: true });
+          }}
+        />
+      ) : null}
+
+      {isUnlockRoute ? (
+        <>
+          <BiometricUnlock
+            open
+            passkeyCredentialId={account.biometricCredentialId}
+            userDisplayName={account.displayName}
+            onPasskeyCreated={(credentialId) => {
+              void updateAccount({ biometricCredentialId: credentialId });
+            }}
+            onUnlocked={() => {
+              handleBiometricUnlocked();
+              const returnTo = sanitizeReturnToPath((location.state as { returnTo?: string } | null)?.returnTo);
+              navigate(returnTo, { replace: true });
+            }}
+            onCancel={() => {
+              handleBiometricUnlocked();
+              navigate('/chats', { replace: true });
+            }}
+          />
+          <MuiBox sx={{ height: '100dvh' }} />
+        </>
+      ) : null}
+
+      {!isSplashRoute && !isOnboardingRoute && !isUnlockRoute ? (
+        <>
+          <Drawer
         anchor="bottom"
         open={showContactDetail}
-        onClose={() => setShowContactDetail(false)}
+        onClose={() => {
+          if (window.history.length > 1) {
+            navigate(-1);
+          } else if (selectedConversationId) {
+            navigate(`/chats/${selectedConversationId}`, { replace: true });
+          } else {
+            navigate('/chats', { replace: true });
+          }
+        }}
         slotProps={{
           backdrop: {
             sx: {
@@ -634,8 +795,7 @@ export function App() {
             dialLogs={dialLogs}
             onDialPeer={(peerId) => { void handleContactDial(peerId); }}
             onOpenChat={() => {
-              setShowContactDetail(false);
-              setActiveView('chat');
+              navigate(`/chats/${selectedConversation.id}`);
             }}
           />
         )}
@@ -674,10 +834,12 @@ export function App() {
         selectedConversationId={selectedConversationId}
         onSelectConversation={(id) => {
           setSelectedConversationId(id);
-          setActiveView('chat');
+          navigate(`/chats/${id}`);
         }}
         activeView={activeView}
-        setActiveView={setActiveView}
+        setActiveView={(view) => {
+          navigate(pathForView(view));
+        }}
         mode={colorMode}
         toggleColorMode={toggleColorMode}
         peerId={liveState.localPeerId ?? localPeerId ?? getCurrentDevice().peerId}
@@ -688,11 +850,17 @@ export function App() {
         onDeleteConversation={(id) => void deleteConversation(id)}
         onOpenSelectedContact={openSelectedContact}
         onBack={() => {
-          setSelectedConversationId('');
+          if (window.history.length > 1) {
+            navigate(-1);
+            return;
+          }
+          navigate('/chats', { replace: true });
         }}
       >
         {renderContent()}
       </MainLayout>
+        </>
+      ) : null}
     </ThemeProvider>
   );
 }
