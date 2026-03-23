@@ -198,17 +198,49 @@ export function createBrowserLiveSession(options: CreateBrowserLiveSessionOption
     dialLog: new Set<(payload: DialLogEntry) => void>(),
   };
 
-  const configuredRelayAddresses = Array.from(new Set(
+  const configuredRelayBootstrapCandidates = Array.from(new Set(
     (options.nodeOptions?.bootstrapMultiaddrs ?? [])
       .filter((addr) => !addr.includes('/dnsaddr/bootstrap.libp2p.io/'))
-      .map((addr) => addr.endsWith('/p2p-circuit') ? addr : `${addr}/p2p-circuit`),
+      .map((addr) => addr.replace(/\/p2p-circuit$/, ''))
+      .filter((addr) => /\/p2p\/[^/]+$/.test(addr)),
   ));
 
-  const configuredRelayBootstrapAddresses = Array.from(new Set(
-    (options.nodeOptions?.bootstrapMultiaddrs ?? [])
-      .filter((addr) => !addr.includes('/dnsaddr/bootstrap.libp2p.io/'))
-      .map((addr) => addr.replace(/\/p2p-circuit$/, '')),
-  ));
+  function relayAddressRank(address: string): number {
+    if (address.includes('/tls/ws') || address.includes('/wss')) {
+      return 0;
+    }
+    if (address.includes('/webtransport')) {
+      return 1;
+    }
+    return 2;
+  }
+
+  const relayAddressByPeerId = new Map<string, string>();
+  for (const address of configuredRelayBootstrapCandidates) {
+    const peerId = extractPeerIdFromMultiaddr(address);
+    if (!peerId) {
+      continue;
+    }
+
+    const current = relayAddressByPeerId.get(peerId);
+    if (!current || relayAddressRank(address) < relayAddressRank(current)) {
+      relayAddressByPeerId.set(peerId, address);
+    }
+  }
+
+  const configuredRelayBootstrapAddresses = Array.from(relayAddressByPeerId.values());
+
+  const configuredRelayControlAddresses = configuredRelayBootstrapAddresses.filter(
+    (address) => address.includes('/tls/ws') || address.includes('/wss') || address.includes('/ws'),
+  );
+
+  const configuredRelayDialAddresses = configuredRelayControlAddresses.length > 0
+    ? configuredRelayControlAddresses
+    : configuredRelayBootstrapAddresses;
+
+  const configuredRelayAddresses = configuredRelayBootstrapAddresses.map((addr) =>
+    addr.endsWith('/p2p-circuit') ? addr : `${addr}/p2p-circuit`,
+  );
 
   const configuredRelayPeerIds = Array.from(new Set(
     configuredRelayAddresses
@@ -314,7 +346,7 @@ export function createBrowserLiveSession(options: CreateBrowserLiveSessionOption
     }
 
     return Array.from(new Set(
-      configuredRelayBootstrapAddresses.map((relayAddr) => {
+      configuredRelayDialAddresses.map((relayAddr) => {
         const normalizedRelayAddr = relayAddr.replace(/\/p2p-circuit$/, '');
         return `${normalizedRelayAddr}/p2p-circuit/p2p/${targetPeerId}`;
       }),
@@ -337,11 +369,11 @@ export function createBrowserLiveSession(options: CreateBrowserLiveSessionOption
   }
 
   async function dialConfiguredRelays(reason: 'startup' | 'keepalive') {
-    if (!node || configuredRelayBootstrapAddresses.length === 0) {
+    if (!node || configuredRelayDialAddresses.length === 0) {
       return;
     }
 
-    for (const address of configuredRelayBootstrapAddresses) {
+    for (const address of configuredRelayDialAddresses) {
       const relayPeerId = extractPeerIdFromMultiaddr(address) ?? 'relay';
       const alreadyConnected = relayPeerId !== 'relay'
         && node.getConnections().some((connection) => connection.remotePeer.toString() === relayPeerId);
@@ -356,12 +388,13 @@ export function createBrowserLiveSession(options: CreateBrowserLiveSessionOption
       }
 
       try {
+        const relayAddr = multiaddr(address);
         emitDialLog(
           relayPeerId,
           'info',
           `${reason === 'startup' ? 'Dialing' : 'Re-dialing'} relay control connection ${describeRelay(address)}…`,
         );
-        await node.dial(multiaddr(address));
+        await node.dial(relayAddr);
         emitDialLog(relayPeerId, 'info', `Connected to ${describeRelay(address)}; waiting for reservation confirmation.`);
       } catch (error) {
         emitDialLog(
@@ -655,7 +688,7 @@ export function createBrowserLiveSession(options: CreateBrowserLiveSessionOption
   // all bootstrap peers so the circuit-relay transport can reacquire it.
 
   function startRelayKeepalive() {
-    if (relayKeepaliveTimer != null || configuredRelayBootstrapAddresses.length === 0) return;
+    if (relayKeepaliveTimer != null || configuredRelayDialAddresses.length === 0) return;
 
     relayKeepaliveTimer = setInterval(async () => {
       if (!node) return;
@@ -807,7 +840,7 @@ export function createBrowserLiveSession(options: CreateBrowserLiveSessionOption
         console.log('[skypier:session]   listen addrs:', node.getMultiaddrs().map((ma) => ma.toString()));
         emitState();
 
-        if (configuredRelayBootstrapAddresses.length > 0) {
+        if (configuredRelayDialAddresses.length > 0) {
           await dialConfiguredRelays('startup');
           emitState();
         }
