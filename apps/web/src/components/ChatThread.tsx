@@ -1,8 +1,9 @@
-import { Box, Typography, TextField, IconButton, Paper, Divider, Stack, useTheme, useMediaQuery, Popover } from '@mui/material';
+import { Box, Typography, TextField, IconButton, Paper, Divider, Stack, useTheme, useMediaQuery, Popover, Badge } from '@mui/material';
 import SendIcon from '@mui/icons-material/Send';
 import EmojiEmotionsIcon from '@mui/icons-material/EmojiEmotions';
 import AttachFileIcon from '@mui/icons-material/AttachFile';
 import CloseIcon from '@mui/icons-material/Close';
+import AutorenewIcon from '@mui/icons-material/Autorenew';
 import { useRef, useEffect, useState } from 'react';
 import EmojiPicker, { Theme as EmojiTheme } from 'emoji-picker-react';
 import type { ChatMessage, Conversation } from '@skypier/protocol';
@@ -22,6 +23,7 @@ interface ChatThreadProps {
   onToggleReaction: (messageId: string, emoji: string) => void;
   onSendMessage: () => void;
   onRetryMessage?: (messageId: string) => void;
+  onOpenRetryDetails?: () => void;
   onReplySelect?: (message: ChatMessage) => void;
   onSendImage?: (file: File) => void;
 }
@@ -39,6 +41,7 @@ export function ChatThread(props: ChatThreadProps) {
     onToggleReaction,
     onSendMessage,
     onRetryMessage,
+    onOpenRetryDetails,
     onReplySelect,
     onSendImage,
   } = props;
@@ -51,6 +54,7 @@ export function ChatThread(props: ChatThreadProps) {
 
   const [emojiAnchorEl, setEmojiAnchorEl] = useState<HTMLButtonElement | null>(null);
   const showEmojiPicker = Boolean(emojiAnchorEl);
+  const unsentCount = messages.filter((message) => ['sending', 'queued', 'local-only'].includes(message.delivery)).length;
 
   const handleEmojiClick = (event: React.MouseEvent<HTMLButtonElement>) => {
     setEmojiAnchorEl(event.currentTarget);
@@ -115,6 +119,29 @@ export function ChatThread(props: ChatThreadProps) {
               </Typography>
             </Box>
           </Box>
+          <IconButton onClick={onOpenRetryDetails} aria-label="Open delivery details">
+            <Badge badgeContent={unsentCount} color="warning" invisible={unsentCount === 0}>
+              <AutorenewIcon />
+            </Badge>
+          </IconButton>
+        </Box>
+      )}
+
+      {isMobile && (
+        <Box sx={{ position: 'absolute', top: 'calc(env(safe-area-inset-top) + 88px)', right: 16, zIndex: 2 }}>
+          <IconButton
+            onClick={onOpenRetryDetails}
+            aria-label="Open delivery details"
+            sx={{
+              bgcolor: 'background.paper',
+              boxShadow: 3,
+              '&:hover': { bgcolor: 'background.paper' },
+            }}
+          >
+            <Badge badgeContent={unsentCount} color="warning" invisible={unsentCount === 0}>
+              <AutorenewIcon />
+            </Badge>
+          </IconButton>
         </Box>
       )}
 

@@ -20,6 +20,8 @@ import { ContactDetailPage } from './components/ContactDetailPage';
 import { ContactsPage } from './components/ContactsPage';
 import { useNotifications } from './hooks/useNotifications';
 import { matchPath, useLocation, useNavigate } from 'react-router-dom';
+import { MessageRetryDrawer } from './components/MessageRetryDrawer';
+import type { ChatMessage } from '@skypier/protocol';
 
 const PLACEHOLDER_LOCAL_PEER_ID = '12D3KooWLocalPeer';
 
@@ -132,6 +134,7 @@ export function App() {
   const [dialLogs, setDialLogs] = useState<DialLogEntry[]>([]);
   const [isBrowserOffline, setIsBrowserOffline] = useState(() => typeof navigator !== 'undefined' ? !navigator.onLine : false);
   const [offlineAlertOpen, setOfflineAlertOpen] = useState(false);
+  const [showRetryDetails, setShowRetryDetails] = useState(false);
   const deepLinkBaseInjectedRef = useRef(false);
 
   const chatContactMatch = matchPath('/chats/:conversationId/contact', location.pathname);
@@ -518,6 +521,61 @@ export function App() {
         ? 'connecting'
         : 'offline';
 
+  const unsentMessages = useMemo(
+    () => messages
+      .filter((message) => ['sending', 'queued', 'local-only'].includes(message.delivery))
+      .sort((left, right) => new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime()),
+    [messages],
+  );
+
+  useEffect(() => {
+    setShowRetryDetails(false);
+  }, [selectedConversationId]);
+
+  const retryConversationMessage = useCallback(async (message: ChatMessage) => {
+    if (!selectedConversation) {
+      return false;
+    }
+
+    if (!navigator.onLine || isBrowserOffline) {
+      await updateMessageDeliveryStatus(message.id, 'local-only');
+      showOfflineAlert();
+      return false;
+    }
+
+    const remotePeer = findRemoteParticipant(
+      selectedConversation.participants,
+      liveState.localPeerId ?? localPeerId ?? getCurrentDevice().peerId,
+    );
+
+    if (!remotePeer) {
+      await updateMessageDeliveryStatus(message.id, 'local-only');
+      return false;
+    }
+
+    await updateMessageDeliveryStatus(message.id, 'sending');
+
+    if (message.delivery === 'queued') {
+      const retriedQueuedMessage = await retryMessage(message.id);
+      if (retriedQueuedMessage) {
+        return true;
+      }
+    }
+
+    const sent = await sendChatMessageToPeer(message, remotePeer.peerId);
+    await updateMessageDeliveryStatus(message.id, sent ? 'sent' : 'queued');
+    return sent;
+  }, [
+    isBrowserOffline,
+    liveState.localPeerId,
+    localPeerId,
+    retryMessage,
+    selectedConversation,
+    sendChatMessageToPeer,
+    showOfflineAlert,
+    updateMessageDeliveryStatus,
+  ]);
+
   const renderContent = () => {
     if (location.pathname === '/contacts') {
       return (
@@ -615,6 +673,7 @@ export function App() {
           onComposerChange={setComposerValue}
           onReplyClear={clearReplyTarget}
           onToggleReaction={toggleReaction}
+          onOpenRetryDetails={() => setShowRetryDetails(true)}
           onSendMessage={() => {
             void (async () => {
               const message = await sendMessage();
@@ -647,7 +706,11 @@ export function App() {
             })();
           }}
           onRetryMessage={(messageId) => {
-            void retryMessage(messageId);
+            const retryTarget = messages.find((message) => message.id === messageId);
+            if (!retryTarget) {
+              return;
+            }
+            void retryConversationMessage(retryTarget);
           }}
           onReplySelect={selectReplyTarget}
           onSendImage={(file) => {
@@ -829,6 +892,16 @@ export function App() {
           {OFFLINE_ALERT_MESSAGE}
         </Alert>
       </Snackbar>
+      <MessageRetryDrawer
+        open={showRetryDetails}
+        onClose={() => setShowRetryDetails(false)}
+        conversationTitle={selectedConversation?.title ?? 'Delivery details'}
+        messages={unsentMessages}
+        sessionState={liveState}
+        onRetryMessage={(message) => {
+          void retryConversationMessage(message);
+        }}
+      />
       <MainLayout
         conversations={conversations}
         selectedConversationId={selectedConversationId}
