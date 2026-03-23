@@ -5,15 +5,20 @@ import {
   Chip,
   Divider,
   Drawer,
+  IconButton,
   List,
   ListItem,
   ListItemText,
   Stack,
   Typography,
+  useMediaQuery,
+  useTheme,
 } from '@mui/material';
 import AutorenewIcon from '@mui/icons-material/Autorenew';
 import CloudOffIcon from '@mui/icons-material/CloudOff';
 import ScheduleSendIcon from '@mui/icons-material/ScheduleSend';
+import CloseIcon from '@mui/icons-material/Close';
+import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import type { ChatMessage } from '@skypier/protocol';
 import type { BrowserLiveSessionState } from '@skypier/network';
 
@@ -65,6 +70,8 @@ function statusReason(delivery: ChatMessage['delivery']): string {
 
 export function MessageRetryDrawer(props: MessageRetryDrawerProps) {
   const { open, onClose, conversationTitle, messages, sessionState, onRetryMessage } = props;
+  const theme = useTheme();
+  const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
 
   const queuedCount = messages.filter((message) => message.delivery === 'queued').length;
   const localOnlyCount = messages.filter((message) => message.delivery === 'local-only').length;
@@ -79,26 +86,52 @@ export function MessageRetryDrawer(props: MessageRetryDrawerProps) {
         sx: {
           width: { xs: '100%', sm: 420 },
           maxWidth: '100%',
-          bgcolor: (theme) => theme.palette.mode === 'dark' ? 'rgba(14, 8, 28, 0.92)' : 'rgba(255,255,255,0.96)',
-          backdropFilter: 'blur(18px) saturate(180%)',
+          bgcolor: (theme) =>
+            theme.palette.mode === 'dark'
+              ? 'rgba(10, 5, 20, 0.22)'
+              : 'rgba(255, 255, 255, 0.68)',
+          backdropFilter: (theme) => `blur(18px) saturate(190%)`,
+          WebkitBackdropFilter: (theme) => `blur(18px) saturate(190%) url(#liquid-glass-refraction-${theme.palette.mode})`,
+          filter: (theme) => `url(#liquid-glass-gloss-${theme.palette.mode})`,
           borderLeft: (theme) => theme.palette.mode === 'dark'
             ? '1px solid rgba(171, 110, 255, 0.18)'
-            : '1px solid rgba(0,0,0,0.08)',
+            : '1px solid rgba(255,255,255,0.55)',
+          boxShadow: (theme) =>
+            theme.palette.mode === 'dark'
+              ? '0 12px 40px rgba(0,0,0,0.45)'
+              : '0 12px 40px rgba(31, 38, 135, 0.12)',
         },
       }}
     >
       <Box sx={{ p: 3, display: 'flex', flexDirection: 'column', gap: 2, height: '100%' }}>
-        <Box>
-          <Typography variant="overline" color="text.secondary">
-            Delivery details
-          </Typography>
-          <Typography variant="h6" sx={{ fontWeight: 700 }}>
-            {conversationTitle}
-          </Typography>
-          <Typography variant="body2" color="text.secondary">
-            Review unsent messages and how the retry mechanism is currently behaving.
-          </Typography>
-        </Box>
+        <Stack direction="row" alignItems="flex-start" spacing={1.5}>
+          <IconButton
+            onClick={onClose}
+            aria-label={isMobile ? 'Back' : 'Close delivery details'}
+            sx={{
+              mt: 0.25,
+              bgcolor: (theme) => theme.palette.mode === 'dark' ? 'rgba(255,255,255,0.06)' : 'rgba(255,255,255,0.5)',
+              border: '1px solid rgba(255,255,255,0.12)',
+              '&:hover': {
+                bgcolor: (theme) => theme.palette.mode === 'dark' ? 'rgba(255,255,255,0.12)' : 'rgba(255,255,255,0.7)',
+              },
+            }}
+          >
+            {isMobile ? <ArrowBackIcon /> : <CloseIcon />}
+          </IconButton>
+
+          <Box sx={{ flexGrow: 1, minWidth: 0 }}>
+            <Typography variant="overline" color="text.secondary">
+              Delivery details
+            </Typography>
+            <Typography variant="h6" sx={{ fontWeight: 700 }} noWrap>
+              {conversationTitle}
+            </Typography>
+            <Typography variant="body2" color="text.secondary">
+              Review unsent messages and how the retry mechanism is currently behaving.
+            </Typography>
+          </Box>
+        </Stack>
 
         <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
           <Chip icon={<ScheduleSendIcon />} label={`${sendingCount} sending`} size="small" variant="outlined" />
@@ -113,7 +146,14 @@ export function MessageRetryDrawer(props: MessageRetryDrawerProps) {
             : 'The live session is not fully running. Automatic retries may be delayed until connectivity is restored.'}
         </Alert>
 
-        <Box sx={{ bgcolor: 'action.hover', borderRadius: 2, p: 2 }}>
+        <Box
+          sx={{
+            bgcolor: (theme) => theme.palette.mode === 'dark' ? 'rgba(255,255,255,0.04)' : 'rgba(255,255,255,0.38)',
+            borderRadius: 2,
+            p: 2,
+            border: '1px solid rgba(255,255,255,0.12)',
+          }}
+        >
           <Typography variant="subtitle2" sx={{ mb: 1 }}>
             Retry mechanism
           </Typography>
@@ -181,6 +221,21 @@ export function MessageRetryDrawer(props: MessageRetryDrawerProps) {
             ))}
           </List>
         )}
+        <Divider />
+
+        <Stack direction="row" justifyContent="flex-end" sx={{ pt: 0.5 }}>
+          <Button
+            onClick={onClose}
+            variant="contained"
+            sx={{
+              borderRadius: 999,
+              minWidth: 110,
+              boxShadow: 'none',
+            }}
+          >
+            Done
+          </Button>
+        </Stack>
       </Box>
     </Drawer>
   );
