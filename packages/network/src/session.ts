@@ -393,11 +393,8 @@ export function createBrowserLiveSession(options: CreateBrowserLiveSessionOption
       emitDialLog(
         getDefaultRelayLogPeerId(),
         'warn',
-        'A relay reservation exists, but not on the preferred Skypier relay; restoring preferred reservation.',
+        'Preferred Skypier relay reservation is not active; using fallback relay reservation and continuing re-dial attempts.',
       );
-      hadRelayReservation = false;
-      relayReservationKey = '';
-      return [];
     }
 
     if (!hadRelayReservation) {

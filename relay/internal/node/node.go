@@ -128,6 +128,22 @@ func New(ctx context.Context, cfg *config.Config, priv crypto.PrivKey, m *metric
 		listenAddrs = append(listenAddrs, wtMA)
 	}
 
+	// ── Publicly announced relay addresses ─────────────────────────────────────
+	// Circuit-reservation responses include relay addresses derived from Host.Addrs().
+	// If we only advertise listen addrs like 0.0.0.0, clients may receive unusable
+	// reservation addresses and appear offline (no effective /p2p-circuit reachability).
+	announcedAddrs := make([]ma.Multiaddr, 0, 2)
+	if cfg.DNSName != "" {
+		if wsPublicMA, wsErr := ma.NewMultiaddr(fmt.Sprintf("/dns4/%s/tcp/443/tls/ws", cfg.DNSName)); wsErr == nil {
+			announcedAddrs = append(announcedAddrs, wsPublicMA)
+		}
+		if cfg.WebTransportListenAddr != "" {
+			if wtPublicMA, wtErr := ma.NewMultiaddr(fmt.Sprintf("/dns4/%s/udp/443/quic-v1/webtransport", cfg.DNSName)); wtErr == nil {
+				announcedAddrs = append(announcedAddrs, wtPublicMA)
+			}
+		}
+	}
+
 	// ── Relay resource limits ─────────────────────────────────────────────────
 	// Start from defaults so that MaxReservationsPerIP / MaxReservationsPerASN
 	// / MaxReservationsPerPeer are populated correctly. Constructing Resources{}
@@ -147,6 +163,13 @@ func New(ctx context.Context, cfg *config.Config, priv crypto.PrivKey, m *metric
 	h, err := libp2p.New(
 		libp2p.Identity(priv),
 		libp2p.ListenAddrs(listenAddrs...),
+		libp2p.AddrsFactory(func(existing []ma.Multiaddr) []ma.Multiaddr {
+			if len(announcedAddrs) == 0 {
+				return existing
+			}
+			// Force stable public DNS addresses for advertisements and reservation vouchers.
+			return announcedAddrs
+		}),
 		libp2p.Transport(ws.New, ws.WithTLSConfig(tlsCfg)),
 		libp2p.Transport(wt.New),
 		libp2p.EnableHolePunching(),

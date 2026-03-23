@@ -101,7 +101,7 @@ const EFFECTIVE_LISTEN_ADDRESSES = Array.from(
   new Set([
     '/webrtc',
     ...CONFIGURED_RELAY_LISTEN_MULTIADDRS,
-    ...(CONFIGURED_RELAY_LISTEN_MULTIADDRS.length === 0 ? ['/p2p-circuit'] : []),
+    '/p2p-circuit',
   ]),
 );
 

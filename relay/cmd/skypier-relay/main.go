@@ -85,7 +85,20 @@ func serveCmd() *cobra.Command {
 			}
 
 			// Start periodic metrics polling + status file writer.
-			r.PollMetrics(ctx, 30*time.Second, nil)
+			// Include public announced addresses so status output is actionable.
+			extraAddrs := []string{}
+			if cfg.DNSName != "" {
+				peerIDStr := r.Host.ID().String()
+				extraAddrs = append(extraAddrs,
+					fmt.Sprintf("/dns4/%s/tcp/443/tls/ws/p2p/%s", cfg.DNSName, peerIDStr),
+				)
+				if cfg.WebTransportListenAddr != "" {
+					extraAddrs = append(extraAddrs,
+						fmt.Sprintf("/dns4/%s/udp/443/quic-v1/webtransport/p2p/%s", cfg.DNSName, peerIDStr),
+					)
+				}
+			}
+			r.PollMetrics(ctx, 30*time.Second, extraAddrs)
 
 			// Block until SIGTERM / SIGINT.
 			stop := make(chan os.Signal, 1)
