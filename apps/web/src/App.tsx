@@ -785,9 +785,15 @@ export function App() {
       {isOnboardingRoute ? (
         <OnboardingWizard
           onComplete={(data) => {
-            void updateAccount(data);
-            const returnTo = sanitizeReturnToPath((location.state as { returnTo?: string } | null)?.returnTo);
-            navigate(returnTo, { replace: true });
+            void (async () => {
+              const { linkedWallet, ...accountData } = data;
+              await updateAccount(accountData);
+              if (linkedWallet) {
+                await linkEthAddress(linkedWallet);
+              }
+              const returnTo = sanitizeReturnToPath((location.state as { returnTo?: string } | null)?.returnTo);
+              navigate(returnTo, { replace: true });
+            })();
           }}
         />
       ) : null}

@@ -175,6 +175,12 @@ func New(ctx context.Context, cfg *config.Config, priv crypto.PrivKey, m *metric
 		libp2p.EnableHolePunching(),
 		libp2p.UserAgent("skypier-relay/1.0.0"),
 		libp2p.DisableRelay(), // relay server is created explicitly below via relayv2.New
+		// Disable the auto-scaled resource manager. On a VPS the default system-
+		// derived limits are too low for circuit-relay-v2: the resource manager
+		// silently resets RESERVE streams before they reach the relay handler,
+		// resulting in 0 reservations even when peers are connected. A dedicated
+		// relay has no need for per-protocol stream throttling.
+		libp2p.ResourceManager(&network.NullResourceManager{}),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("build libp2p host: %w", err)

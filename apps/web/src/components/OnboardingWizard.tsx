@@ -16,9 +16,16 @@ import {
 import ContentCopyIcon from '@mui/icons-material/ContentCopy';
 import RefreshIcon from '@mui/icons-material/Refresh';
 import { generateNewIdentity, getPeerIdFromProtobuf } from '@skypier/network';
+import type { LinkedEthAddress } from '@skypier/protocol';
+import { connectAndLinkEthWallet } from '../walletLinking';
 
 interface OnboardingWizardProps {
-  onComplete: (data: { displayName: string; identityProtobuf: string; localPeerId: string }) => void;
+  onComplete: (data: {
+    displayName: string;
+    identityProtobuf: string;
+    localPeerId: string;
+    linkedWallet?: LinkedEthAddress;
+  }) => void;
 }
 
 export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
@@ -28,8 +35,13 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
   const [loading, setLoading] = useState(false);
   const [importMode, setImportMode] = useState(false);
   const [importedProtobuf, setImportedProtobuf] = useState('');
+  const [resolvedIdentity, setResolvedIdentity] = useState<{ peerId: string; protobuf: string } | null>(null);
+  const [walletBusy, setWalletBusy] = useState(false);
+  const [walletError, setWalletError] = useState<string | null>(null);
+  const [linkedWalletAddress, setLinkedWalletAddress] = useState<string | null>(null);
+  const [linkedWallet, setLinkedWallet] = useState<LinkedEthAddress | undefined>();
 
-  const steps = ['Set Profile', 'Secure Identity', 'Finalize'];
+  const steps = ['Set Profile', 'Secure Identity', 'Optional ENS'];
 
   const handleNext = async () => {
     if (activeStep === 0 && displayName.trim()) {
@@ -38,13 +50,42 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
       if (importMode && importedProtobuf.trim()) {
         try {
           const peerId = await getPeerIdFromProtobuf(importedProtobuf.trim());
-          onComplete({ displayName, identityProtobuf: importedProtobuf.trim(), localPeerId: peerId.toString() });
+          setResolvedIdentity({ peerId: peerId.toString(), protobuf: importedProtobuf.trim() });
+          setWalletError(null);
+          setActiveStep(2);
         } catch (e) {
           alert('Invalid identity secret. Please check your backup.');
         }
       } else if (identity) {
-        onComplete({ displayName, identityProtobuf: identity.protobuf, localPeerId: identity.peerId });
+        setResolvedIdentity(identity);
+        setWalletError(null);
+        setActiveStep(2);
       }
+    } else if (activeStep === 2 && resolvedIdentity) {
+      onComplete({
+        displayName,
+        identityProtobuf: resolvedIdentity.protobuf,
+        localPeerId: resolvedIdentity.peerId,
+        linkedWallet,
+      });
+    }
+  };
+
+  const handleLinkWallet = async () => {
+    if (!resolvedIdentity) {
+      return;
+    }
+
+    try {
+      setWalletBusy(true);
+      setWalletError(null);
+      const linked = await connectAndLinkEthWallet(resolvedIdentity.peerId);
+      setLinkedWallet(linked.wallet);
+      setLinkedWalletAddress(linked.wallet.address);
+    } catch (error) {
+      setWalletError(error instanceof Error ? error.message : 'Failed to link EVM wallet.');
+    } finally {
+      setWalletBusy(false);
     }
   };
 
@@ -210,6 +251,58 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
               )}
             </Stack>
           )}
+
+          {activeStep === 2 && (
+            <Stack gap={2.5}>
+              <Typography variant="body2" sx={{ opacity: 0.8 }}>
+                Optionally link an EVM wallet to resolve ENS names in chats and profile surfaces.
+              </Typography>
+
+              <Box sx={{ p: 2, bgcolor: 'rgba(255,255,255,0.05)', borderRadius: 2, border: '1px solid rgba(255,255,255,0.1)' }}>
+                <Typography variant="caption" display="block" sx={{ mb: 1, opacity: 0.65 }}>
+                  This step is optional and can be done later from your profile page.
+                </Typography>
+
+                {linkedWalletAddress ? (
+                  <Typography variant="body2" sx={{ fontFamily: 'monospace', color: 'success.main', wordBreak: 'break-all' }}>
+                    Linked: {linkedWalletAddress}
+                  </Typography>
+                ) : (
+                  <Typography variant="body2" color="text.secondary">
+                    No wallet linked yet.
+                  </Typography>
+                )}
+              </Box>
+
+              {walletError ? (
+                <Typography variant="caption" color="error.main">
+                  {walletError}
+                </Typography>
+              ) : null}
+
+              <Stack direction="row" spacing={1.5}>
+                <Button
+                  variant="outlined"
+                  onClick={handleLinkWallet}
+                  disabled={walletBusy || !resolvedIdentity}
+                  startIcon={walletBusy ? <CircularProgress size={16} /> : undefined}
+                >
+                  {linkedWalletAddress ? 'Re-link Wallet' : 'Link EVM Wallet'}
+                </Button>
+                <Button
+                  variant="text"
+                  onClick={() => {
+                    setLinkedWallet(undefined);
+                    setLinkedWalletAddress(null);
+                    setWalletError(null);
+                  }}
+                  disabled={walletBusy || (!linkedWalletAddress && !walletError)}
+                >
+                  Skip for now
+                </Button>
+              </Stack>
+            </Stack>
+          )}
         </Box>
 
         <Box sx={{ display: 'flex', justifyContent: 'space-between', mt: 2 }}>
@@ -221,7 +314,11 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
           </Button>
           <Button
             variant="contained"
-            disabled={(activeStep === 0 && !displayName.trim()) || (activeStep === 1 && !identity && !importedProtobuf)}
+            disabled={
+              (activeStep === 0 && !displayName.trim())
+              || (activeStep === 1 && !identity && !importedProtobuf)
+              || (activeStep === 2 && !resolvedIdentity)
+            }
             onClick={handleNext}
           >
             {activeStep === steps.length - 1 ? 'Finish' : 'Next'}

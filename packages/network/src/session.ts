@@ -333,7 +333,7 @@ export function createBrowserLiveSession(options: CreateBrowserLiveSessionOption
       return address;
     }
 
-    return `${peerId.slice(0, 12)}…`;
+    return peerId;
   }
 
   function getDefaultRelayLogPeerId(): string {
@@ -1038,7 +1038,7 @@ export function createBrowserLiveSession(options: CreateBrowserLiveSessionOption
               emitDialLog(
                 normalizedPeerId,
                 'info',
-                `Trying explicit relay route: ${relayDialAddress.length > 56 ? `...${relayDialAddress.slice(-53)}` : relayDialAddress}`,
+                `Trying explicit relay route: ${relayDialAddress}`,
               );
               const connection = await node.dial(multiaddr(relayDialAddress));
               const peerId = connection.remotePeer.toString();
@@ -1093,7 +1093,7 @@ export function createBrowserLiveSession(options: CreateBrowserLiveSessionOption
           try {
             const addrStr = addr.toString();
             console.log('[skypier:session] dialPeerById: trying', addrStr);
-            emitDialLog(normalizedPeerId, 'info', `Trying: ${addrStr.length > 40 ? '...' + addrStr.slice(-37) : addrStr}`);
+            emitDialLog(normalizedPeerId, 'info', `Trying: ${addrStr}`);
             const connection = await node.dial(addr);
             const peerId = connection.remotePeer.toString();
             console.log('[skypier:session] dialPeerById: ✓ connected to', peerId, 'via DHT');
