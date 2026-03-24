@@ -110,6 +110,7 @@ export interface AccountProfile {
   localPeerId?: string;
   identityProtobuf?: string; // Base64 encoded PeerID protobuf (includes private key)
   linkedEthAddresses: LinkedEthAddress[];
+  themePreference?: 'light' | 'dark';
   biometricUnlockEnabled?: boolean;
   biometricCredentialId?: string; // Base64 credential ID for WebAuthn passkey unlock
 }

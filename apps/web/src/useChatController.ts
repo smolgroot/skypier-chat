@@ -417,6 +417,7 @@ export function useChatController() {
     displayName?: string;
     identityProtobuf?: string;
     localPeerId?: string;
+    themePreference?: 'light' | 'dark';
     biometricUnlockEnabled?: boolean;
     biometricCredentialId?: string;
   }) => {
@@ -428,6 +429,7 @@ export function useChatController() {
         displayName: updates.displayName ?? snap.account.displayName,
         identityProtobuf: updates.identityProtobuf ?? snap.account.identityProtobuf,
         localPeerId: updates.localPeerId ?? snap.account.localPeerId,
+        themePreference: updates.themePreference ?? snap.account.themePreference,
         biometricUnlockEnabled: updates.biometricUnlockEnabled ?? snap.account.biometricUnlockEnabled,
         biometricCredentialId: updates.biometricCredentialId ?? snap.account.biometricCredentialId,
       },

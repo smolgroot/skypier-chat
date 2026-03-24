@@ -21,6 +21,7 @@ import CloseIcon from '@mui/icons-material/Close';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import type { ChatMessage } from '@skypier/protocol';
 import type { BrowserLiveSessionState } from '@skypier/network';
+import { useVibration } from '../hooks/useVibration';
 
 interface MessageRetryDrawerProps {
   open: boolean;
@@ -70,6 +71,7 @@ function statusReason(delivery: ChatMessage['delivery']): string {
 
 export function MessageRetryDrawer(props: MessageRetryDrawerProps) {
   const { open, onClose, conversationTitle, messages, sessionState, onRetryMessage } = props;
+  const { vibrate, patterns } = useVibration();
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
 
@@ -182,7 +184,10 @@ export function MessageRetryDrawer(props: MessageRetryDrawerProps) {
                   <Button
                     size="small"
                     variant="outlined"
-                    onClick={() => onRetryMessage(message)}
+                    onClick={() => {
+                      vibrate(patterns.retry);
+                      onRetryMessage(message);
+                    }}
                     disabled={message.delivery === 'sending'}
                   >
                     Retry

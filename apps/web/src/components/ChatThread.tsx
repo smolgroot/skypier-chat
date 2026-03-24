@@ -10,6 +10,7 @@ import type { ChatMessage, Conversation } from '@skypier/protocol';
 import { reachabilityLabel, reachabilityColor } from '@skypier/network';
 import { ChatBubble } from './ChatBubble';
 import { UserAvatar } from './UserAvatar';
+import { useVibration } from '../hooks/useVibration';
 
 interface ChatThreadProps {
   conversation: Conversation;
@@ -48,6 +49,7 @@ export function ChatThread(props: ChatThreadProps) {
 
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down('md'));
+  const { vibrate, patterns } = useVibration();
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -77,6 +79,7 @@ export function ChatThread(props: ChatThreadProps) {
   const handleKeyPress = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
+      vibrate(patterns.messageSent);
       onSendMessage();
     }
   };
@@ -315,7 +318,10 @@ export function ChatThread(props: ChatThreadProps) {
           />
           <IconButton
             disabled={!composerValue.trim()}
-            onClick={onSendMessage}
+            onClick={() => {
+              vibrate(patterns.messageSent);
+              onSendMessage();
+            }}
             sx={{
               mb: 0.5,
               color: 'primary.main',

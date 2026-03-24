@@ -121,7 +121,7 @@ export function App() {
   } = useChatController();
 
   const activeView = resolveActiveView(location.pathname);
-  const [colorMode, setColorMode] = useState<'light' | 'dark'>('light');
+  const [colorMode, setColorMode] = useState<'light' | 'dark'>(() => account.themePreference ?? 'light');
   const [peerIdInput, setPeerIdInput] = useState('');
   const [dialError, setDialError] = useState<string | undefined>();
   const [walletBusy, setWalletBusy] = useState(false);
@@ -385,9 +385,16 @@ export function App() {
     canPersistWrappedKey: true,
   });
 
-  const toggleColorMode = () => {
-    setColorMode((prev) => (prev === 'light' ? 'dark' : 'light'));
-  };
+  useEffect(() => {
+    const persistedTheme = account.themePreference ?? 'light';
+    setColorMode((current) => current === persistedTheme ? current : persistedTheme);
+  }, [account.themePreference]);
+
+  const toggleColorMode = useCallback(() => {
+    const nextMode = colorMode === 'light' ? 'dark' : 'light';
+    setColorMode(nextMode);
+    void updateAccount({ themePreference: nextMode });
+  }, [colorMode, updateAccount]);
 
   const handleBiometricUnlockToggle = useCallback((enabled: boolean) => {
     void updateAccount({ biometricUnlockEnabled: enabled });

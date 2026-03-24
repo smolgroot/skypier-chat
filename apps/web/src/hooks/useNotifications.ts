@@ -1,5 +1,6 @@
 import { playMessage } from 'earcons';
 import { useCallback, useEffect, useRef } from 'react';
+import { useVibration } from './useVibration';
 
 let sharedAudioCtx: AudioContext | undefined;
 
@@ -90,10 +91,10 @@ export interface NotifyMessageOptions {
   messagePreview: string;
 }
 
-function triggerMobileVibration(): void {
+function triggerMobileVibration(pattern: number | number[] = [200, 100, 200]): void {
   try {
     if (typeof navigator !== 'undefined' && 'vibrate' in navigator) {
-      navigator.vibrate([200, 100, 200]);
+      navigator.vibrate(pattern);
     }
   } catch {
     // Ignore errors if vibration API fails or is denied
@@ -102,6 +103,7 @@ function triggerMobileVibration(): void {
 
 export function useNotifications() {
   const permissionRef = useRef<NotificationPermission>('default');
+  const { patterns } = useVibration();
 
   // Request permission on mount
   useEffect(() => {
@@ -139,7 +141,7 @@ export function useNotifications() {
     void playIncomingMessageSound();
 
     // 2) Trigger mobile vibration if available
-    triggerMobileVibration();
+    triggerMobileVibration(patterns.messageReceived.pattern);
 
     // 3) Show OS notification (only if tab is not focused)
     showOsNotification(
@@ -148,7 +150,7 @@ export function useNotifications() {
         ? messagePreview.slice(0, 100) + '…'
         : messagePreview,
     );
-  }, []);
+  }, [patterns]);
 
   return { notifyIncomingMessage };
 }
