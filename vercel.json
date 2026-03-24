@@ -3,5 +3,11 @@
   "buildCommand": "corepack enable && corepack prepare pnpm@10.6.1 --activate && pnpm -r build",
   "installCommand": "corepack enable && corepack prepare pnpm@10.6.1 --activate && ( [ -f pnpm-lock.yaml ] && pnpm install --frozen-lockfile || pnpm install --no-frozen-lockfile )",
   "outputDirectory": "apps/web/dist",
-  "framework": null
+  "framework": null,
+  "rewrites": [
+    {
+      "source": "/((?!.*\\..*).*)",
+      "destination": "/index.html"
+    }
+  ]
 }

@@ -49,4 +49,11 @@
       "label": "Skypier chat interface on desktop"
     }
   ]
+,
+  "protocol_handlers": [
+    {
+      "protocol":"web+skypierchat",
+      "url":"/chats"
+    }
+  ]
 }
