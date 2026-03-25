@@ -3,6 +3,7 @@ import { Box, Typography, Button, Paper, Divider, Stack, Snackbar, Alert } from 
 import { QRCodeSVG } from 'qrcode.react';
 import ContentCopyIcon from '@mui/icons-material/ContentCopy';
 import ShareIcon from '@mui/icons-material/Share';
+import OpenInNewIcon from '@mui/icons-material/OpenInNew';
 import { UserAvatar } from './UserAvatar';
 import { useENS } from '../hooks/useENS';
 
@@ -12,16 +13,35 @@ interface ProfilePageProps {
   linkedWallets: { address: string; chainId: number }[];
 }
 
+function getBlockscoutAddressUrl(chainId: number, address: string): string {
+  const hostsByChainId: Record<number, string> = {
+    1: 'https://eth.blockscout.com',
+    10: 'https://optimism.blockscout.com',
+    100: 'https://gnosis.blockscout.com',
+    130: 'https://unichain.blockscout.com',
+    137: 'https://polygon.blockscout.com',
+    42161: 'https://arbitrum.blockscout.com',
+    8453: 'https://base.blockscout.com',
+    11155111: 'https://eth-sepolia.blockscout.com',
+    421614: 'https://arbitrum-sepolia.blockscout.com',
+    84532: 'https://base-sepolia.blockscout.com',
+  };
+
+  const host = hostsByChainId[chainId] ?? 'https://eth.blockscout.com';
+  return `${host}/address/${address}`;
+}
+
 export function ProfilePage({ peerId, displayName, linkedWallets }: ProfilePageProps) {
   const firstWallet = linkedWallets[0]?.address;
   const { name: ensName, avatar: ensAvatar } = useENS(firstWallet);
   const [shareSuccess, setShareSuccess] = useState<string | undefined>();
   const [shareError, setShareError] = useState<string | undefined>();
   const [shareBusy, setShareBusy] = useState(false);
+  const appUrl = 'https://skypier.chat';
 
   const inviteText = useMemo(() => (
-    `Hey, I'm using Skypier dMessenger, the decentralized and privacy-focused chat. Let's join me there.\n\nPeer ID: ${peerId}`
-  ), [peerId]);
+    `Hey, I'm using Skypier dMessenger, the decentralized and privacy-focused chat. Let's join me there.\n\n${appUrl}\n\nPeer ID: ${peerId}`
+  ), [appUrl, peerId]);
 
   const copyToClipboard = async (text: string, successMessage?: string) => {
     try {
@@ -43,6 +63,7 @@ export function ProfilePage({ peerId, displayName, linkedWallets }: ProfilePageP
         await navigator.share({
           title: 'Skypier dMessenger invite',
           text: inviteText,
+          url: appUrl,
         });
         setShareSuccess('Invite shared.');
         return;
@@ -143,7 +164,9 @@ export function ProfilePage({ peerId, displayName, linkedWallets }: ProfilePageP
       </Typography>
       {linkedWallets.length > 0 ? (
         <Stack spacing={2}>
-          {linkedWallets.map((wallet) => (
+          {linkedWallets.map((wallet) => {
+            const explorerUrl = getBlockscoutAddressUrl(wallet.chainId, wallet.address);
+            return (
             <Paper 
               key={wallet.address} 
               elevation={0}
@@ -173,11 +196,24 @@ export function ProfilePage({ peerId, displayName, linkedWallets }: ProfilePageP
                   Chain ID: {wallet.chainId}
                 </Typography>
               </Box>
-              <Button size="small" onClick={() => { void copyToClipboard(wallet.address, 'Wallet address copied.'); }}>
-                Copy
-              </Button>
+              <Stack direction="row" spacing={1}>
+                <Button
+                  size="small"
+                  component="a"
+                  href={explorerUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  endIcon={<OpenInNewIcon fontSize="small" />}
+                >
+                  Blockscout
+                </Button>
+                <Button size="small" onClick={() => { void copyToClipboard(wallet.address, 'Wallet address copied.'); }}>
+                  Copy
+                </Button>
+              </Stack>
             </Paper>
-          ))}
+            );
+          })}
         </Stack>
       ) : (
         <Typography variant="body2" color="text.secondary">
