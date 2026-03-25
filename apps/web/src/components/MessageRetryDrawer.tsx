@@ -142,13 +142,13 @@ export function MessageRetryDrawer(props: MessageRetryDrawerProps) {
           <Chip label={`${sessionState.queuedOutgoing} total queued`} size="small" variant="outlined" />
         </Stack>
 
-        <Alert severity={sessionState.status === 'running' ? 'info' : 'warning'}>
+        {/* <Alert severity={sessionState.status === 'running' ? 'info' : 'warning'}>
           {sessionState.status === 'running'
             ? 'Automatic retries run while the live session is active. Queued messages will be retried in the background.'
             : 'The live session is not fully running. Automatic retries may be delayed until connectivity is restored.'}
-        </Alert>
+        </Alert> */}
 
-        <Box
+        {/* <Box
           sx={{
             bgcolor: (theme) => theme.palette.mode === 'dark' ? 'rgba(255,255,255,0.04)' : 'rgba(255,255,255,0.38)',
             borderRadius: 2,
@@ -162,7 +162,7 @@ export function MessageRetryDrawer(props: MessageRetryDrawerProps) {
           <Typography variant="body2" color="text.secondary">
             Queued messages already sit in the session retry loop. Local-only messages need a fresh manual retry to create a new live send attempt. If a retry still cannot reach the peer, the app keeps the message locally and updates its delivery state again.
           </Typography>
-        </Box>
+        </Box> */}
 
         <Divider />
 

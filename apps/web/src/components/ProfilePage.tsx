@@ -1,4 +1,5 @@
-import { Box, Typography, Button, Paper, Divider, Stack } from '@mui/material';
+import { useMemo, useState } from 'react';
+import { Box, Typography, Button, Paper, Divider, Stack, Snackbar, Alert } from '@mui/material';
 import { QRCodeSVG } from 'qrcode.react';
 import ContentCopyIcon from '@mui/icons-material/ContentCopy';
 import ShareIcon from '@mui/icons-material/Share';
@@ -14,9 +15,49 @@ interface ProfilePageProps {
 export function ProfilePage({ peerId, displayName, linkedWallets }: ProfilePageProps) {
   const firstWallet = linkedWallets[0]?.address;
   const { name: ensName, avatar: ensAvatar } = useENS(firstWallet);
+  const [shareSuccess, setShareSuccess] = useState<string | undefined>();
+  const [shareError, setShareError] = useState<string | undefined>();
+  const [shareBusy, setShareBusy] = useState(false);
 
-  const copyToClipboard = (text: string) => {
-    void navigator.clipboard.writeText(text);
+  const inviteText = useMemo(() => (
+    `Hey, I'm using Skypier dMessenger, the decentralized and privacy-focused chat. Let's join me there.\n\nPeer ID: ${peerId}`
+  ), [peerId]);
+
+  const copyToClipboard = async (text: string, successMessage?: string) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      if (successMessage) {
+        setShareSuccess(successMessage);
+      }
+    } catch {
+      setShareError('Could not copy to clipboard. Please copy it manually.');
+    }
+  };
+
+  const handleShare = async () => {
+    setShareError(undefined);
+    setShareBusy(true);
+
+    try {
+      if (typeof navigator !== 'undefined' && typeof navigator.share === 'function') {
+        await navigator.share({
+          title: 'Skypier dMessenger invite',
+          text: inviteText,
+        });
+        setShareSuccess('Invite shared.');
+        return;
+      }
+
+      await copyToClipboard(inviteText, 'Web Share is not available. Invite copied to clipboard.');
+    } catch (error) {
+      if (error instanceof DOMException && error.name === 'AbortError') {
+        return;
+      }
+
+      await copyToClipboard(inviteText, 'Share failed. Invite copied to clipboard.');
+    } finally {
+      setShareBusy(false);
+    }
   };
 
   return (
@@ -75,7 +116,7 @@ export function ProfilePage({ peerId, displayName, linkedWallets }: ProfilePageP
           <Button 
             size="small" 
             startIcon={<ContentCopyIcon />} 
-            onClick={() => copyToClipboard(peerId)}
+            onClick={() => { void copyToClipboard(peerId, 'Peer ID copied.'); }}
           >
             Copy ID
           </Button>
@@ -91,8 +132,8 @@ export function ProfilePage({ peerId, displayName, linkedWallets }: ProfilePageP
         </Typography>
 
         <Stack direction="row" spacing={2}>
-          <Button variant="contained" startIcon={<ShareIcon />}>
-            Share Link
+          <Button variant="contained" startIcon={<ShareIcon />} onClick={() => { void handleShare(); }} disabled={shareBusy}>
+            {shareBusy ? 'Sharing…' : 'Share Invite'}
           </Button>
         </Stack>
       </Paper>
@@ -132,7 +173,7 @@ export function ProfilePage({ peerId, displayName, linkedWallets }: ProfilePageP
                   Chain ID: {wallet.chainId}
                 </Typography>
               </Box>
-              <Button size="small" onClick={() => copyToClipboard(wallet.address)}>
+              <Button size="small" onClick={() => { void copyToClipboard(wallet.address, 'Wallet address copied.'); }}>
                 Copy
               </Button>
             </Paper>
@@ -143,6 +184,28 @@ export function ProfilePage({ peerId, displayName, linkedWallets }: ProfilePageP
           No wallets linked yet.
         </Typography>
       )}
+
+      <Snackbar
+        open={Boolean(shareSuccess)}
+        autoHideDuration={3000}
+        onClose={() => setShareSuccess(undefined)}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
+      >
+        <Alert severity="success" variant="filled" onClose={() => setShareSuccess(undefined)}>
+          {shareSuccess}
+        </Alert>
+      </Snackbar>
+
+      <Snackbar
+        open={Boolean(shareError)}
+        autoHideDuration={3500}
+        onClose={() => setShareError(undefined)}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
+      >
+        <Alert severity="error" variant="filled" onClose={() => setShareError(undefined)}>
+          {shareError}
+        </Alert>
+      </Snackbar>
     </Box>
   );
 }
