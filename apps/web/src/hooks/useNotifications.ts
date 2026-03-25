@@ -52,7 +52,7 @@ async function requestNotificationPermission(): Promise<NotificationPermission> 
   return await Notification.requestPermission();
 }
 
-function showOsNotification(title: string, body: string): void {
+function showOsNotification(title: string, body: string, tag = 'skypier-message'): void {
   if (!('Notification' in window) || Notification.permission !== 'granted') {
     return;
   }
@@ -67,7 +67,7 @@ function showOsNotification(title: string, body: string): void {
       body,
       icon: '/icons/icon-192x192.png',
       badge: '/icons/icon-72x72.png',
-      tag: 'skypier-message', // collapses multiple into one
+      tag,
     } as NotificationOptions);
 
     // Auto-close after 5 seconds
@@ -89,6 +89,10 @@ function showOsNotification(title: string, body: string): void {
 export interface NotifyMessageOptions {
   senderName: string;
   messagePreview: string;
+}
+
+export interface NotifyIncomingCallOptions {
+  callerName: string;
 }
 
 function triggerMobileVibration(pattern: number | number[] = [200, 100, 200]): void {
@@ -149,8 +153,15 @@ export function useNotifications() {
       messagePreview.length > 100
         ? messagePreview.slice(0, 100) + '…'
         : messagePreview,
+      'skypier-message',
     );
   }, [patterns]);
 
-  return { notifyIncomingMessage };
+  const notifyIncomingCall = useCallback(({ callerName }: NotifyIncomingCallOptions) => {
+    void playIncomingMessageSound();
+    triggerMobileVibration(patterns.retry.pattern);
+    showOsNotification('📞 Incoming Skypier call', `${callerName} is calling you.`, 'skypier-audio-call');
+  }, [patterns]);
+
+  return { notifyIncomingMessage, notifyIncomingCall };
 }

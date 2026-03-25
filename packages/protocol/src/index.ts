@@ -1,6 +1,40 @@
 export type DeviceTrustLevel = 'software' | 'biometric' | 'hardware-backed';
 export type DeliveryState = 'sending' | 'local-only' | 'queued' | 'sent' | 'delivered' | 'read';
 export type Reachability = 'unknown' | 'direct' | 'relayed' | 'offline';
+export type AudioCallCodec = 'opus';
+export type AudioCallSignalType = 'offer' | 'ringing' | 'accept' | 'reject' | 'hangup' | 'busy' | 'mute';
+export type AudioCallEndReason = 'declined' | 'busy' | 'hangup' | 'missed' | 'error';
+export type AudioCallPhase = 'idle' | 'requesting-media' | 'incoming' | 'ringing' | 'connecting' | 'connected' | 'ended' | 'error';
+export type AudioCallChunkKind = 'chunk' | 'end';
+
+export interface AudioCallMediaProfile {
+  codec: AudioCallCodec;
+  sampleRateHz: number;
+  channels: 1 | 2;
+  ptimeMs: number;
+}
+
+export interface AudioCallSignal {
+  type: AudioCallSignalType;
+  callId: string;
+  conversationId: string;
+  fromPeerId: string;
+  sentAt: string;
+  mediaProfile?: AudioCallMediaProfile;
+  muted?: boolean;
+  reason?: AudioCallEndReason;
+}
+
+export interface AudioCallChunk {
+  kind: AudioCallChunkKind;
+  callId: string;
+  conversationId: string;
+  fromPeerId: string;
+  sentAt: string;
+  sequence: number;
+  mimeType: string;
+  data?: string;
+}
 
 export interface DeviceIdentity {
   id: string;

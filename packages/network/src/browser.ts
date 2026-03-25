@@ -59,19 +59,7 @@ export async function createBrowserSkypierNode(options: CreateBrowserSkypierNode
   const transports = [
     safelyCreate(() => webSockets()),
     safelyCreate(() => webTransport()),
-    safelyCreate(() => webRTC({
-      rtcConfiguration: {
-        iceServers: [
-          {
-            urls: [
-              'stun:stun.l.google.com:19302',
-              'stun:stun1.l.google.com:19302',
-              'stun:global.stun.twilio.com:3478',
-            ],
-          },
-        ],
-      },
-    })),
+    safelyCreate(() => webRTC()),
     safelyCreate(() => circuitRelayTransport({
       reservationConcurrency: 3,
     })),

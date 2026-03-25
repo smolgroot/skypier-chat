@@ -1,6 +1,7 @@
 import { Box, Button, Stack, Typography } from '@mui/material';
 import SatelliteAltIcon from '@mui/icons-material/SatelliteAlt';
 import ChatIcon from '@mui/icons-material/Chat';
+import CallIcon from '@mui/icons-material/Call';
 import type { Conversation } from '@skypier/protocol';
 import { reachabilityLabel, type DialLogEntry } from '@skypier/network';
 import { UserAvatar } from './UserAvatar';
@@ -20,11 +21,14 @@ interface ContactDetailPageProps {
   dialSuccess?: string;
   dialLogs?: DialLogEntry[];
   onDialPeer: (peerId: string) => void;
+  onStartCall?: (peerId: string) => void;
+  callDisabled?: boolean;
+  callStatusLabel?: string;
   onOpenChat: () => void;
 }
 
 export function ContactDetailPage(props: ContactDetailPageProps) {
-  const { conversation, localPeerId, isDialing, dialError, dialSuccess, dialLogs = [], onDialPeer, onOpenChat } = props;
+  const { conversation, localPeerId, isDialing, dialError, dialSuccess, dialLogs = [], onDialPeer, onStartCall, callDisabled, callStatusLabel, onOpenChat } = props;
 
   const remoteParticipant = conversation.participants.find(
     (participant) => participant.peerId !== localPeerId && !isPlaceholderLocalPeerId(participant.peerId),
@@ -57,6 +61,11 @@ export function ContactDetailPage(props: ContactDetailPageProps) {
           <Typography variant="body2" color="primary" sx={{ fontWeight: '500' }}>
             {reachabilityLabel(conversation.reachability)}
           </Typography>
+          {callStatusLabel ? (
+            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
+              {callStatusLabel}
+            </Typography>
+          ) : null}
         </Box>
 
         <Typography variant="body2" color="text.secondary" sx={{ wordBreak: 'break-all', textAlign: 'center', opacity: 0.7, maxWidth: 300 }}>
@@ -64,6 +73,17 @@ export function ContactDetailPage(props: ContactDetailPageProps) {
         </Typography>
 
         <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} sx={{ mt: 2, width: '100%' }}>
+          <Button
+            fullWidth
+            variant="contained"
+            startIcon={<CallIcon />}
+            onClick={() => onStartCall?.(remoteParticipant.peerId)}
+            disabled={callDisabled || !onStartCall}
+            size="large"
+            sx={{ borderRadius: 3 }}
+          >
+            Audio call
+          </Button>
           <Button
             fullWidth
             variant="contained"

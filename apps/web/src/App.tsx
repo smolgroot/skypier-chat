@@ -19,9 +19,11 @@ import { BiometricUnlock } from './components/BiometricUnlock';
 import { ContactDetailPage } from './components/ContactDetailPage';
 import { ContactsPage } from './components/ContactsPage';
 import { useNotifications } from './hooks/useNotifications';
+import { useAudioCall } from './hooks/useAudioCall';
 import { matchPath, useLocation, useNavigate } from 'react-router-dom';
 import { MessageRetryDrawer } from './components/MessageRetryDrawer';
-import type { ChatMessage } from '@skypier/protocol';
+import { AudioCallDrawer } from './components/AudioCallDrawer';
+import type { AudioCallChunk, AudioCallSignal, ChatMessage } from '@skypier/protocol';
 
 const PLACEHOLDER_LOCAL_PEER_ID = '12D3KooWLocalPeer';
 
@@ -136,6 +138,8 @@ export function App() {
   const [offlineAlertOpen, setOfflineAlertOpen] = useState(false);
   const [showRetryDetails, setShowRetryDetails] = useState(false);
   const deepLinkBaseInjectedRef = useRef(false);
+  const audioCallSignalHandlerRef = useRef<((payload: { fromPeerId: string; signal: AudioCallSignal }) => void) | undefined>(undefined);
+  const audioCallChunkHandlerRef = useRef<((payload: { fromPeerId: string; chunk: AudioCallChunk }) => void) | undefined>(undefined);
 
   const chatContactMatch = matchPath('/chats/:conversationId/contact', location.pathname);
   const chatMatch = matchPath('/chats/:conversationId', location.pathname);
@@ -146,7 +150,7 @@ export function App() {
 
   const networkLog = useNetworkLog();
   const currentTheme = useMemo(() => theme(colorMode), [colorMode]);
-  const { notifyIncomingMessage } = useNotifications();
+  const { notifyIncomingMessage, notifyIncomingCall } = useNotifications();
 
   const showOfflineAlert = useCallback(() => {
     setOfflineAlertOpen(true);
@@ -190,15 +194,31 @@ export function App() {
     dialPeerById,
     broadcastChatMessage,
     sendChatMessageToPeer,
+    sendAudioCallSignal,
+    sendAudioCallChunk,
     retryMessage,
     getDebugInfo,
   } = useLiveChatSession({
     onInboundMessage: handleInboundMessage,
+    onAudioCallSignal: (payload) => {
+      audioCallSignalHandlerRef.current?.(payload);
+    },
+    onAudioCallChunk: (payload) => {
+      audioCallChunkHandlerRef.current?.(payload);
+    },
     onPeerReachabilityChange: handlePeerReachabilityChange,
     onDeliveryStatus: handleDeliveryStatus,
     onDialLog: (log) => setDialLogs(prev => [...prev, log]),
     onSyncRequest: getRecentMessagesForPeer,
     identityProtobuf
+  });
+
+  const audioCall = useAudioCall({
+    localPeerId: liveState.localPeerId ?? localPeerId,
+    isSessionReady: liveState.status === 'running',
+    dialPeerById,
+    sendAudioCallSignal,
+    sendAudioCallChunk,
   });
 
   const lastRecoveryAtRef = useRef(0);
@@ -208,6 +228,31 @@ export function App() {
     if (account.localPeerId === liveState.localPeerId) return;
     void updateAccount({ localPeerId: liveState.localPeerId });
   }, [account.localPeerId, liveState.localPeerId, updateAccount]);
+
+  useEffect(() => {
+    audioCallSignalHandlerRef.current = ({ fromPeerId, signal }) => {
+      const linkedConversation = conversations.find((conversation) =>
+        conversation.participants.some((participant) => participant.peerId === fromPeerId),
+      );
+      const remoteDisplayName = linkedConversation?.title ?? `Peer ${fromPeerId.slice(0, 10)}…`;
+
+      if (signal.type === 'offer') {
+        notifyIncomingCall({ callerName: remoteDisplayName });
+      }
+
+      void audioCall.handleIncomingSignal({
+        fromPeerId,
+        remoteDisplayName,
+        signal,
+      });
+    };
+  }, [audioCall, conversations, notifyIncomingCall]);
+
+  useEffect(() => {
+    audioCallChunkHandlerRef.current = (payload) => {
+      audioCall.handleIncomingAudioChunk(payload);
+    };
+  }, [audioCall]);
 
   // Automatically start the session once the app is loaded
   useEffect(() => {
@@ -583,6 +628,71 @@ export function App() {
     updateMessageDeliveryStatus,
   ]);
 
+  const selectedRemotePeer = useMemo(() => {
+    if (!selectedConversation) {
+      return undefined;
+    }
+
+    return findRemoteParticipant(
+      selectedConversation.participants,
+      liveState.localPeerId ?? localPeerId ?? getCurrentDevice().peerId,
+    );
+  }, [liveState.localPeerId, localPeerId, selectedConversation]);
+
+  const activeCallLabel = useMemo(() => {
+    if (!audioCall.call) {
+      return undefined;
+    }
+
+    switch (audioCall.call.phase) {
+      case 'incoming':
+        return 'Incoming call';
+      case 'ringing':
+        return 'Calling…';
+      case 'connecting':
+      case 'requesting-media':
+        return 'Preparing call';
+      case 'connected':
+        return audioCall.call.isMuted ? 'Call live · muted' : 'Call live';
+      case 'ended':
+        return 'Call ended';
+      case 'error':
+        return 'Call failed';
+      default:
+        return 'Audio call';
+    }
+  }, [audioCall.call]);
+
+  const startConversationCall = useCallback(async (peerId?: string, displayName?: string, conversationId?: string) => {
+    const remotePeerId = peerId ?? selectedRemotePeer?.peerId;
+    const remoteDisplayName = displayName ?? selectedConversation?.title ?? 'Peer';
+    const targetConversationId = conversationId ?? selectedConversation?.id;
+
+    if (!remotePeerId || !targetConversationId) {
+      return;
+    }
+
+    try {
+      await audioCall.startCall({
+        conversationId: targetConversationId,
+        remotePeerId,
+        remoteDisplayName,
+      });
+    } catch (error) {
+      console.warn('[skypier:app] audio call start failed:', error instanceof Error ? error.message : error);
+    }
+  }, [audioCall, selectedConversation, selectedRemotePeer]);
+
+  const dismissAudioCallDrawer = useCallback(() => {
+    if (!audioCall.call) {
+      return;
+    }
+
+    if (['ended', 'error'].includes(audioCall.call.phase)) {
+      audioCall.dismissCall();
+    }
+  }, [audioCall]);
+
   const renderContent = () => {
     if (location.pathname === '/contacts') {
       return (
@@ -681,6 +791,11 @@ export function App() {
           onReplyClear={clearReplyTarget}
           onToggleReaction={toggleReaction}
           onOpenRetryDetails={() => setShowRetryDetails(true)}
+          onStartCall={() => {
+            void startConversationCall();
+          }}
+          callButtonDisabled={!selectedRemotePeer || (audioCall.hasActiveCall && audioCall.call?.conversationId !== selectedConversation.id)}
+          callStatusLabel={audioCall.call?.conversationId === selectedConversation.id ? activeCallLabel : undefined}
           onSendMessage={() => {
             void (async () => {
               const message = await sendMessage();
@@ -779,6 +894,24 @@ export function App() {
   return (
     <ThemeProvider theme={currentTheme}>
       <CssBaseline />
+      <MuiBox
+        sx={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          width: '100%',
+          height: '100%',
+          bgcolor: (theme) => theme.palette.mode === 'dark' ? '#030105' : '#ffffff',
+          backgroundImage: (theme) => theme.palette.mode === 'dark'
+            ? 'linear-gradient(to bottom, #030105, transparent, #030105), radial-gradient(circle, #281f3ab6 0%, #000 100%)'
+            : 'linear-gradient(to bottom, #ffffff, transparent, #ffffff), radial-gradient(circle, transparent 0%, #ffffff 70%)',
+          backgroundSize: '100% 100%, cover',
+          backgroundRepeat: 'no-repeat, no-repeat',
+          backgroundPosition: 'center',
+          backgroundAttachment: 'fixed',
+          zIndex: -1,
+        }}
+      />
 
       {isSplashRoute ? <SplashScreen /> : null}
 
@@ -870,6 +1003,11 @@ export function App() {
             dialSuccess={contactDialSuccess}
             dialLogs={dialLogs}
             onDialPeer={(peerId) => { void handleContactDial(peerId); }}
+            onStartCall={(peerId) => {
+              void startConversationCall(peerId, selectedConversation.title, selectedConversation.id);
+            }}
+            callDisabled={audioCall.hasActiveCall && audioCall.call?.conversationId !== selectedConversation.id}
+            callStatusLabel={audioCall.call?.conversationId === selectedConversation.id ? activeCallLabel : undefined}
             onOpenChat={() => {
               navigate(`/chats/${selectedConversation.id}`);
             }}
@@ -913,6 +1051,23 @@ export function App() {
         sessionState={liveState}
         onRetryMessage={(message) => {
           void retryConversationMessage(message);
+        }}
+      />
+      <AudioCallDrawer
+        open={audioCall.call != null}
+        call={audioCall.call}
+        onClose={dismissAudioCallDrawer}
+        onAccept={() => {
+          void audioCall.acceptCall();
+        }}
+        onReject={() => {
+          void audioCall.rejectCall();
+        }}
+        onEnd={() => {
+          void audioCall.endCall();
+        }}
+        onToggleMute={() => {
+          void audioCall.toggleMute();
         }}
       />
       <MainLayout

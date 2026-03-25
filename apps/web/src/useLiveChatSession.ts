@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createBrowserLiveSession, type BrowserLiveSession, type BrowserLiveSessionState, type DeliveryStatusEvent, type NetworkDebugSnapshot, type PeerReachabilityEvent, type SyncMessageEntry } from '@skypier/network';
-import type { ChatMessage } from '@skypier/protocol';
+import type { AudioCallChunk, AudioCallSignal, ChatMessage } from '@skypier/protocol';
 
 interface UseLiveChatSessionOptions {
   onInboundMessage: (payload: { fromPeerId: string; envelope: { kind: 'message' | 'receipt' | 'presence' | 'sync'; conversationId: string; senderPeerId: string; sentAt: string; payload: string } }) => Promise<void> | void;
+  onAudioCallSignal?: (payload: { fromPeerId: string; signal: AudioCallSignal }) => void;
+  onAudioCallChunk?: (payload: { fromPeerId: string; chunk: AudioCallChunk }) => void;
   onPeerReachabilityChange?: (event: PeerReachabilityEvent) => void;
   onDeliveryStatus?: (event: DeliveryStatusEvent) => void;
   onDialLog?: (event: import('@skypier/network').DialLogEntry) => void;
@@ -124,12 +126,22 @@ const INITIAL_STATE: BrowserLiveSessionState = {
 export function useLiveChatSession(options: UseLiveChatSessionOptions) {
   const sessionRef = useRef<BrowserLiveSession | null>(null);
   const inboundHandlerRef = useRef(options.onInboundMessage);
+  const audioCallSignalHandlerRef = useRef(options.onAudioCallSignal);
+  const audioCallChunkHandlerRef = useRef(options.onAudioCallChunk);
   const peerReachabilityHandlerRef = useRef(options.onPeerReachabilityChange);
   const [state, setState] = useState<BrowserLiveSessionState>(INITIAL_STATE);
 
   useEffect(() => {
     inboundHandlerRef.current = options.onInboundMessage;
   }, [options.onInboundMessage]);
+
+  useEffect(() => {
+    audioCallSignalHandlerRef.current = options.onAudioCallSignal;
+  }, [options.onAudioCallSignal]);
+
+  useEffect(() => {
+    audioCallChunkHandlerRef.current = options.onAudioCallChunk;
+  }, [options.onAudioCallChunk]);
 
   useEffect(() => {
     peerReachabilityHandlerRef.current = options.onPeerReachabilityChange;
@@ -196,6 +208,14 @@ export function useLiveChatSession(options: UseLiveChatSessionOptions) {
       peerReachabilityHandlerRef.current?.(payload);
     });
 
+    const unsubscribeAudioCallSignal = session.subscribe('audioCallSignal', (payload) => {
+      audioCallSignalHandlerRef.current?.(payload);
+    });
+
+    const unsubscribeAudioCallChunk = session.subscribe('audioCallChunk', (payload) => {
+      audioCallChunkHandlerRef.current?.(payload);
+    });
+
     const unsubscribeDeliveryStatus = session.subscribe('deliveryStatus', (payload) => {
       deliveryStatusHandlerRef.current?.(payload);
     });
@@ -210,6 +230,8 @@ export function useLiveChatSession(options: UseLiveChatSessionOptions) {
       unsubscribeState();
       unsubscribeInbound();
       unsubscribePeerReachability();
+      unsubscribeAudioCallSignal();
+      unsubscribeAudioCallChunk();
       unsubscribeDeliveryStatus();
       unsubscribeDialLog();
       void session.stop();
@@ -294,6 +316,26 @@ export function useLiveChatSession(options: UseLiveChatSessionOptions) {
     return success;
   }, []);
 
+  const sendAudioCallSignal = useCallback(async (signal: AudioCallSignal, targetPeerId: string) => {
+    if (!sessionRef.current) {
+      return false;
+    }
+
+    const success = await sessionRef.current.sendAudioCallSignal(signal, targetPeerId);
+    setState(sessionRef.current.getState());
+    return success;
+  }, []);
+
+  const sendAudioCallChunk = useCallback(async (chunk: AudioCallChunk, targetPeerId: string) => {
+    if (!sessionRef.current) {
+      return false;
+    }
+
+    const success = await sessionRef.current.sendAudioCallChunk(chunk, targetPeerId);
+    setState(sessionRef.current.getState());
+    return success;
+  }, []);
+
   const requestSyncWithConnectedPeers = useCallback(async (reason: 'resume' | 'manual' = 'manual') => {
     if (!sessionRef.current) {
       return 0;
@@ -317,6 +359,8 @@ export function useLiveChatSession(options: UseLiveChatSessionOptions) {
     dialPeerById,
     broadcastChatMessage,
     sendChatMessageToPeer,
+    sendAudioCallSignal,
+    sendAudioCallChunk,
     retryMessage,
     requestSyncWithConnectedPeers,
     getDebugInfo,

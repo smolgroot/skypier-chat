@@ -1,7 +1,7 @@
 import { multiaddr } from '@multiformats/multiaddr';
 import { peerIdFromString } from '@libp2p/peer-id';
 import * as lp from 'it-length-prefixed';
-import type { ChatMessage } from '@skypier/protocol';
+import type { AudioCallChunk, AudioCallSignal, ChatMessage } from '@skypier/protocol';
 import {
   loadPendingQueue,
   savePendingQueue,
@@ -37,6 +37,14 @@ export interface BrowserLiveSessionEventMap {
   inbound: {
     fromPeerId: string;
     envelope: WireEnvelope;
+  };
+  audioCallSignal: {
+    fromPeerId: string;
+    signal: AudioCallSignal;
+  };
+  audioCallChunk: {
+    fromPeerId: string;
+    chunk: AudioCallChunk;
   };
   peerReachability: PeerReachabilityEvent;
   deliveryStatus: DeliveryStatusEvent;
@@ -83,6 +91,8 @@ export interface BrowserLiveSession {
   sendEnvelopeToConnected(envelope: WireEnvelope): Promise<number>;
   sendChatMessageToConnected(message: ChatMessage): Promise<number>;
   sendChatMessageToPeer(message: ChatMessage, targetPeerId: string): Promise<boolean>;
+  sendAudioCallSignal(signal: AudioCallSignal, targetPeerId: string): Promise<boolean>;
+  sendAudioCallChunk(chunk: AudioCallChunk, targetPeerId: string): Promise<boolean>;
   retryMessage(messageId: string): Promise<boolean>;
   flushQueue(): Promise<number>;
   getState(): BrowserLiveSessionState;
@@ -193,6 +203,8 @@ export function createBrowserLiveSession(options: CreateBrowserLiveSessionOption
   const listeners = {
     state: new Set<(payload: BrowserLiveSessionState) => void>(),
     inbound: new Set<(payload: { fromPeerId: string; envelope: WireEnvelope }) => void>(),
+    audioCallSignal: new Set<(payload: { fromPeerId: string; signal: AudioCallSignal }) => void>(),
+    audioCallChunk: new Set<(payload: { fromPeerId: string; chunk: AudioCallChunk }) => void>(),
     peerReachability: new Set<(payload: PeerReachabilityEvent) => void>(),
     deliveryStatus: new Set<(payload: DeliveryStatusEvent) => void>(),
     dialLog: new Set<(payload: DialLogEntry) => void>(),
@@ -289,6 +301,14 @@ export function createBrowserLiveSession(options: CreateBrowserLiveSessionOption
 
   function emitInbound(payload: { fromPeerId: string; envelope: WireEnvelope }) {
     listeners.inbound.forEach((handler) => handler(payload));
+  }
+
+  function emitAudioCallSignal(payload: { fromPeerId: string; signal: AudioCallSignal }) {
+    listeners.audioCallSignal.forEach((handler) => handler(payload));
+  }
+
+  function emitAudioCallChunk(payload: { fromPeerId: string; chunk: AudioCallChunk }) {
+    listeners.audioCallChunk.forEach((handler) => handler(payload));
   }
 
   function emitDeliveryStatus(payload: DeliveryStatusEvent) {
@@ -479,15 +499,15 @@ export function createBrowserLiveSession(options: CreateBrowserLiveSessionOption
 
   // ─── Send one envelope via length-prefixed stream ──────────────────────
 
-  async function sendEnvelopeToPeer(peerId: string, envelope: WireEnvelope): Promise<true | false | 'unsupported'> {
+  async function ensureConnectionToPeer(peerId: string) {
     // Guard: never send to ourselves
     if (peerId === state.localPeerId) {
-      return true; // treat as "sent" — nothing to do
+      return null;
     }
 
     if (!node) {
-      console.warn('[skypier:session] sendEnvelopeToPeer: node not ready for', peerId);
-      return false;
+      console.warn('[skypier:session] ensureConnectionToPeer: node not ready for', peerId);
+      return undefined;
     }
 
     let connection = node.getConnections().find((c) => c.remotePeer.toString() === peerId);
@@ -496,60 +516,67 @@ export function createBrowserLiveSession(options: CreateBrowserLiveSessionOption
     if (!connection) {
       try {
         const targetPeerId = peerIdFromString(peerId);
-        console.log('[skypier:session] sendEnvelopeToPeer: no connection to', peerId, '— attempting re-dial…');
+        console.log('[skypier:session] ensureConnectionToPeer: no connection to', peerId, '— attempting re-dial…');
         connection = await node.dial(targetPeerId);
-        console.log('[skypier:session] sendEnvelopeToPeer: re-dial ✓ connected to', peerId);
+        console.log('[skypier:session] ensureConnectionToPeer: re-dial ✓ connected to', peerId);
         emitState();
       } catch (dialErr) {
-        console.warn('[skypier:session] sendEnvelopeToPeer: re-dial failed for', peerId, dialErr instanceof Error ? dialErr.message : dialErr);
-        return false;
+        console.warn('[skypier:session] ensureConnectionToPeer: re-dial failed for', peerId, dialErr instanceof Error ? dialErr.message : dialErr);
+        return undefined;
       }
     }
 
-    try {
-      // 1) Open a fresh stream on the message protocol
-      const stream = await connection.newStream(SKYPIER_CHAT_PROTOCOLS.message);
+    return connection;
+  }
 
-      // 2) Length-prefix encode the serialized envelope
-      const raw = serializeWireEnvelope(envelope);
-      for await (const chunk of lp.encode([raw])) {
+  async function sendProtocolPayloadToPeer(peerId: string, protocol: string, payload: Uint8Array): Promise<true | false | 'unsupported'> {
+    if (peerId === state.localPeerId) {
+      return true;
+    }
+
+    const connection = await ensureConnectionToPeer(peerId);
+    if (connection == null) {
+      return connection === null ? true : false;
+    }
+
+    try {
+      const stream = await connection.newStream(protocol);
+
+      for await (const chunk of lp.encode([payload])) {
         stream.send(normalizeChunk(chunk));
       }
 
-      // 3) Close the stream gracefully
       await stream.close();
-
-      console.log('[skypier:session] ✓ sent envelope to', peerId, '— kind:', envelope.kind, 'msgId:', envelope.messageId, 'conv:', envelope.conversationId);
-      
       void markAsChatPeer(peerId);
-
-      // Mark as sent
-      if (envelope.messageId) {
-        emitDeliveryStatus({ messageId: envelope.messageId, status: 'sent' });
-      }
-
       return true;
     } catch (error) {
-      // UnsupportedProtocolError means the remote peer doesn't speak our
-      // protocol — it's a DHT/relay/bootstrap node, not a Skypier peer.
-      // Don't spam the log and mark it so callers don't retry.
       const errName = (error as { name?: string })?.name ?? '';
       if (errName === 'UnsupportedProtocolError') {
         return 'unsupported';
       }
-      console.error('[skypier:session] ✗ failed to send to', peerId, error);
+      console.error('[skypier:session] ✗ failed to send protocol payload to', peerId, 'over', protocol, error);
       return false;
     }
+  }
+
+  async function sendEnvelopeToPeer(peerId: string, envelope: WireEnvelope): Promise<true | false | 'unsupported'> {
+    const raw = serializeWireEnvelope(envelope);
+    const result = await sendProtocolPayloadToPeer(peerId, SKYPIER_CHAT_PROTOCOLS.message, raw);
+
+    if (result === true) {
+      console.log('[skypier:session] ✓ sent envelope to', peerId, '— kind:', envelope.kind, 'msgId:', envelope.messageId, 'conv:', envelope.conversationId);
+
+      if (envelope.messageId) {
+        emitDeliveryStatus({ messageId: envelope.messageId, status: 'sent' });
+      }
+    }
+
+    return result;
   }
 
   // ─── Send a delivery receipt (ACK) back to the sender ──────────────────
 
   async function sendReceiptToPeer(peerId: string, originalEnvelope: WireEnvelope) {
-    if (!node) return;
-
-    const connection = node.getConnections().find((c) => c.remotePeer.toString() === peerId);
-    if (!connection) return;
-
     const ackEnvelope: WireEnvelope = {
       kind: 'receipt',
       messageId: originalEnvelope.messageId,
@@ -559,16 +586,11 @@ export function createBrowserLiveSession(options: CreateBrowserLiveSessionOption
       payload: 'delivered',
     };
 
-    try {
-      const stream = await connection.newStream(SKYPIER_CHAT_PROTOCOLS.receipts);
-      const raw = serializeWireEnvelope(ackEnvelope);
-      for await (const chunk of lp.encode([raw])) {
-        stream.send(normalizeChunk(chunk));
-      }
-      await stream.close();
+    const result = await sendProtocolPayloadToPeer(peerId, SKYPIER_CHAT_PROTOCOLS.receipts, serializeWireEnvelope(ackEnvelope));
+    if (result === true) {
       console.log('[skypier:session] ✓ sent ACK receipt for', originalEnvelope.messageId, 'to', peerId);
-    } catch (err) {
-      console.warn('[skypier:session] ✗ failed to send receipt to', peerId, err);
+    } else if (result === false) {
+      console.warn('[skypier:session] ✗ failed to send receipt to', peerId);
     }
   }
 
@@ -600,7 +622,7 @@ export function createBrowserLiveSession(options: CreateBrowserLiveSessionOption
 
   // ─── Read a full envelope from an inbound length-prefixed stream ───────
 
-  async function readEnvelopeFromStream(source: AsyncIterable<any>): Promise<WireEnvelope> {
+  async function readBytesFromStream(source: AsyncIterable<any>): Promise<Uint8Array> {
     const chunks: Uint8Array[] = [];
 
     for await (const chunk of lp.decode(source)) {
@@ -614,7 +636,19 @@ export function createBrowserLiveSession(options: CreateBrowserLiveSessionOption
       combined.set(c, offset);
       offset += c.byteLength;
     }
-    return deserializeWireEnvelope(combined);
+    return combined;
+  }
+
+  async function readEnvelopeFromStream(source: AsyncIterable<any>): Promise<WireEnvelope> {
+    return deserializeWireEnvelope(await readBytesFromStream(source));
+  }
+
+  async function readAudioCallSignalFromStream(source: AsyncIterable<any>): Promise<AudioCallSignal> {
+    return JSON.parse(new TextDecoder().decode(await readBytesFromStream(source))) as AudioCallSignal;
+  }
+
+  async function readAudioCallChunkFromStream(source: AsyncIterable<any>): Promise<AudioCallChunk> {
+    return JSON.parse(new TextDecoder().decode(await readBytesFromStream(source))) as AudioCallChunk;
   }
 
   // ─── Background retry loop with exponential back-off ───────────────────
@@ -775,6 +809,36 @@ export function createBrowserLiveSession(options: CreateBrowserLiveSessionOption
             }
           } catch (err) {
             console.error('[skypier:session] ✗ failed to read receipt stream from', fromPeerId, err);
+          }
+        });
+
+        console.log('[skypier:session] registering protocol handler:', SKYPIER_CHAT_PROTOCOLS.callControl);
+        await node.handle(SKYPIER_CHAT_PROTOCOLS.callControl, async (stream, connection) => {
+          const fromPeerId = connection.remotePeer.toString();
+          void markAsChatPeer(fromPeerId);
+          try {
+            const signal = await readAudioCallSignalFromStream(stream);
+            if (typeof signal?.type !== 'string' || typeof signal?.callId !== 'string') {
+              throw new Error('Malformed audio call signal');
+            }
+            emitAudioCallSignal({ fromPeerId, signal });
+          } catch (err) {
+            console.error('[skypier:session] ✗ failed to read audio call signal from', fromPeerId, err);
+          }
+        });
+
+        console.log('[skypier:session] registering protocol handler:', SKYPIER_CHAT_PROTOCOLS.callAudio);
+        await node.handle(SKYPIER_CHAT_PROTOCOLS.callAudio, async (stream, connection) => {
+          const fromPeerId = connection.remotePeer.toString();
+          void markAsChatPeer(fromPeerId);
+          try {
+            const chunk = await readAudioCallChunkFromStream(stream);
+            if (typeof chunk?.callId !== 'string' || typeof chunk?.sequence !== 'number') {
+              throw new Error('Malformed audio call chunk');
+            }
+            emitAudioCallChunk({ fromPeerId, chunk });
+          } catch (err) {
+            console.error('[skypier:session] ✗ failed to read audio call chunk from', fromPeerId, err);
           }
         });
 
@@ -1187,6 +1251,36 @@ export function createBrowserLiveSession(options: CreateBrowserLiveSessionOption
       const result = await sendEnvelopeToPeer(targetPeerId, envelope);
       if (result === false) {
         enqueue(targetPeerId, envelope);
+      }
+      return result === true;
+    },
+
+    async sendAudioCallSignal(signal: AudioCallSignal, targetPeerId: string) {
+      const normalizedSignal: AudioCallSignal = {
+        ...signal,
+        fromPeerId: signal.fromPeerId || state.localPeerId || 'unknown',
+        sentAt: signal.sentAt || new Date().toISOString(),
+      };
+
+      const payload = new TextEncoder().encode(JSON.stringify(normalizedSignal));
+      const result = await sendProtocolPayloadToPeer(targetPeerId, SKYPIER_CHAT_PROTOCOLS.callControl, payload);
+      if (result === false) {
+        emitDialLog(targetPeerId, 'warn', `Audio call signal ${normalizedSignal.type} could not be delivered.`);
+      }
+      return result === true;
+    },
+
+    async sendAudioCallChunk(chunk: AudioCallChunk, targetPeerId: string) {
+      const normalizedChunk: AudioCallChunk = {
+        ...chunk,
+        fromPeerId: chunk.fromPeerId || state.localPeerId || 'unknown',
+        sentAt: chunk.sentAt || new Date().toISOString(),
+      };
+
+      const payload = new TextEncoder().encode(JSON.stringify(normalizedChunk));
+      const result = await sendProtocolPayloadToPeer(targetPeerId, SKYPIER_CHAT_PROTOCOLS.callAudio, payload);
+      if (result === false) {
+        emitDialLog(targetPeerId, 'warn', `Audio chunk ${normalizedChunk.sequence} for call ${normalizedChunk.callId} could not be delivered.`);
       }
       return result === true;
     },

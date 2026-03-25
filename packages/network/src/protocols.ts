@@ -3,6 +3,8 @@ export const SKYPIER_CHAT_PROTOCOLS = {
   receipts: '/skypier/chat/1.0.0/receipts',
   presence: '/skypier/chat/1.0.0/presence',
   sync: '/skypier/chat/1.0.0/sync',
+  callControl: '/skypier/chat/1.0.0/call-control',
+  callAudio: '/skypier/chat/1.0.0/call-audio',
 } as const;
 
 export type SkypierChatProtocol = typeof SKYPIER_CHAT_PROTOCOLS[keyof typeof SKYPIER_CHAT_PROTOCOLS];

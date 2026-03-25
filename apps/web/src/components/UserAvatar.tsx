@@ -12,7 +12,7 @@ interface UserAvatarProps {
 export function UserAvatar({ seed, size = 40, displayName, src, sx }: UserAvatarProps) {
   // Use a hash of the seed if it's not a valid address-like string
   // jsNumberForAddress works well for generating a seed for Jazzicon
-  const avatarSeed = jsNumberForAddress(seed.slice(-8));
+  const avatarSeed = jsNumberForAddress(seed);
 
   return (
     <Avatar

@@ -124,14 +124,14 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
           borderRadius: 4,
           bgcolor: (theme) => 
             theme.palette.mode === 'dark' 
-              ? 'rgba(14, 8, 28, 0.4)' 
-              : 'rgba(255, 255, 255, 0.2)',
-          backdropFilter: (theme) => `blur(15px) saturate(190%) url(#liquid-glass-refraction-${theme.palette.mode})`,
+              ? 'rgba(14, 8, 28, 0.5)' 
+              : 'rgba(255, 255, 255, 0.25)',
+          backdropFilter: (theme) => `blur(15px) saturate(190%)`,
           WebkitBackdropFilter: (theme) => `blur(15px) saturate(190%) url(#liquid-glass-refraction-${theme.palette.mode})`,
           filter: (theme) => `url(#liquid-glass-gloss-${theme.palette.mode})`,
           border: (theme) => 
             theme.palette.mode === 'dark' 
-              ? '1px solid rgba(171, 110, 255, 0.2)' 
+              ? '1px solid rgba(171, 110, 255, 0.25)' 
               : '1px solid rgba(0, 0, 0, 0.08)',
           display: 'flex',
           flexDirection: 'column',
@@ -139,8 +139,8 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
           backgroundImage: 'none',
           boxShadow: (theme) => 
             theme.palette.mode === 'dark'
-              ? '0 8px 32px 0 rgba(0, 0, 0, 0.8)'
-              : '0 8px 32px 0 rgba(31, 38, 135, 0.1)'
+              ? '0 8px 32px 0 rgba(0, 0, 0, 0.4)'
+              : '0 8px 32px 0 rgba(31, 38, 135, 0.07)'
         }}
       >
         <Box sx={{ textAlign: 'center' }}>

@@ -1,9 +1,10 @@
-import { Box, Typography, TextField, IconButton, Paper, Divider, Stack, useTheme, useMediaQuery, Popover, Badge } from '@mui/material';
+import { Box, Typography, TextField, IconButton, Paper, Stack, useTheme, useMediaQuery, Popover, Badge, Chip } from '@mui/material';
 import SendIcon from '@mui/icons-material/Send';
 import EmojiEmotionsIcon from '@mui/icons-material/EmojiEmotions';
 import AttachFileIcon from '@mui/icons-material/AttachFile';
 import CloseIcon from '@mui/icons-material/Close';
 import AutorenewIcon from '@mui/icons-material/Autorenew';
+import CallIcon from '@mui/icons-material/Call';
 import { useRef, useEffect, useState } from 'react';
 import EmojiPicker, { Theme as EmojiTheme } from 'emoji-picker-react';
 import type { ChatMessage, Conversation } from '@skypier/protocol';
@@ -27,6 +28,9 @@ interface ChatThreadProps {
   onOpenRetryDetails?: () => void;
   onReplySelect?: (message: ChatMessage) => void;
   onSendImage?: (file: File) => void;
+  onStartCall?: () => void;
+  callButtonDisabled?: boolean;
+  callStatusLabel?: string;
 }
 
 export function ChatThread(props: ChatThreadProps) {
@@ -45,6 +49,9 @@ export function ChatThread(props: ChatThreadProps) {
     onOpenRetryDetails,
     onReplySelect,
     onSendImage,
+    onStartCall,
+    callButtonDisabled,
+    callStatusLabel,
   } = props;
 
   const theme = useTheme();
@@ -120,8 +127,12 @@ export function ChatThread(props: ChatThreadProps) {
               <Typography variant="caption" color="secondary.main">
                 {reachabilityLabel(conversation.reachability)}
               </Typography>
+              {callStatusLabel ? <Chip label={callStatusLabel} size="small" variant="outlined" /> : null}
             </Box>
           </Box>
+          <IconButton onClick={onStartCall} aria-label="Start audio call" disabled={callButtonDisabled || !onStartCall}>
+            <CallIcon />
+          </IconButton>
           <IconButton onClick={onOpenRetryDetails} aria-label="Open delivery details">
             <Badge badgeContent={unsentCount} color="warning" invisible={unsentCount === 0}>
               <AutorenewIcon />
@@ -131,7 +142,19 @@ export function ChatThread(props: ChatThreadProps) {
       )}
 
       {isMobile && (
-        <Box sx={{ position: 'absolute', top: 'calc(env(safe-area-inset-top) + 88px)', right: 16, zIndex: 2 }}>
+        <Box sx={{ position: 'absolute', top: 'calc(env(safe-area-inset-top) + 88px)', right: 16, zIndex: 2, display: 'flex', gap: 1 }}>
+          <IconButton
+            onClick={onStartCall}
+            aria-label="Start audio call"
+            disabled={callButtonDisabled || !onStartCall}
+            sx={{
+              bgcolor: 'background.paper',
+              boxShadow: 3,
+              '&:hover': { bgcolor: 'background.paper' },
+            }}
+          >
+            <CallIcon />
+          </IconButton>
           <IconButton
             onClick={onOpenRetryDetails}
             aria-label="Open delivery details"
@@ -200,6 +223,11 @@ export function ChatThread(props: ChatThreadProps) {
 
       {/* Composer */}
       <Box sx={{ p: 2, bgcolor: 'background.paper' }}>
+        {callStatusLabel ? (
+          <Box sx={{ display: 'flex', justifyContent: 'center', mb: 1 }}>
+            <Chip label={callStatusLabel} size="small" color="primary" variant="outlined" />
+          </Box>
+        ) : null}
         {replyTarget && (
           <Box sx={{
             display: 'flex',
