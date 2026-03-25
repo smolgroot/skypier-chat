@@ -135,7 +135,25 @@ export function useChatController() {
     [selectedConversationId, state.conversations],
   );
 
-  const messages = selectedConversation ? state.messagesByConversation[selectedConversation.id] ?? [] : [];
+  const messages = useMemo(() => {
+    if (!selectedConversation) {
+      return [] as ChatMessage[];
+    }
+
+    const rawMessages = state.messagesByConversation[selectedConversation.id] ?? [];
+    const seen = new Set<string>();
+    const deduped: ChatMessage[] = [];
+
+    for (const message of rawMessages) {
+      if (seen.has(message.id)) {
+        continue;
+      }
+      seen.add(message.id);
+      deduped.push(message);
+    }
+
+    return deduped;
+  }, [selectedConversation, state.messagesByConversation]);
   const replyTarget = messages.find((message) => message.id === replyTargetId);
 
   const persistState = useCallback(async (nextState: PersistedChatState) => {
@@ -624,6 +642,15 @@ export function useChatController() {
     };
 
     const currentMessages = snap.messagesByConversation[conversation.id] ?? [];
+
+    // Deduplicate network replays/retries: the same envelope.messageId can be
+    // delivered more than once (e.g. retry loops, reconnect races, sync replay).
+    // If we append duplicates, React list keys collide and spam warnings.
+    if (currentMessages.some((message) => message.id === incomingMessage.id)) {
+      console.log('[skypier:controller] duplicate inbound message ignored:', incomingMessage.id, 'conv:', conversation.id);
+      return;
+    }
+
     const nextMessages = [...currentMessages, incomingMessage];
 
     const nextConversations = existingConversation
