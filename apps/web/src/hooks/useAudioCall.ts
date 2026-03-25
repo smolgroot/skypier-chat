@@ -102,6 +102,8 @@ export function useAudioCall(options: UseAudioCallOptions) {
   const playbackPipelineRef = useRef<PlaybackPipeline | null>(null);
   const outboundSequenceRef = useRef(0);
   const outboundEnabledRef = useRef(false);
+  // Set to true by finalizeCall/endCall so a slow dialPeerById cannot revive the call.
+  const startCallAbortRef = useRef(false);
   const { playEarcon, stopLooping } = useCallEarcons();
 
   useEffect(() => {
@@ -226,6 +228,7 @@ export function useAudioCall(options: UseAudioCallOptions) {
   }, []);
 
   const finalizeCall = useCallback((reason?: AudioCallEndReason, error?: string) => {
+    startCallAbortRef.current = true;
     void stopOutgoingAudio(false);
     stopLocalAudio();
     cleanupPlayback();
@@ -363,13 +366,17 @@ export function useAudioCall(options: UseAudioCallOptions) {
       mediaProfile: DEFAULT_MEDIA_PROFILE,
     };
 
+    startCallAbortRef.current = false;
     setCall(nextCall);
 
     try {
       void playEarcon('dial');
       await acquireLocalAudio();
+      if (startCallAbortRef.current) return false;
+
       setCall((current) => current ? { ...current, phase: 'connecting', error: undefined } : current);
       await dialPeerById(remotePeerId);
+      if (startCallAbortRef.current) return false;
 
       const delivered = await sendSignal(remotePeerId, {
         type: 'offer',
@@ -377,6 +384,7 @@ export function useAudioCall(options: UseAudioCallOptions) {
         conversationId,
         mediaProfile: DEFAULT_MEDIA_PROFILE,
       });
+      if (startCallAbortRef.current) return false;
 
       if (!delivered) {
         throw new Error('The remote peer is not reachable for call setup.');
@@ -463,21 +471,24 @@ export function useAudioCall(options: UseAudioCallOptions) {
 
     void stopLooping();
     void playEarcon('hangup');
+    startCallAbortRef.current = true;
 
+    // Fire-and-forget — never block on an unreachable peer.
     if (!['ended', 'error'].includes(current.phase)) {
-      await sendSignal(current.remotePeerId, {
+      void sendSignal(current.remotePeerId, {
         type: 'hangup',
         callId: current.callId,
         conversationId: current.conversationId,
         reason: 'hangup',
-      });
+      }).catch(() => {});
     }
 
-    await stopOutgoingAudio(true);
-
-    finalizeCall('hangup');
+    void stopOutgoingAudio(true);
+    stopLocalAudio();
+    cleanupPlayback();
+    setCall(null); // close the drawer immediately
     return true;
-  }, [finalizeCall, sendSignal, stopOutgoingAudio]);
+  }, [cleanupPlayback, sendSignal, stopLocalAudio, stopOutgoingAudio, playEarcon, stopLooping]);
 
   const toggleMute = useCallback(async () => {
     const current = activeCallRef.current;

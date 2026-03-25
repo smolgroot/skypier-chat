@@ -135,12 +135,12 @@ export function MessageRetryDrawer(props: MessageRetryDrawerProps) {
           </Box>
         </Stack>
 
-        <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
+        {/* <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
           <Chip icon={<ScheduleSendIcon />} label={`${sendingCount} sending`} size="small" variant="outlined" />
           <Chip icon={<AutorenewIcon />} label={`${queuedCount} queued`} size="small" color="warning" variant="outlined" />
           <Chip icon={<CloudOffIcon />} label={`${localOnlyCount} local-only`} size="small" color="error" variant="outlined" />
           <Chip label={`${sessionState.queuedOutgoing} total queued`} size="small" variant="outlined" />
-        </Stack>
+        </Stack> */}
 
         {/* <Alert severity={sessionState.status === 'running' ? 'info' : 'warning'}>
           {sessionState.status === 'running'

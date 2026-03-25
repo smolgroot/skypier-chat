@@ -1065,6 +1065,7 @@ export function App() {
         }}
         onEnd={() => {
           void audioCall.endCall();
+          audioCall.dismissCall();
         }}
         onToggleMute={() => {
           void audioCall.toggleMute();
