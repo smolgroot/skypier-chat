@@ -1056,6 +1056,7 @@ export function App() {
       <AudioCallDrawer
         open={audioCall.call != null}
         call={audioCall.call}
+        localStream={audioCall.localStream}
         onClose={dismissAudioCallDrawer}
         onAccept={() => {
           void audioCall.acceptCall();

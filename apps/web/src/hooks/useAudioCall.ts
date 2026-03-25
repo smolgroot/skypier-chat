@@ -655,6 +655,7 @@ export function useAudioCall(options: UseAudioCallOptions) {
   return {
     call,
     hasActiveCall,
+    localStream: localStreamRef.current,
     startCall,
     acceptCall,
     rejectCall,

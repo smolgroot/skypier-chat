@@ -18,6 +18,7 @@ import PhoneInTalkIcon from '@mui/icons-material/PhoneInTalk';
 import CloseIcon from '@mui/icons-material/Close';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import type { ActiveAudioCall } from '../hooks/useAudioCall';
+import { CallAudioMeter } from './CallAudioMeter';
 
 interface AudioCallDrawerProps {
   call: ActiveAudioCall | null;
@@ -27,6 +28,7 @@ interface AudioCallDrawerProps {
   onReject: () => void;
   onEnd: () => void;
   onToggleMute: () => void;
+  localStream?: MediaStream | null;
 }
 
 function phaseLabel(call: ActiveAudioCall): string {
@@ -89,7 +91,7 @@ function startedAtLabel(call: ActiveAudioCall): string | null {
 }
 
 export function AudioCallDrawer(props: AudioCallDrawerProps) {
-  const { call, open, onClose, onAccept, onReject, onEnd, onToggleMute } = props;
+  const { call, open, onClose, onAccept, onReject, onEnd, onToggleMute, localStream } = props;
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
 
@@ -157,7 +159,16 @@ export function AudioCallDrawer(props: AudioCallDrawerProps) {
           {startedAtLabel(call) ? <Chip label={`Started ${startedAtLabel(call)}`} variant="outlined" /> : null}
         </Stack>
 
-        <Box
+        {call.phase === 'connected' ? (
+          <CallAudioMeter
+            stream={localStream ?? null}
+            isMuted={call.isMuted}
+            label="Mic"
+            height={128}
+          />
+        ) : null}
+
+        {/* <Box
           sx={{
             borderRadius: 3,
             p: 2,
@@ -171,7 +182,7 @@ export function AudioCallDrawer(props: AudioCallDrawerProps) {
           <Typography variant="body2" color="text.secondary">
             Call control and live audio both travel over libp2p now, using a dedicated call stream that works with your relay-backed path when peers are reachable.
           </Typography>
-        </Box>
+        </Box> */}
 
         <Divider />
 
