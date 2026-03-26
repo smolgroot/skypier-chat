@@ -2,9 +2,14 @@ import { playSuccess, playError, playWarning, playNotification, playClick, playI
 import { useCallback, useEffect, useRef } from 'react';
 
 let sharedAudioCtx: AudioContext | undefined;
+let audioUnlocked = false;
 
-function getAudioContext(): AudioContext | undefined {
+function getAudioContext(allowCreate = false): AudioContext | undefined {
   if (typeof window === 'undefined' || typeof AudioContext === 'undefined') {
+    return undefined;
+  }
+
+  if (!allowCreate && !audioUnlocked && !sharedAudioCtx) {
     return undefined;
   }
 
@@ -39,18 +44,11 @@ export function useCallEarcons() {
   const ringingOutboundIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const busyIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
-  // Initialize shared AudioContext
-  useEffect(() => {
-    const ctx = getAudioContext();
-    if (ctx) {
-      setAudioContext(ctx);
-    }
-  }, []);
-
   // Resume AudioContext on first user interaction (autoplay policy)
   useEffect(() => {
     const unlock = () => {
-      const ctx = getAudioContext();
+      audioUnlocked = true;
+      const ctx = getAudioContext(true);
       if (ctx?.state === 'suspended') {
         void ctx.resume();
       }

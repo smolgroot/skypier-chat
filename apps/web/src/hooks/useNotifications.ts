@@ -3,9 +3,14 @@ import { useCallback, useEffect, useRef } from 'react';
 import { useVibration } from './useVibration';
 
 let sharedAudioCtx: AudioContext | undefined;
+let audioUnlocked = false;
 
-function getAudioContext(): AudioContext | undefined {
+function getAudioContext(allowCreate = false): AudioContext | undefined {
   if (typeof window === 'undefined' || typeof AudioContext === 'undefined') {
+    return undefined;
+  }
+
+  if (!allowCreate && !audioUnlocked && !sharedAudioCtx) {
     return undefined;
   }
 
@@ -119,7 +124,8 @@ export function useNotifications() {
   // Unlock AudioContext on first user interaction (autoplay policy)
   useEffect(() => {
     const unlock = () => {
-      const ctx = getAudioContext();
+      audioUnlocked = true;
+      const ctx = getAudioContext(true);
       if (ctx?.state === 'suspended') {
         void ctx.resume();
       }
