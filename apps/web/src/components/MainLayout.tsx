@@ -18,6 +18,7 @@ import {
   DialogContent,
   DialogActions,
   TextField,
+  Badge,
   useTheme,
   useMediaQuery
 } from '@mui/material';
@@ -30,6 +31,8 @@ import MenuIcon from '@mui/icons-material/Menu';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import DarkModeIcon from '@mui/icons-material/DarkMode';
 import LightModeIcon from '@mui/icons-material/LightMode';
+import CallIcon from '@mui/icons-material/Call';
+import AutorenewIcon from '@mui/icons-material/Autorenew';
 import { useState } from 'react';
 import type { Conversation } from '@skypier/protocol';
 import { reachabilityColor, reachabilityLabel } from '@skypier/network';
@@ -56,6 +59,10 @@ interface MainLayoutProps {
   onBack?: () => void; // New prop for mobile navigation back
   onOpenSelectedContact?: () => void;
   linkedWallets?: { address: string; chainId: number }[];
+  onOpenRetryDetails?: () => void;
+  retryBadgeCount?: number;
+  onStartCall?: () => void;
+  callButtonDisabled?: boolean;
 }
 
 export function MainLayout(props: MainLayoutProps) {
@@ -75,7 +82,11 @@ export function MainLayout(props: MainLayoutProps) {
     onDeleteConversation,
     onBack,
     onOpenSelectedContact,
-    linkedWallets = []
+    linkedWallets = [],
+    onOpenRetryDetails,
+    retryBadgeCount = 0,
+    onStartCall,
+    callButtonDisabled,
   } = props;
 
   const firstWallet = linkedWallets[0]?.address;
@@ -374,6 +385,27 @@ export function MainLayout(props: MainLayoutProps) {
                 activeView.charAt(0).toUpperCase() + activeView.slice(1)
               )}
             </Typography>
+            {isMobile && activeView === 'chat' && selectedConversationId ? (
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                <IconButton
+                  onClick={onStartCall}
+                  aria-label="Start audio call"
+                  disabled={callButtonDisabled || !onStartCall}
+                  size="small"
+                >
+                  <CallIcon fontSize="small" />
+                </IconButton>
+                <IconButton
+                  onClick={onOpenRetryDetails}
+                  aria-label="Open delivery details"
+                  size="small"
+                >
+                  <Badge badgeContent={retryBadgeCount} color="warning" invisible={retryBadgeCount === 0}>
+                    <AutorenewIcon fontSize="small" />
+                  </Badge>
+                </IconButton>
+              </Box>
+            ) : null}
           </Toolbar>
         </AppBar>
       )}

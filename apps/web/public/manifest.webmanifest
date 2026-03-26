@@ -12,7 +12,7 @@
   "display_override": ["standalone"],
   "background_color": "#08111f",
   "theme_color": "#08111f",
-  "categories": ["communication", "social"],
+  "categories": ["communication", "social", "privacy"],
   "icons": [
     {
       "src": "/icons/app-icon-192.png",
@@ -52,8 +52,8 @@
 ,
   "protocol_handlers": [
     {
-      "protocol":"web+skypierchat",
-      "url":"/chats"
+      "protocol": "web+skypierchat",
+      "url": "/chats?peer=%s"
     }
   ]
 }

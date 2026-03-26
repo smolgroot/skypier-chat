@@ -1092,6 +1092,12 @@ export function App() {
         onCreateChat={handleCreateChat}
         onDeleteConversation={(id) => void deleteConversation(id)}
         onOpenSelectedContact={openSelectedContact}
+        onOpenRetryDetails={() => setShowRetryDetails(true)}
+        retryBadgeCount={unsentMessages.length}
+        onStartCall={() => {
+          void startConversationCall();
+        }}
+        callButtonDisabled={!selectedRemotePeer || (audioCall.hasActiveCall && audioCall.call?.conversationId !== selectedConversation?.id)}
         onBack={() => {
           if (window.history.length > 1) {
             navigate(-1);

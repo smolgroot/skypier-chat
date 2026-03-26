@@ -141,36 +141,6 @@ export function ChatThread(props: ChatThreadProps) {
         </Box>
       )}
 
-      {isMobile && (
-        <Box sx={{ position: 'absolute', top: 'calc(env(safe-area-inset-top) + 88px)', right: 16, zIndex: 2, display: 'flex', gap: 1 }}>
-          <IconButton
-            onClick={onStartCall}
-            aria-label="Start audio call"
-            disabled={callButtonDisabled || !onStartCall}
-            sx={{
-              bgcolor: 'background.paper',
-              boxShadow: 3,
-              '&:hover': { bgcolor: 'background.paper' },
-            }}
-          >
-            <CallIcon />
-          </IconButton>
-          <IconButton
-            onClick={onOpenRetryDetails}
-            aria-label="Open delivery details"
-            sx={{
-              bgcolor: 'background.paper',
-              boxShadow: 3,
-              '&:hover': { bgcolor: 'background.paper' },
-            }}
-          >
-            <Badge badgeContent={unsentCount} color="warning" invisible={unsentCount === 0}>
-              <AutorenewIcon />
-            </Badge>
-          </IconButton>
-        </Box>
-      )}
-
       {/* Messages */}
       <Box
         ref={scrollRef}
