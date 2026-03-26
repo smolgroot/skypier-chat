@@ -8,9 +8,11 @@ import {
 } from '@mui/material';
 import CallEndIcon from '@mui/icons-material/CallEnd';
 import CallIcon from '@mui/icons-material/Call';
+import OpenInFullIcon from '@mui/icons-material/OpenInFull';
 import MicIcon from '@mui/icons-material/Mic';
 import MicOffIcon from '@mui/icons-material/MicOff';
 import PhoneInTalkIcon from '@mui/icons-material/PhoneInTalk';
+import { useRef, useState } from 'react';
 import type { ActiveAudioCall } from '../hooks/useAudioCall';
 import { CallAudioMeter } from './CallAudioMeter';
 
@@ -22,6 +24,9 @@ interface AudioCallDrawerProps {
   onReject: () => void;
   onEnd: () => void;
   onToggleMute: () => void;
+  minimized?: boolean;
+  onMinimize?: () => void;
+  onRestore?: () => void;
   localStream?: MediaStream | null;
 }
 
@@ -112,7 +117,24 @@ function CallActionButton({
 }
 
 export function AudioCallDrawer(props: AudioCallDrawerProps) {
-  const { call, open, onClose, onAccept, onReject, onEnd, onToggleMute, localStream } = props;
+  const {
+    call,
+    open,
+    onClose,
+    onAccept,
+    onReject,
+    onEnd,
+    onToggleMute,
+    minimized = false,
+    onMinimize,
+    onRestore,
+    localStream,
+  } = props;
+
+  const [floatingOffset, setFloatingOffset] = useState({ x: 0, y: 0 });
+  const dragPointerIdRef = useRef<number | null>(null);
+  const dragStartRef = useRef<{ x: number; y: number } | null>(null);
+  const offsetStartRef = useRef<{ x: number; y: number } | null>(null);
 
   if (!call) {
     return null;
@@ -122,11 +144,117 @@ export function AudioCallDrawer(props: AudioCallDrawerProps) {
   const showActiveActions = ['requesting-media', 'connecting', 'ringing', 'connected'].includes(call.phase);
   const showDone = !showIncomingActions && !showActiveActions;
 
+  const canMinimize = !showDone;
+
+  if (minimized && canMinimize) {
+    return (
+      <Box
+        sx={{
+          position: 'fixed',
+          right: 16,
+          bottom: 'calc(env(safe-area-inset-bottom, 0px) + 16px)',
+          zIndex: 1400,
+          transform: `translate(${floatingOffset.x}px, ${floatingOffset.y}px)`,
+          touchAction: 'none',
+        }}
+        onPointerDown={(event) => {
+          const target = event.target as HTMLElement;
+          if (target.closest('[data-call-popup-action="true"]')) {
+            return;
+          }
+
+          dragPointerIdRef.current = event.pointerId;
+          dragStartRef.current = { x: event.clientX, y: event.clientY };
+          offsetStartRef.current = { ...floatingOffset };
+          (event.currentTarget as HTMLDivElement).setPointerCapture(event.pointerId);
+        }}
+        onPointerMove={(event) => {
+          if (dragPointerIdRef.current !== event.pointerId || !dragStartRef.current || !offsetStartRef.current) {
+            return;
+          }
+
+          setFloatingOffset({
+            x: offsetStartRef.current.x + (event.clientX - dragStartRef.current.x),
+            y: offsetStartRef.current.y + (event.clientY - dragStartRef.current.y),
+          });
+        }}
+        onPointerUp={(event) => {
+          if (dragPointerIdRef.current === event.pointerId) {
+            dragPointerIdRef.current = null;
+            dragStartRef.current = null;
+            offsetStartRef.current = null;
+            (event.currentTarget as HTMLDivElement).releasePointerCapture(event.pointerId);
+          }
+        }}
+      >
+        <Box
+          sx={{
+            minWidth: 230,
+            maxWidth: 300,
+            px: 1.2,
+            py: 0.8,
+            borderRadius: 999,
+            display: 'flex',
+            alignItems: 'center',
+            gap: 0.75,
+            bgcolor: (currentTheme) =>
+              currentTheme.palette.mode === 'dark'
+                ? 'rgba(10, 5, 20, 0.78)'
+                : 'rgba(255,255,255,0.88)',
+            backdropFilter: (currentTheme) => `blur(22px) saturate(180%) url(#liquid-glass-refraction-${currentTheme.palette.mode})`,
+            WebkitBackdropFilter: (currentTheme) => `blur(22px) saturate(180%) url(#liquid-glass-refraction-${currentTheme.palette.mode})`,
+            border: (currentTheme) => currentTheme.palette.mode === 'dark'
+              ? '1px solid rgba(171, 110, 255, 0.28)'
+              : '1px solid rgba(0,0,0,0.12)',
+            boxShadow: '0 10px 30px rgba(0,0,0,0.28)',
+          }}
+        >
+          <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <PhoneInTalkIcon fontSize="small" />
+          </Box>
+          <Box sx={{ flexGrow: 1, minWidth: 0 }}>
+            <Typography variant="caption" sx={{ display: 'block', fontWeight: 700 }} noWrap>
+              {call.remoteDisplayName}
+            </Typography>
+            <Typography variant="caption" color="text.secondary" noWrap>
+              {phaseLabel(call)}
+            </Typography>
+          </Box>
+
+          <IconButton
+            data-call-popup-action="true"
+            size="small"
+            aria-label="Restore call controls"
+            onClick={onRestore}
+            onPointerDown={(event) => {
+              event.stopPropagation();
+            }}
+          >
+            <OpenInFullIcon fontSize="small" />
+          </IconButton>
+
+          <IconButton
+            data-call-popup-action="true"
+            size="small"
+            aria-label="End call"
+            onClick={onEnd}
+            onPointerDown={(event) => {
+              event.stopPropagation();
+            }}
+            sx={{ color: '#ef4444' }}
+          >
+            <CallEndIcon fontSize="small" />
+          </IconButton>
+        </Box>
+      </Box>
+    );
+  }
+
   return (
     <Drawer
       anchor="bottom"
       open={open}
-      onClose={onClose}
+      onClose={canMinimize ? (onMinimize ?? onClose) : onClose}
       PaperProps={{
         sx: {
           width: '100%',
@@ -167,6 +295,19 @@ export function AudioCallDrawer(props: AudioCallDrawerProps) {
             {startedAtLabel(call) ? ` · ${startedAtLabel(call)}` : ''}
           </Typography>
         </Box>
+
+        {canMinimize ? (
+          <Box sx={{ alignSelf: 'flex-end', mt: -1 }}>
+            <Chip
+              label="Minimize"
+              onClick={onMinimize ?? onClose}
+              size="small"
+              variant="outlined"
+              icon={<OpenInFullIcon sx={{ transform: 'scale(0.85)' }} />}
+              sx={{ cursor: 'pointer' }}
+            />
+          </Box>
+        ) : null}
 
         {/* Status chips */}
         <Stack direction="row" spacing={1} flexWrap="wrap" justifyContent="center" useFlexGap>

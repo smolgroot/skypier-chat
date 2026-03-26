@@ -178,6 +178,7 @@ export function App() {
   const [isBrowserOffline, setIsBrowserOffline] = useState(() => typeof navigator !== 'undefined' ? !navigator.onLine : false);
   const [offlineAlertOpen, setOfflineAlertOpen] = useState(false);
   const [showRetryDetails, setShowRetryDetails] = useState(false);
+  const [isCallDrawerMinimized, setIsCallDrawerMinimized] = useState(false);
   const deepLinkBaseInjectedRef = useRef(false);
   const audioCallSignalHandlerRef = useRef<((payload: { fromPeerId: string; signal: AudioCallSignal }) => void) | undefined>(undefined);
   const audioCallChunkHandlerRef = useRef<((payload: { fromPeerId: string; chunk: AudioCallChunk }) => void) | undefined>(undefined);
@@ -782,6 +783,7 @@ export function App() {
     }
 
     try {
+      setIsCallDrawerMinimized(false);
       await audioCall.startCall({
         conversationId: targetConversationId,
         remotePeerId,
@@ -839,9 +841,24 @@ export function App() {
     }
 
     if (['ended', 'error'].includes(audioCall.call.phase)) {
+      setIsCallDrawerMinimized(false);
       audioCall.dismissCall();
+      return;
     }
+
+    setIsCallDrawerMinimized(true);
   }, [audioCall]);
+
+  useEffect(() => {
+    if (!audioCall.call) {
+      setIsCallDrawerMinimized(false);
+      return;
+    }
+
+    if (['ended', 'error'].includes(audioCall.call.phase)) {
+      setIsCallDrawerMinimized(false);
+    }
+  }, [audioCall.call]);
 
   const renderContent = () => {
     if (location.pathname === '/contacts') {
@@ -932,6 +949,7 @@ export function App() {
       return (
         <ChatThread 
           conversation={selectedConversation}
+          localPeerId={liveState.localPeerId ?? localPeerId ?? getCurrentDevice().peerId}
           messages={messages}
           currentUserDisplayName={account.displayName}
           composerValue={composerValue}
@@ -1207,17 +1225,23 @@ export function App() {
         }}
       />
       <AudioCallDrawer
-        open={audioCall.call != null}
+        open={audioCall.call != null && !isCallDrawerMinimized}
         call={audioCall.call}
+        minimized={isCallDrawerMinimized}
+        onMinimize={() => setIsCallDrawerMinimized(true)}
+        onRestore={() => setIsCallDrawerMinimized(false)}
         localStream={audioCall.localStream}
         onClose={dismissAudioCallDrawer}
         onAccept={() => {
+          setIsCallDrawerMinimized(false);
           void audioCall.acceptCall();
         }}
         onReject={() => {
+          setIsCallDrawerMinimized(false);
           void audioCall.rejectCall();
         }}
         onEnd={() => {
+          setIsCallDrawerMinimized(false);
           if (audioCall.call && !loggedCallEndsRef.current.has(audioCall.call.callId)) {
             loggedCallEndsRef.current.add(audioCall.call.callId);
             void appendCallHistoryEntry({

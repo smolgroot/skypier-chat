@@ -70,6 +70,7 @@ function callTimelineMeta(message: ChatMessage): string {
 
 interface ChatThreadProps {
   conversation: Conversation;
+  localPeerId: string;
   messages: ChatMessage[];
   composerValue: string;
   replyTarget?: ChatMessage;
@@ -91,6 +92,7 @@ interface ChatThreadProps {
 export function ChatThread(props: ChatThreadProps) {
   const {
     conversation,
+    localPeerId,
     messages,
     composerValue,
     replyTarget,
@@ -119,6 +121,8 @@ export function ChatThread(props: ChatThreadProps) {
   const [emojiAnchorEl, setEmojiAnchorEl] = useState<HTMLButtonElement | null>(null);
   const showEmojiPicker = Boolean(emojiAnchorEl);
   const unsentCount = messages.filter((message) => ['sending', 'queued', 'local-only'].includes(message.delivery)).length;
+  const remoteParticipant = conversation.participants.find((participant) => participant.peerId !== localPeerId)
+    ?? conversation.participants[0];
 
   const handleEmojiClick = (event: React.MouseEvent<HTMLButtonElement>) => {
     setEmojiAnchorEl(event.currentTarget);
@@ -160,7 +164,7 @@ export function ChatThread(props: ChatThreadProps) {
           zIndex: 1
         }}>
           <IconButton onClick={onOpenContact} sx={{ p: 0 }} aria-label="Open contact details">
-            <UserAvatar seed={conversation.id} size={40} />
+            <UserAvatar seed={remoteParticipant?.peerId ?? conversation.id} size={40} />
           </IconButton>
           <Box sx={{ flexGrow: 1 }}>
             <Typography variant="subtitle1" sx={{ fontWeight: 'bold' }}>{conversation.title}</Typography>

@@ -107,6 +107,9 @@ export function MainLayout(props: MainLayoutProps) {
   const [newChatDisplayName, setNewChatDisplayName] = useState('');
   const [newChatError, setNewChatError] = useState<string | undefined>();
   const [creatingChat, setCreatingChat] = useState(false);
+  const selectedConversation = conversations.find((conversation) => conversation.id === selectedConversationId);
+  const selectedRemotePeer = selectedConversation?.participants.find((participant) => participant.peerId !== peerId)
+    ?? selectedConversation?.participants[0];
 
   // Determine if we should show the back button on mobile.
   // We show it if we're on mobile and a conversation is selected while in chat view.
@@ -233,6 +236,7 @@ export function MainLayout(props: MainLayoutProps) {
           onSelectConversation={onSelectConversation}
           onNewChat={() => setNewChatOpen(true)}
           onDeleteConversation={onDeleteConversation}
+          localPeerId={peerId}
           dense
         />
       )}
@@ -368,14 +372,14 @@ export function MainLayout(props: MainLayoutProps) {
                     sx={{ p: 0 }}
                     aria-label="Open contact details"
                   >
-                    <UserAvatar seed={selectedConversationId} size={32} />
+                    <UserAvatar seed={selectedRemotePeer?.peerId ?? selectedConversationId} size={32} />
                   </IconButton>
                   <Box sx={{ display: 'flex', flexDirection: 'column' }}>
                     <Typography variant="subtitle1" sx={{ fontWeight: 'bold', lineHeight: 1.2 }}>
-                      {conversations.find(c => c.id === selectedConversationId)?.title || 'Chat'}
+                      {selectedConversation?.title || 'Chat'}
                     </Typography>
                     <Typography variant="caption" sx={{ opacity: 0.8, lineHeight: 1 }}>
-                      {reachabilityLabel(conversations.find(c => c.id === selectedConversationId)?.reachability ?? 'unknown')}
+                      {reachabilityLabel(selectedConversation?.reachability ?? 'unknown')}
                     </Typography>
                   </Box>
                 </Box>
@@ -504,6 +508,7 @@ export function MainLayout(props: MainLayoutProps) {
               onSelectConversation={onSelectConversation}
               onNewChat={() => setNewChatOpen(true)}
               onDeleteConversation={onDeleteConversation}
+              localPeerId={peerId}
             />
           </Box>
         ) : (

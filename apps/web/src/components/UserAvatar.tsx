@@ -1,5 +1,5 @@
 import { Avatar } from '@mui/material';
-import Jazzicon, { jsNumberForAddress } from 'react-jazzicon';
+import Jazzicon from 'react-jazzicon';
 
 interface UserAvatarProps {
   seed: string;
@@ -10,9 +10,14 @@ interface UserAvatarProps {
 }
 
 export function UserAvatar({ seed, size = 40, displayName, src, sx }: UserAvatarProps) {
-  // Use a hash of the seed if it's not a valid address-like string
-  // jsNumberForAddress works well for generating a seed for Jazzicon
-  const avatarSeed = jsNumberForAddress(seed);
+  // Hash the full seed string (peer IDs share prefixes, so full value matters).
+  // FNV-1a 32-bit for deterministic, fast icon seeds.
+  let hash = 0x811c9dc5;
+  for (let i = 0; i < seed.length; i += 1) {
+    hash ^= seed.charCodeAt(i);
+    hash = Math.imul(hash, 0x01000193);
+  }
+  const avatarSeed = (hash >>> 0) || 1;
 
   return (
     <Avatar
