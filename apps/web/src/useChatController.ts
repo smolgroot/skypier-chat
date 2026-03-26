@@ -709,6 +709,20 @@ export function useChatController() {
     }
   }, [persistState]);
 
+  const deleteMessage = useCallback(async (messageId: string) => {
+    const snap = stateRef.current;
+    const nextMessages = { ...snap.messagesByConversation };
+    for (const convId of Object.keys(nextMessages)) {
+      const msgs = nextMessages[convId];
+      const idx = msgs.findIndex((m) => m.id === messageId);
+      if (idx !== -1) {
+        nextMessages[convId] = msgs.filter((m) => m.id !== messageId);
+        break;
+      }
+    }
+    await persistState({ ...snap, messagesByConversation: nextMessages });
+  }, [persistState]);
+
   const saveContact = useCallback(async (contactId: string, peerId: string, displayName: string, avatarUrl?: string) => {
     const snap = stateRef.current;
     const existing = (snap.contacts || []).filter(c => c.id !== contactId);
@@ -795,6 +809,7 @@ export function useChatController() {
     clearReplyTarget: () => setReplyTargetId(undefined),
     toggleReaction,
     deleteConversation,
+    deleteMessage,
     saveContact,
     deleteContact,
     contacts: state.contacts ?? [],

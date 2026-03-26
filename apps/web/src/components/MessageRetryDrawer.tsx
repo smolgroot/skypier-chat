@@ -19,6 +19,7 @@ import CloudOffIcon from '@mui/icons-material/CloudOff';
 import ScheduleSendIcon from '@mui/icons-material/ScheduleSend';
 import CloseIcon from '@mui/icons-material/Close';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
+import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline';
 import type { ChatMessage } from '@skypier/protocol';
 import type { BrowserLiveSessionState } from '@skypier/network';
 import { useVibration } from '../hooks/useVibration';
@@ -30,6 +31,7 @@ interface MessageRetryDrawerProps {
   messages: ChatMessage[];
   sessionState: BrowserLiveSessionState;
   onRetryMessage: (message: ChatMessage) => void;
+  onDeleteMessage: (message: ChatMessage) => void;
 }
 
 function statusLabel(delivery: ChatMessage['delivery']): string {
@@ -70,7 +72,7 @@ function statusReason(delivery: ChatMessage['delivery']): string {
 }
 
 export function MessageRetryDrawer(props: MessageRetryDrawerProps) {
-  const { open, onClose, conversationTitle, messages, sessionState, onRetryMessage } = props;
+  const { open, onClose, conversationTitle, messages, sessionState, onRetryMessage, onDeleteMessage } = props;
   const { vibrate, patterns } = useVibration();
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
@@ -181,17 +183,30 @@ export function MessageRetryDrawer(props: MessageRetryDrawerProps) {
                 alignItems="flex-start"
                 sx={{ px: 0, py: 1.5 }}
                 secondaryAction={
-                  <Button
-                    size="small"
-                    variant="outlined"
-                    onClick={() => {
-                      vibrate(patterns.retry);
-                      onRetryMessage(message);
-                    }}
-                    disabled={message.delivery === 'sending'}
-                  >
-                    Retry
-                  </Button>
+                  <Stack direction="row" spacing={0.5}>
+                    <Button
+                      size="small"
+                      variant="outlined"
+                      onClick={() => {
+                        vibrate(patterns.retry);
+                        onRetryMessage(message);
+                      }}
+                      disabled={message.delivery === 'sending'}
+                    >
+                      Retry
+                    </Button>
+                    <IconButton
+                      size="small"
+                      color="error"
+                      aria-label="Delete message"
+                      onClick={() => {
+                        vibrate(patterns.tap);
+                        onDeleteMessage(message);
+                      }}
+                    >
+                      <DeleteOutlineIcon fontSize="small" />
+                    </IconButton>
+                  </Stack>
                 }
               >
                 <ListItemText

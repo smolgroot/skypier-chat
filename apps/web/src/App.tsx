@@ -99,6 +99,7 @@ export function App() {
     createConversationWithPeer,
     updateConversationConnection,
     deleteConversation,
+    deleteMessage,
     sendMessage,
     sendImageMessage,
     replyTarget,
@@ -1051,6 +1052,9 @@ export function App() {
         sessionState={liveState}
         onRetryMessage={(message) => {
           void retryConversationMessage(message);
+        }}
+        onDeleteMessage={(message) => {
+          void deleteMessage(message.id);
         }}
       />
       <AudioCallDrawer

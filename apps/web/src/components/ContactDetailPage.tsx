@@ -1,7 +1,7 @@
 import { Box, Button, Stack, Typography } from '@mui/material';
 import SatelliteAltIcon from '@mui/icons-material/SatelliteAlt';
 import ChatIcon from '@mui/icons-material/Chat';
-import CallIcon from '@mui/icons-material/Call';
+// import CallIcon from '@mui/icons-material/Call';
 import type { Conversation } from '@skypier/protocol';
 import { reachabilityLabel, type DialLogEntry } from '@skypier/network';
 import { UserAvatar } from './UserAvatar';
@@ -73,7 +73,7 @@ export function ContactDetailPage(props: ContactDetailPageProps) {
         </Typography>
 
         <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} sx={{ mt: 2, width: '100%' }}>
-          <Button
+          {/* <Button
             fullWidth
             variant="contained"
             startIcon={<CallIcon />}
@@ -83,7 +83,7 @@ export function ContactDetailPage(props: ContactDetailPageProps) {
             sx={{ borderRadius: 3 }}
           >
             Audio call
-          </Button>
+          </Button> */}
           <Button
             fullWidth
             variant="contained"
