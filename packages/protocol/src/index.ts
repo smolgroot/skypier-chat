@@ -6,6 +6,7 @@ export type AudioCallSignalType = 'offer' | 'ringing' | 'accept' | 'reject' | 'h
 export type AudioCallEndReason = 'declined' | 'busy' | 'hangup' | 'missed' | 'error';
 export type AudioCallPhase = 'idle' | 'requesting-media' | 'incoming' | 'ringing' | 'connecting' | 'connected' | 'ended' | 'error';
 export type AudioCallChunkKind = 'chunk' | 'end';
+export type ChatSystemEventType = 'call-attempted' | 'call-ended';
 
 export interface AudioCallMediaProfile {
   codec: AudioCallCodec;
@@ -80,6 +81,14 @@ export interface MediaAttachment {
   size: number;
 }
 
+export interface ChatSystemEvent {
+  type: ChatSystemEventType;
+  callId: string;
+  direction?: 'incoming' | 'outgoing';
+  endedReason?: AudioCallEndReason;
+  durationMs?: number;
+}
+
 export interface ChatMessage {
   id: string;
   conversationId: string;
@@ -93,6 +102,7 @@ export interface ChatMessage {
   replyTo?: ReplyReference;
   reactions: Reaction[];
   attachments?: MediaAttachment[];
+  systemEvent?: ChatSystemEvent;
 }
 
 export interface Conversation {

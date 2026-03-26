@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createEncryptedBackupBundle, createPinataUploadRequest } from '@skypier/backup';
 import { SKYPIER_MEDIA_PREFIX, type SyncMessageEntry } from '@skypier/network';
 import type { WireEnvelope } from '@skypier/network';
-import type { ChatMessage, LinkedEthAddress, MediaAttachment } from '@skypier/protocol';
+import type { AudioCallEndReason, ChatMessage, ChatSystemEvent, LinkedEthAddress, MediaAttachment } from '@skypier/protocol';
 import {
   createChatRepository,
   createLocalMessage,
@@ -455,6 +455,89 @@ export function useChatController() {
     await persistState(nextState);
   }, [persistState]);
 
+  const appendCallHistoryEntry = useCallback(async (params: {
+    conversationId: string;
+    callId: string;
+    eventType: ChatSystemEvent['type'];
+    direction: 'incoming' | 'outgoing';
+    createdAt?: string;
+    endedReason?: AudioCallEndReason;
+    durationMs?: number;
+  }) => {
+    const snap = stateRef.current;
+    const conversation = snap.conversations.find((entry) => entry.id === params.conversationId);
+    if (!conversation) {
+      return;
+    }
+
+    const eventId = `sys-call-${params.callId}-${params.eventType}`;
+    const currentMessages = snap.messagesByConversation[params.conversationId] ?? [];
+    if (currentMessages.some((message) => message.id === eventId)) {
+      return;
+    }
+
+    const createdAt = params.createdAt ?? new Date().toISOString();
+    const previewText = params.eventType === 'call-attempted'
+      ? `${params.direction === 'incoming' ? 'Incoming' : 'Outgoing'} audio call`
+      : params.endedReason === 'busy'
+        ? 'Call ended · busy'
+        : params.endedReason === 'declined'
+          ? 'Call ended · declined'
+          : params.endedReason === 'missed'
+            ? 'Call ended · missed'
+            : params.endedReason === 'error'
+              ? 'Call ended · failed'
+              : 'Call ended';
+
+    const systemMessage: ChatMessage = {
+      id: eventId,
+      conversationId: params.conversationId,
+      senderId: 'system',
+      senderDisplayName: 'System',
+      senderDeviceId: 'system',
+      createdAt,
+      previewText,
+      ciphertext: {
+        algorithm: 'xchacha20poly1305',
+        ciphertext: '',
+        nonce: 'system-event',
+        recipientDeviceIds: [getCurrentDevice().id],
+      },
+      delivery: 'delivered',
+      reactions: [],
+      systemEvent: {
+        type: params.eventType,
+        callId: params.callId,
+        direction: params.direction,
+        endedReason: params.endedReason,
+        durationMs: params.durationMs,
+      },
+    };
+
+    const nextMessages = [...currentMessages, systemMessage].sort(
+      (left, right) => new Date(left.createdAt).getTime() - new Date(right.createdAt).getTime(),
+    );
+
+    const nextState: PersistedChatState = {
+      ...snap,
+      conversations: snap.conversations.map((entry) =>
+        entry.id === params.conversationId
+          ? {
+              ...entry,
+              lastMessagePreview: previewText,
+              updatedAt: createdAt,
+            }
+          : entry,
+      ),
+      messagesByConversation: {
+        ...snap.messagesByConversation,
+        [params.conversationId]: nextMessages,
+      },
+    };
+
+    await persistState(nextState);
+  }, [persistState]);
+
   const ingestIncomingEnvelope = useCallback(async (envelope: WireEnvelope, fromPeerId: string) => {
     if (envelope.kind === 'sync') {
       console.log('[skypier:controller] sync envelope received from', fromPeerId);
@@ -813,6 +896,7 @@ export function useChatController() {
     saveContact,
     deleteContact,
     contacts: state.contacts ?? [],
+    appendCallHistoryEntry,
     ingestIncomingEnvelope,
     updateMessageDeliveryStatus,
     getRecentMessagesForPeer,

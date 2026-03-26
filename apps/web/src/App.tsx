@@ -121,6 +121,7 @@ export function App() {
     contacts,
     saveContact,
     deleteContact,
+    appendCallHistoryEntry,
   } = useChatController();
 
   const activeView = resolveActiveView(location.pathname);
@@ -141,6 +142,21 @@ export function App() {
   const deepLinkBaseInjectedRef = useRef(false);
   const audioCallSignalHandlerRef = useRef<((payload: { fromPeerId: string; signal: AudioCallSignal }) => void) | undefined>(undefined);
   const audioCallChunkHandlerRef = useRef<((payload: { fromPeerId: string; chunk: AudioCallChunk }) => void) | undefined>(undefined);
+  const loggedCallAttemptsRef = useRef<Set<string>>(new Set());
+  const loggedCallEndsRef = useRef<Set<string>>(new Set());
+
+  const getCallDurationMs = useCallback((startedAt?: string): number | undefined => {
+    if (!startedAt) {
+      return undefined;
+    }
+
+    const startedTime = new Date(startedAt).getTime();
+    if (Number.isNaN(startedTime)) {
+      return undefined;
+    }
+
+    return Math.max(0, Date.now() - startedTime);
+  }, []);
 
   const chatContactMatch = matchPath('/chats/:conversationId/contact', location.pathname);
   const chatMatch = matchPath('/chats/:conversationId', location.pathname);
@@ -684,6 +700,47 @@ export function App() {
     }
   }, [audioCall, selectedConversation, selectedRemotePeer]);
 
+  useEffect(() => {
+    const call = audioCall.call;
+    if (!call) {
+      return;
+    }
+
+    const shouldLogAttempt = call.phase === 'incoming'
+      || (call.direction === 'outgoing' && ['requesting-media', 'connecting', 'ringing'].includes(call.phase));
+
+    if (!shouldLogAttempt || loggedCallAttemptsRef.current.has(call.callId)) {
+      return;
+    }
+
+    loggedCallAttemptsRef.current.add(call.callId);
+    void appendCallHistoryEntry({
+      conversationId: call.conversationId,
+      callId: call.callId,
+      eventType: 'call-attempted',
+      direction: call.direction,
+      createdAt: new Date().toISOString(),
+    });
+  }, [appendCallHistoryEntry, audioCall.call]);
+
+  useEffect(() => {
+    const call = audioCall.call;
+    if (!call || !['ended', 'error'].includes(call.phase) || loggedCallEndsRef.current.has(call.callId)) {
+      return;
+    }
+
+    loggedCallEndsRef.current.add(call.callId);
+    void appendCallHistoryEntry({
+      conversationId: call.conversationId,
+      callId: call.callId,
+      eventType: 'call-ended',
+      direction: call.direction,
+      createdAt: new Date().toISOString(),
+      endedReason: call.endedReason ?? (call.phase === 'error' ? 'error' : 'hangup'),
+      durationMs: getCallDurationMs(call.startedAt),
+    });
+  }, [appendCallHistoryEntry, audioCall.call, getCallDurationMs]);
+
   const dismissAudioCallDrawer = useCallback(() => {
     if (!audioCall.call) {
       return;
@@ -1069,6 +1126,18 @@ export function App() {
           void audioCall.rejectCall();
         }}
         onEnd={() => {
+          if (audioCall.call && !loggedCallEndsRef.current.has(audioCall.call.callId)) {
+            loggedCallEndsRef.current.add(audioCall.call.callId);
+            void appendCallHistoryEntry({
+              conversationId: audioCall.call.conversationId,
+              callId: audioCall.call.callId,
+              eventType: 'call-ended',
+              direction: audioCall.call.direction,
+              createdAt: new Date().toISOString(),
+              endedReason: 'hangup',
+              durationMs: getCallDurationMs(audioCall.call.startedAt),
+            });
+          }
           void audioCall.endCall();
           audioCall.dismissCall();
         }}

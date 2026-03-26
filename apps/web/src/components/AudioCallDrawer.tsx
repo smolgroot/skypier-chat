@@ -130,7 +130,7 @@ export function AudioCallDrawer(props: AudioCallDrawerProps) {
       PaperProps={{
         sx: {
           width: '100%',
-          maxWidth: 480,
+          maxWidth: 560,
           mx: 'auto',
           left: 0,
           right: 0,
@@ -177,12 +177,14 @@ export function AudioCallDrawer(props: AudioCallDrawerProps) {
 
         {/* Audio meter */}
         {call.phase === 'connected' ? (
-          <CallAudioMeter
-            stream={localStream ?? null}
-            isMuted={call.isMuted}
-            label="Mic"
-            height={72}
-          />
+          <Box sx={{ alignSelf: 'stretch', mx: -1 }}>
+            <CallAudioMeter
+              stream={localStream ?? null}
+              isMuted={call.isMuted}
+              label="Mic"
+              height={192}
+            />
+          </Box>
         ) : null}
 
         {/* Call action buttons */}

@@ -13,6 +13,61 @@ import { ChatBubble } from './ChatBubble';
 import { UserAvatar } from './UserAvatar';
 import { useVibration } from '../hooks/useVibration';
 
+function formatDuration(durationMs: number): string {
+  const totalSeconds = Math.max(0, Math.round(durationMs / 1000));
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+
+  if (hours > 0) {
+    return `${hours}h ${minutes.toString().padStart(2, '0')}m`;
+  }
+
+  if (minutes > 0) {
+    return `${minutes}m ${seconds.toString().padStart(2, '0')}s`;
+  }
+
+  return `${seconds}s`;
+}
+
+function callTimelineLabel(message: ChatMessage): string {
+  const event = message.systemEvent;
+  if (!event) {
+    return message.previewText;
+  }
+
+  if (event.type === 'call-attempted') {
+    return event.direction === 'incoming' ? 'Incoming call' : 'Outgoing call';
+  }
+
+  switch (event.endedReason) {
+    case 'busy':
+      return 'Call ended · busy';
+    case 'declined':
+      return 'Call ended · declined';
+    case 'missed':
+      return 'Missed call';
+    case 'error':
+      return 'Call ended · failed';
+    case 'hangup':
+    default:
+      return 'Call ended';
+  }
+}
+
+function callTimelineMeta(message: ChatMessage): string {
+  const parts = [
+    new Date(message.createdAt).toLocaleDateString([], { month: 'short', day: 'numeric' }),
+    new Date(message.createdAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }),
+  ];
+
+  if (message.systemEvent?.durationMs != null && message.systemEvent.durationMs > 0) {
+    parts.push(formatDuration(message.systemEvent.durationMs));
+  }
+
+  return parts.join(' · ');
+}
+
 interface ChatThreadProps {
   conversation: Conversation;
   messages: ChatMessage[];
@@ -179,13 +234,39 @@ export function ChatThread(props: ChatThreadProps) {
                   </Paper>
                 </Box>
               )}
-              <ChatBubble
-                message={msg}
-                isSelf={msg.senderDisplayName === currentUserDisplayName}
-                onReplySelect={onReplySelect}
-                onToggleReaction={onToggleReaction}
-                onRetryMessage={onRetryMessage}
-              />
+              {msg.systemEvent ? (
+                <Box sx={{ display: 'flex', justifyContent: 'center', my: 1.25 }}>
+                  <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 0.5 }}>
+                    <Chip
+                      label={callTimelineLabel(msg)}
+                      size="small"
+                      variant="filled"
+                      sx={{
+                        bgcolor: (currentTheme) => currentTheme.palette.mode === 'dark'
+                          ? 'rgba(171,110,255,0.18)'
+                          : 'rgba(31,124,255,0.14)',
+                        color: 'text.primary',
+                        border: (currentTheme) => currentTheme.palette.mode === 'dark'
+                          ? '1px solid rgba(171,110,255,0.22)'
+                          : '1px solid rgba(31,124,255,0.16)',
+                        backdropFilter: 'blur(8px)',
+                        '& .MuiChip-label': { px: 1.25, fontWeight: 600 },
+                      }}
+                    />
+                    <Typography variant="caption" sx={{ color: 'text.secondary', textAlign: 'center' }}>
+                      {callTimelineMeta(msg)}
+                    </Typography>
+                  </Box>
+                </Box>
+              ) : (
+                <ChatBubble
+                  message={msg}
+                  isSelf={msg.senderDisplayName === currentUserDisplayName}
+                  onReplySelect={onReplySelect}
+                  onToggleReaction={onToggleReaction}
+                  onRetryMessage={onRetryMessage}
+                />
+              )}
             </Box>
           );
         })}
