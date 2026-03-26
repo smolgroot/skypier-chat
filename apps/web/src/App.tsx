@@ -23,7 +23,14 @@ import { useAudioCall } from './hooks/useAudioCall';
 import { matchPath, useLocation, useNavigate } from 'react-router-dom';
 import { MessageRetryDrawer } from './components/MessageRetryDrawer';
 import { AudioCallDrawer } from './components/AudioCallDrawer';
-import type { AudioCallChunk, AudioCallSignal, ChatMessage } from '@skypier/protocol';
+import {
+  parseChatReactionEventPayload,
+  serializeChatReactionEvent,
+  type AudioCallChunk,
+  type AudioCallSignal,
+  type ChatMessage,
+  type ChatReactionEvent,
+} from '@skypier/protocol';
 
 const PLACEHOLDER_LOCAL_PEER_ID = '12D3KooWLocalPeer';
 
@@ -271,7 +278,7 @@ export function App() {
     await ingestIncomingEnvelope(envelope, fromPeerId);
 
     // Sound + OS notification for actual chat messages
-    if (envelope.kind === 'message') {
+    if (envelope.kind === 'message' && !parseChatReactionEventPayload(envelope.payload)) {
       notifyIncomingMessage({
         senderName: `Peer ${fromPeerId.slice(0, 10)}…`,
         messagePreview: envelope.payload.startsWith(SKYPIER_MEDIA_PREFIX) ? '📷 Photo' : envelope.payload,
@@ -738,6 +745,53 @@ export function App() {
     updateMessageDeliveryStatus,
   ]);
 
+  const sendReactionEventToParticipants = useCallback(async (reactionEvent: ChatReactionEvent) => {
+    if (!selectedConversation) {
+      return;
+    }
+
+    const actorPeerId = liveState.localPeerId ?? localPeerId ?? getCurrentDevice().peerId;
+    const payload = serializeChatReactionEvent(reactionEvent);
+    const reactionTransportMessage: ChatMessage = {
+      id: `react-op-${reactionEvent.opId}`,
+      conversationId: selectedConversation.id,
+      senderId: account.userId,
+      senderDisplayName: account.displayName,
+      senderDeviceId: getCurrentDevice().id,
+      createdAt: reactionEvent.at,
+      previewText: payload,
+      ciphertext: {
+        algorithm: 'xchacha20poly1305',
+        ciphertext: '',
+        nonce: 'reaction-event',
+        recipientDeviceIds: selectedConversation.participants.flatMap((participant) => participant.devices.map((device) => device.id)),
+      },
+      delivery: 'sent',
+      reactions: [],
+    };
+
+    const targets = selectedConversation.participants
+      .map((participant) => participant.peerId)
+      .filter((peerId, index, all) => peerId && peerId !== actorPeerId && all.indexOf(peerId) === index);
+
+    if (targets.length === 0) {
+      return;
+    }
+
+    for (const targetPeerId of targets) {
+      await sendChatMessageToPeer(reactionTransportMessage, targetPeerId);
+    }
+  }, [account.displayName, account.userId, liveState.localPeerId, localPeerId, selectedConversation, sendChatMessageToPeer]);
+
+  const handleToggleReaction = useCallback(async (messageId: string, emoji: string) => {
+    const reactionEvent = await toggleReaction(messageId, emoji);
+    if (!reactionEvent) {
+      return;
+    }
+
+    await sendReactionEventToParticipants(reactionEvent);
+  }, [sendReactionEventToParticipants, toggleReaction]);
+
   const selectedRemotePeer = useMemo(() => {
     if (!selectedConversation) {
       return undefined;
@@ -957,7 +1011,7 @@ export function App() {
           onOpenContact={openSelectedContact}
           onComposerChange={setComposerValue}
           onReplyClear={clearReplyTarget}
-          onToggleReaction={toggleReaction}
+          onToggleReaction={handleToggleReaction}
           onOpenRetryDetails={() => setShowRetryDetails(true)}
           onStartCall={() => {
             void startConversationCall();

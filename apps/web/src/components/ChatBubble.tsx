@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useRef, useState, type PointerEvent } from 'react';
 import { Box, Paper, Typography, Badge, IconButton, Modal, Fade, CircularProgress } from '@mui/material';
 import { styled } from '@mui/material/styles';
 import { reachabilityLabel } from '@skypier/network';
@@ -8,6 +8,7 @@ import { animated, useSpring } from '@react-spring/web';
 import ReplyIcon from '@mui/icons-material/Reply';
 import CloseIcon from '@mui/icons-material/Close';
 import SaveAltIcon from '@mui/icons-material/SaveAlt';
+import EmojiEmotionsIcon from '@mui/icons-material/EmojiEmotions';
 import { LinkPreviewCard } from './LinkPreviewCard';
 import { extractFirstUrl } from '../hooks/useLinkPreview';
 
@@ -99,6 +100,10 @@ interface ChatBubbleProps {
   onRetryMessage?: (messageId: string) => void;
 }
 
+const QUICK_REACTION_EMOJIS = ['👍', '❤️', '😂', '😮', '😢', '🙏'];
+const DOUBLE_TAP_REACTION = '👍';
+const DOUBLE_TAP_WINDOW_MS = 320;
+
 function deliveryIndicator(delivery: ChatMessage['delivery']): { label: string; color: string } {
   switch (delivery) {
     case 'sending':
@@ -130,6 +135,28 @@ function isEmojiOnly(text: string): boolean {
 export function ChatBubble({ message, isSelf, onReplySelect, onToggleReaction, onRetryMessage }: ChatBubbleProps) {
   const [{ x }, api] = useSpring(() => ({ x: 0 }));
   const [lightboxSrc, setLightboxSrc] = useState<string | null>(null);
+  const [showReactionPicker, setShowReactionPicker] = useState(false);
+  const lastTapAtRef = useRef(0);
+
+  const handleBubblePointerUp = (event: PointerEvent<HTMLElement>) => {
+    if (!onToggleReaction || event.button !== 0) {
+      return;
+    }
+
+    const target = event.target as HTMLElement | null;
+    if (target?.closest('button,a,input,textarea,img,[role="button"],[data-skip-double-tap="true"]')) {
+      return;
+    }
+
+    const now = Date.now();
+    if (now - lastTapAtRef.current <= DOUBLE_TAP_WINDOW_MS) {
+      lastTapAtRef.current = 0;
+      onToggleReaction(message.id, DOUBLE_TAP_REACTION);
+      return;
+    }
+
+    lastTapAtRef.current = now;
+  };
 
   const bind = useDrag(({ down, movement: [mx], cancel, active }) => {
     if (!onReplySelect) return;
@@ -162,9 +189,38 @@ export function ChatBubble({ message, isSelf, onReplySelect, onToggleReaction, o
         </ReplyIndicator>
       )}
       <animated.div {...(isSelf ? {} : bind())} style={{ x, touchAction: 'pan-y', display: 'flex', maxWidth: '60%' }}>
+        <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: isSelf ? 'flex-end' : 'flex-start' }}>
+        {showReactionPicker && onToggleReaction && (
+          <Paper
+            elevation={2}
+            sx={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 0.25,
+              px: 0.5,
+              py: 0.3,
+              mb: 0.5,
+              borderRadius: 999,
+            }}
+          >
+            {QUICK_REACTION_EMOJIS.map((emoji) => (
+              <IconButton
+                key={emoji}
+                size="small"
+                onClick={() => {
+                  onToggleReaction(message.id, emoji);
+                  setShowReactionPicker(false);
+                }}
+                sx={{ fontSize: '1.05rem', width: 30, height: 30 }}
+              >
+                <span>{emoji}</span>
+              </IconButton>
+            ))}
+          </Paper>
+        )}
         {isEmojiOnly(message.previewText) ? (
           // ── Sticker layout ──────────────────────────────────────────────
-          <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: isSelf ? 'flex-end' : 'flex-start' }}>
+          <Box onPointerUp={handleBubblePointerUp}>
             {!isSelf && (
               <Typography variant="caption" sx={{ fontWeight: 'bold', color: 'secondary.main', mb: 0.25 }}>
                 {message.senderDisplayName}
@@ -199,6 +255,7 @@ export function ChatBubble({ message, isSelf, onReplySelect, onToggleReaction, o
                 {message.reactions.map((reaction) => (
                   <Box
                     key={reaction.emoji}
+                    data-skip-double-tap="true"
                     onClick={() => onToggleReaction?.(message.id, reaction.emoji)}
                     sx={{
                       bgcolor: (theme) => theme.palette.mode === 'dark' ? 'rgba(171, 110, 255, 0.15)' : 'rgba(142, 45, 226, 0.1)',
@@ -218,7 +275,7 @@ export function ChatBubble({ message, isSelf, onReplySelect, onToggleReaction, o
           </Box>
         ) : (
           // ── Normal bubble layout ─────────────────────────────────────────
-          <StyledBubble isSelf={isSelf} elevation={1}>
+          <StyledBubble isSelf={isSelf} elevation={1} onPointerUp={handleBubblePointerUp}>
             {!isSelf && (
               <Typography variant="caption" sx={{ fontWeight: 'bold', color: 'secondary.main', display: 'block', mb: 0.5 }}>
                 {message.senderDisplayName}
@@ -226,7 +283,7 @@ export function ChatBubble({ message, isSelf, onReplySelect, onToggleReaction, o
             )}
 
             {message.replyTo && (
-              <ReplyBox onClick={() => {/* Scroll to reply logic could be here */}}>
+              <ReplyBox data-skip-double-tap="true" onClick={() => {/* Scroll to reply logic could be here */}}>
                 <Typography variant="caption" sx={{ fontWeight: 'bold' }}>
                   {message.replyTo.authorDisplayName}
                 </Typography>
@@ -302,6 +359,7 @@ export function ChatBubble({ message, isSelf, onReplySelect, onToggleReaction, o
                 {message.reactions.map((reaction) => (
                   <Box
                     key={reaction.emoji}
+                    data-skip-double-tap="true"
                     onClick={() => onToggleReaction?.(message.id, reaction.emoji)}
                     sx={{
                       bgcolor: (theme) => theme.palette.mode === 'dark' ? 'rgba(171, 110, 255, 0.15)' : 'rgba(142, 45, 226, 0.1)',
@@ -321,20 +379,36 @@ export function ChatBubble({ message, isSelf, onReplySelect, onToggleReaction, o
             )}
           </StyledBubble>
         )}
+        </Box>
       </animated.div>
-      {onReplySelect && (
+      {(onReplySelect || onToggleReaction) && (
         <BubbleActions className="bubble-actions" isSelf={isSelf}>
-          <IconButton
-            size="small"
-            onClick={() => onReplySelect(message)}
-            title="Reply"
-            sx={{
-              color: 'text.secondary',
-              '&:hover': { color: 'primary.main', bgcolor: 'rgba(0,0,0,0.05)' }
-            }}
-          >
-            <ReplyIcon fontSize="small" />
-          </IconButton>
+          {onToggleReaction && (
+            <IconButton
+              size="small"
+              onClick={() => setShowReactionPicker((current) => !current)}
+              title="React"
+              sx={{
+                color: 'text.secondary',
+                '&:hover': { color: 'primary.main', bgcolor: 'rgba(0,0,0,0.05)' }
+              }}
+            >
+              <EmojiEmotionsIcon fontSize="small" />
+            </IconButton>
+          )}
+          {onReplySelect && (
+            <IconButton
+              size="small"
+              onClick={() => onReplySelect(message)}
+              title="Reply"
+              sx={{
+                color: 'text.secondary',
+                '&:hover': { color: 'primary.main', bgcolor: 'rgba(0,0,0,0.05)' }
+              }}
+            >
+              <ReplyIcon fontSize="small" />
+            </IconButton>
+          )}
         </BubbleActions>
       )}
 

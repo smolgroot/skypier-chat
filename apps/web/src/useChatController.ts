@@ -2,7 +2,16 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createEncryptedBackupBundle, createPinataUploadRequest } from '@skypier/backup';
 import { SKYPIER_MEDIA_PREFIX, type SyncMessageEntry } from '@skypier/network';
 import type { WireEnvelope } from '@skypier/network';
-import type { AudioCallEndReason, ChatMessage, ChatSystemEvent, LinkedEthAddress, MediaAttachment } from '@skypier/protocol';
+import {
+  parseChatReactionEventPayload,
+  serializeChatReactionEvent,
+  type AudioCallEndReason,
+  type ChatMessage,
+  type ChatReactionEvent,
+  type ChatSystemEvent,
+  type LinkedEthAddress,
+  type MediaAttachment,
+} from '@skypier/protocol';
 import {
   createChatRepository,
   createLocalMessage,
@@ -10,7 +19,6 @@ import {
   getCurrentDevice,
   updateMessageDelivery,
   type PersistedChatState,
-  toggleMessageReaction,
 } from '@skypier/storage';
 
 const CURRENT_USER_ID = 'user-1';
@@ -41,6 +49,83 @@ function resolveLocalPeerId(snap: PersistedChatState): string {
   }
 
   return accountPeerId ?? devicePeerId ?? PLACEHOLDER_LOCAL_PEER_ID;
+}
+
+function normalizeNetworkMessageId(messageId: string): string {
+  return messageId.startsWith('net-') ? messageId.slice(4) : messageId;
+}
+
+function messageIdsMatch(left: string, right: string): boolean {
+  if (left === right) {
+    return true;
+  }
+  return normalizeNetworkMessageId(left) === normalizeNetworkMessageId(right);
+}
+
+function upsertReactionAuthors(
+  message: ChatMessage,
+  emoji: string,
+  authorPeerId: string,
+  action: 'add' | 'remove',
+): ChatMessage {
+  const existingReaction = message.reactions.find((reaction) => reaction.emoji === emoji);
+
+  if (action === 'add') {
+    if (!existingReaction) {
+      return {
+        ...message,
+        reactions: [...message.reactions, { emoji, authors: [authorPeerId] }],
+      };
+    }
+
+    if (existingReaction.authors.includes(authorPeerId)) {
+      return message;
+    }
+
+    return {
+      ...message,
+      reactions: message.reactions.map((reaction) => reaction.emoji === emoji
+        ? { ...reaction, authors: [...reaction.authors, authorPeerId] }
+        : reaction),
+    };
+  }
+
+  if (!existingReaction || !existingReaction.authors.includes(authorPeerId)) {
+    return message;
+  }
+
+  const nextAuthors = existingReaction.authors.filter((candidate) => candidate !== authorPeerId);
+  return {
+    ...message,
+    reactions: nextAuthors.length > 0
+      ? message.reactions.map((reaction) => reaction.emoji === emoji ? { ...reaction, authors: nextAuthors } : reaction)
+      : message.reactions.filter((reaction) => reaction.emoji !== emoji),
+  };
+}
+
+function isReactionControlMessage(message: ChatMessage): boolean {
+  return parseChatReactionEventPayload(message.previewText) != null;
+}
+
+function applyReactionEventToConversationMessages(
+  conversationMessages: ChatMessage[],
+  reactionEvent: ChatReactionEvent,
+): { nextMessages: ChatMessage[]; applied: boolean } {
+  let applied = false;
+  const nextMessages = conversationMessages.map((message) => {
+    if (!messageIdsMatch(message.id, reactionEvent.msgId)) {
+      return message;
+    }
+
+    const updated = upsertReactionAuthors(message, reactionEvent.emoji, reactionEvent.actorPeerId, reactionEvent.action);
+    if (updated !== message) {
+      applied = true;
+    }
+
+    return updated;
+  });
+
+  return { nextMessages, applied };
 }
 
 // ─── Image compression ────────────────────────────────────────────────────────
@@ -145,6 +230,9 @@ export function useChatController() {
     const deduped: ChatMessage[] = [];
 
     for (const message of rawMessages) {
+      if (isReactionControlMessage(message)) {
+        continue;
+      }
       if (seen.has(message.id)) {
         continue;
       }
@@ -340,15 +428,54 @@ export function useChatController() {
     return nextMessage;
   }, [composerValue, messages, persistState, replyTarget, selectedConversation]);
 
-  const toggleReaction = useCallback(async (messageId: string, emoji: string) => {
+  const toggleReaction = useCallback(async (messageId: string, emoji: string): Promise<ChatReactionEvent | undefined> => {
     if (!selectedConversation || !messageId) {
-      return;
+      return undefined;
     }
 
     const snap = stateRef.current;
-    const nextMessages = (snap.messagesByConversation[selectedConversation.id] ?? []).map((message) => (
-      message.id === messageId ? toggleMessageReaction(message, emoji, snap.account.displayName) : message
-    ));
+    const localPeerId = resolveLocalPeerId(snap);
+    const currentMessages = snap.messagesByConversation[selectedConversation.id] ?? [];
+    const targetMessage = currentMessages.find((message) => message.id === messageId);
+
+    if (!targetMessage) {
+      return undefined;
+    }
+
+    const existingReaction = targetMessage.reactions.find((reaction) => reaction.emoji === emoji);
+    const hasLocalReaction = existingReaction?.authors.includes(localPeerId) ?? false;
+    const reactionEvent: ChatReactionEvent = {
+      v: 1,
+      opId: `react-${Math.random().toString(36).slice(2, 12)}-${Date.now().toString(36)}`,
+      convId: selectedConversation.id,
+      msgId: targetMessage.id,
+      emoji,
+      actorPeerId: localPeerId,
+      action: hasLocalReaction ? 'remove' : 'add',
+      at: new Date().toISOString(),
+    };
+
+    const { nextMessages: updatedMessages } = applyReactionEventToConversationMessages(currentMessages, reactionEvent);
+    const nextMessages = [
+      ...updatedMessages,
+      {
+        id: `react-op-${reactionEvent.opId}`,
+        conversationId: selectedConversation.id,
+        senderId: CURRENT_USER_ID,
+        senderDisplayName: snap.account.displayName,
+        senderDeviceId: getCurrentDevice().id,
+        createdAt: reactionEvent.at,
+        previewText: serializeChatReactionEvent(reactionEvent),
+        ciphertext: {
+          algorithm: 'xchacha20poly1305' as const,
+          ciphertext: '',
+          nonce: 'reaction-event',
+          recipientDeviceIds: [getCurrentDevice().id],
+        },
+        delivery: 'sent' as const,
+        reactions: [],
+      },
+    ];
 
     const nextState: PersistedChatState = {
       ...snap,
@@ -359,6 +486,7 @@ export function useChatController() {
     };
 
     await persistState(nextState);
+    return reactionEvent;
   }, [persistState, selectedConversation]);
 
   const selectReplyTarget = useCallback((message: ChatMessage) => {
@@ -585,6 +713,42 @@ export function useChatController() {
             if (knownIds.has(stableId)) continue; // already ingested
             knownIds.add(stableId); // prevent double-ingest within this batch
 
+            const reactionEvent = parseChatReactionEventPayload(entry.payload);
+            if (reactionEvent) {
+              const conversationForReaction = snap.conversations.find((c) => c.id === entry.conversationId)
+                ?? snap.conversations.find((c) => c.participants.some((p) => p.peerId === entry.senderPeerId));
+
+              if (!conversationForReaction) {
+                continue;
+              }
+
+              const normalizedReactionEvent: ChatReactionEvent = {
+                ...reactionEvent,
+                convId: conversationForReaction.id,
+                actorPeerId: entry.senderPeerId,
+              };
+
+              const currentMessagesForConversation = snap.messagesByConversation[conversationForReaction.id] ?? [];
+              const { nextMessages: reactedMessages, applied } = applyReactionEventToConversationMessages(
+                currentMessagesForConversation,
+                normalizedReactionEvent,
+              );
+
+              if (!applied) {
+                continue;
+              }
+
+              snap = {
+                ...snap,
+                messagesByConversation: {
+                  ...snap.messagesByConversation,
+                  [conversationForReaction.id]: reactedMessages,
+                },
+              };
+              changed = true;
+              continue;
+            }
+
             const isImagePayload = entry.payload.startsWith(SKYPIER_MEDIA_PREFIX);
             const payloadPreviewText = isImagePayload ? '📷 Photo' : entry.payload;
             let incomingAttachments: MediaAttachment[] | undefined;
@@ -674,6 +838,39 @@ export function useChatController() {
 
     if (envelope.kind !== 'message') {
       console.log('[skypier:controller] ignoring non-message envelope kind:', envelope.kind);
+      return;
+    }
+
+    const reactionEvent = parseChatReactionEventPayload(envelope.payload);
+    if (reactionEvent) {
+      const snap = stateRef.current;
+      const existingConversation = snap.conversations.find((conversation) => conversation.id === envelope.conversationId)
+        ?? snap.conversations.find((conversation) => conversation.participants.some((p) => p.peerId === fromPeerId));
+
+      if (!existingConversation) {
+        return;
+      }
+
+      const normalizedReactionEvent: ChatReactionEvent = {
+        ...reactionEvent,
+        convId: existingConversation.id,
+        actorPeerId: fromPeerId,
+      };
+
+      const currentMessages = snap.messagesByConversation[existingConversation.id] ?? [];
+      const { nextMessages, applied } = applyReactionEventToConversationMessages(currentMessages, normalizedReactionEvent);
+
+      if (!applied) {
+        return;
+      }
+
+      await persistState({
+        ...snap,
+        messagesByConversation: {
+          ...snap.messagesByConversation,
+          [existingConversation.id]: nextMessages,
+        },
+      });
       return;
     }
 

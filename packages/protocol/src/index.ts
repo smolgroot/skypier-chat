@@ -7,6 +7,9 @@ export type AudioCallEndReason = 'declined' | 'busy' | 'hangup' | 'missed' | 'er
 export type AudioCallPhase = 'idle' | 'requesting-media' | 'incoming' | 'ringing' | 'connecting' | 'connected' | 'ended' | 'error';
 export type AudioCallChunkKind = 'chunk' | 'end';
 export type ChatSystemEventType = 'call-attempted' | 'call-ended';
+export type ReactionAction = 'add' | 'remove';
+
+export const SKYPIER_REACTION_PREFIX = 'skypier:react:';
 
 export interface AudioCallMediaProfile {
   codec: AudioCallCodec;
@@ -61,6 +64,50 @@ export interface ReplyReference {
 export interface Reaction {
   emoji: string;
   authors: string[];
+}
+
+export interface ChatReactionEvent {
+  v: 1;
+  opId: string;
+  convId: string;
+  msgId: string;
+  emoji: string;
+  actorPeerId: string;
+  action: ReactionAction;
+  at: string;
+}
+
+export function serializeChatReactionEvent(event: ChatReactionEvent): string {
+  return `${SKYPIER_REACTION_PREFIX}${JSON.stringify(event)}`;
+}
+
+export function parseChatReactionEventPayload(payload: string): ChatReactionEvent | undefined {
+  if (!payload.startsWith(SKYPIER_REACTION_PREFIX)) {
+    return undefined;
+  }
+
+  try {
+    const parsed = JSON.parse(payload.slice(SKYPIER_REACTION_PREFIX.length)) as Partial<ChatReactionEvent>;
+    if (parsed.v !== 1) {
+      return undefined;
+    }
+
+    if (
+      typeof parsed.opId !== 'string'
+      || typeof parsed.convId !== 'string'
+      || typeof parsed.msgId !== 'string'
+      || typeof parsed.emoji !== 'string'
+      || typeof parsed.actorPeerId !== 'string'
+      || (parsed.action !== 'add' && parsed.action !== 'remove')
+      || typeof parsed.at !== 'string'
+    ) {
+      return undefined;
+    }
+
+    return parsed as ChatReactionEvent;
+  } catch {
+    return undefined;
+  }
 }
 
 export interface MessageCiphertext {
