@@ -83,6 +83,44 @@ function resolveActiveView(pathname: string): 'chat' | 'profile' | 'settings' | 
   return 'chat';
 }
 
+function baseDocumentTitle(options: {
+  pathname: string;
+  activeView: 'chat' | 'profile' | 'settings' | 'network' | 'contacts';
+  selectedConversationTitle?: string;
+}): string {
+  const { pathname, activeView, selectedConversationTitle } = options;
+
+  if (pathname.startsWith('/splash')) {
+    return 'Skypier dM';
+  }
+
+  if (pathname.startsWith('/onboarding')) {
+    return 'Onboarding · Skypier dM';
+  }
+
+  if (pathname.startsWith('/unlock')) {
+    return 'Unlock · Skypier dM';
+  }
+
+  if (activeView === 'chat' && selectedConversationTitle) {
+    return `${selectedConversationTitle} · Skypier dM`;
+  }
+
+  switch (activeView) {
+    case 'profile':
+      return 'Profile · Skypier dM';
+    case 'settings':
+      return 'Settings · Skypier dM';
+    case 'network':
+      return 'P2P Status · Skypier dM';
+    case 'contacts':
+      return 'Contacts · Skypier dM';
+    case 'chat':
+    default:
+      return 'Skypier dM';
+  }
+}
+
 export function App() {
   const location = useLocation();
   const navigate = useNavigate();
@@ -98,6 +136,7 @@ export function App() {
     setComposerValue,
     createConversationWithPeer,
     updateConversationConnection,
+    markConversationRead,
     deleteConversation,
     deleteMessage,
     sendMessage,
@@ -168,6 +207,59 @@ export function App() {
   const networkLog = useNetworkLog();
   const currentTheme = useMemo(() => theme(colorMode), [colorMode]);
   const { notifyIncomingMessage, notifyIncomingCall } = useNotifications();
+
+  const totalUnreadCount = useMemo(
+    () => conversations.reduce((sum, conversation) => sum + Math.max(0, conversation.unreadCount ?? 0), 0),
+    [conversations],
+  );
+
+  useEffect(() => {
+    if (!selectedConversationId || activeView !== 'chat') {
+      return;
+    }
+
+    void markConversationRead(selectedConversationId);
+  }, [activeView, markConversationRead, selectedConversationId]);
+
+  useEffect(() => {
+    if (typeof navigator === 'undefined') {
+      return;
+    }
+
+    const badgeNavigator = navigator as Navigator & {
+      setAppBadge?: (contents?: number) => Promise<void>;
+      clearAppBadge?: () => Promise<void>;
+    };
+
+    if (typeof badgeNavigator.setAppBadge !== 'function' && typeof badgeNavigator.clearAppBadge !== 'function') {
+      return;
+    }
+
+    if (totalUnreadCount > 0 && typeof badgeNavigator.setAppBadge === 'function') {
+      void badgeNavigator.setAppBadge(totalUnreadCount).catch(() => {});
+      return;
+    }
+
+    if (totalUnreadCount === 0 && typeof badgeNavigator.clearAppBadge === 'function') {
+      void badgeNavigator.clearAppBadge().catch(() => {});
+    }
+  }, [totalUnreadCount]);
+
+  useEffect(() => {
+    if (typeof document === 'undefined') {
+      return;
+    }
+
+    const baseTitle = baseDocumentTitle({
+      pathname: location.pathname,
+      activeView,
+      selectedConversationTitle: selectedConversation?.title,
+    });
+
+    document.title = totalUnreadCount > 0
+      ? `(${totalUnreadCount}) ${baseTitle}`
+      : baseTitle;
+  }, [activeView, location.pathname, selectedConversation?.title, totalUnreadCount]);
 
   const showOfflineAlert = useCallback(() => {
     setOfflineAlertOpen(true);

@@ -265,6 +265,35 @@ export function useChatController() {
     });
   }, [persistState]);
 
+  const markConversationRead = useCallback(async (conversationId: string) => {
+    if (!conversationId) {
+      return;
+    }
+
+    const snap = stateRef.current;
+    let changed = false;
+    const nextConversations = snap.conversations.map((conversation) => {
+      if (conversation.id !== conversationId || conversation.unreadCount === 0) {
+        return conversation;
+      }
+
+      changed = true;
+      return {
+        ...conversation,
+        unreadCount: 0,
+      };
+    });
+
+    if (!changed) {
+      return;
+    }
+
+    await persistState({
+      ...snap,
+      conversations: nextConversations,
+    });
+  }, [persistState]);
+
   const sendMessage = useCallback(async (): Promise<ChatMessage | undefined> => {
     if (!selectedConversation || !composerValue.trim()) {
       return undefined;
@@ -885,6 +914,7 @@ export function useChatController() {
     setComposerValue,
     createConversationWithPeer,
     updateConversationConnection,
+    markConversationRead,
     sendMessage,
     sendImageMessage,
     replyTarget,
