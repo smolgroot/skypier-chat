@@ -211,6 +211,7 @@ export function App() {
     ?? (location.pathname.startsWith('/chats/') ? chatMatch?.params.conversationId : undefined);
   const isChatContactRoute = chatContactMatch != null;
   const isChatRoute = location.pathname === '/chats' || routeConversationId != null;
+  const isAccountConfigured = Boolean(account.displayName && identityProtobuf);
 
   const networkLog = useNetworkLog();
   const currentTheme = useMemo(() => theme(colorMode), [colorMode]);
@@ -371,16 +372,22 @@ export function App() {
     };
   }, [audioCall]);
 
-  // Automatically start the session once the app is loaded
+  // Automatically start the session once the app is loaded and configured.
   useEffect(() => {
-    if (isLoaded && liveState.status === 'idle') {
+    if (isLoaded && isAccountConfigured && liveState.status === 'idle') {
       void startSession().catch(console.error);
     }
-  }, [isLoaded, liveState.status, startSession]);
+  }, [isAccountConfigured, isLoaded, liveState.status, startSession]);
+
+  useEffect(() => {
+    if (!isAccountConfigured && liveState.status !== 'idle') {
+      void stopSession().catch(console.error);
+    }
+  }, [isAccountConfigured, liveState.status, stopSession]);
 
   // Resume-driven connectivity recovery (no background libp2p daemon in SW).
   useEffect(() => {
-    if (!isLoaded || !account.displayName || !identityProtobuf) {
+    if (!isLoaded || !isAccountConfigured) {
       return;
     }
 
@@ -418,7 +425,7 @@ export function App() {
       window.removeEventListener('focus', handleFocus);
       window.removeEventListener('skypier:recover-connectivity', handleSwRecovery as EventListener);
     };
-  }, [isLoaded, account.displayName, identityProtobuf, recoverConnectivity]);
+  }, [isAccountConfigured, isLoaded, recoverConnectivity]);
 
   useEffect(() => {
     const handleOffline = () => {

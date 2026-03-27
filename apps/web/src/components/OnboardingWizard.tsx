@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { 
   Box, 
   Typography, 
@@ -11,13 +11,79 @@ import {
   CircularProgress,
   Stack,
   IconButton,
-  Tooltip
+  Tooltip,
+  SvgIcon,
+  type StepIconProps,
 } from '@mui/material';
 import ContentCopyIcon from '@mui/icons-material/ContentCopy';
 import RefreshIcon from '@mui/icons-material/Refresh';
+import AccountCircleOutlinedIcon from '@mui/icons-material/AccountCircleOutlined';
+import BadgeOutlinedIcon from '@mui/icons-material/BadgeOutlined';
+import InstallMobileOutlinedIcon from '@mui/icons-material/InstallMobileOutlined';
 import { generateNewIdentity, getPeerIdFromProtobuf } from '@skypier/network';
 import type { LinkedEthAddress } from '@skypier/protocol';
 import { connectAndLinkEthWallet } from '../walletLinking';
+
+interface BeforeInstallPromptEvent extends Event {
+  prompt: () => Promise<void>;
+  userChoice: Promise<{ outcome: 'accepted' | 'dismissed'; platform: string }>;
+}
+
+function isInstalledAsStandalone(): boolean {
+  if (typeof window === 'undefined') {
+    return false;
+  }
+
+  const iOSStandalone = 'standalone' in window.navigator
+    ? Boolean((window.navigator as Navigator & { standalone?: boolean }).standalone)
+    : false;
+
+  return window.matchMedia('(display-mode: standalone)').matches || iOSStandalone;
+}
+
+function EthereumLogoIcon() {
+  return (
+    <SvgIcon viewBox="0 0 256 417" aria-hidden>
+      <path fill="currentColor" d="M127.6 0L124.8 9.5V279.2L127.6 282L255.2 207.2L127.6 0Z" />
+      <path fill="currentColor" d="M127.6 0L0 207.2L127.6 282V150.9V0Z" />
+      <path fill="currentColor" d="M127.6 306.1L126 308V404.1L127.6 417L255.3 231.3L127.6 306.1Z" />
+      <path fill="currentColor" d="M127.6 417V306.1L0 231.3L127.6 417Z" />
+      <path fill="currentColor" d="M127.6 282L255.2 207.2L127.6 150.9V282Z" />
+      <path fill="currentColor" d="M0 207.2L127.6 282V150.9L0 207.2Z" />
+    </SvgIcon>
+  );
+}
+
+const ONBOARDING_STEPS = [
+  { label: 'Choose a name', Icon: AccountCircleOutlinedIcon },
+  { label: 'Identity', Icon: BadgeOutlinedIcon },
+  { label: 'Wallet', Icon: EthereumLogoIcon },
+  { label: 'PWA install', Icon: InstallMobileOutlinedIcon },
+] as const;
+
+function WizardStepIcon(props: StepIconProps) {
+  const { active, completed, icon } = props;
+  const index = Number(icon) - 1;
+  const MetaIcon = ONBOARDING_STEPS[index]?.Icon;
+
+  return (
+    <Box
+      sx={{
+        width: 38,
+        height: 38,
+        borderRadius: '50%',
+        display: 'grid',
+        placeItems: 'center',
+        color: 'text.secondary',
+        border: '1px solid',
+        borderColor: active || completed ? 'primary.main' : 'divider',
+        bgcolor: active ? 'action.selected' : 'transparent',
+      }}
+    >
+      {MetaIcon ? <MetaIcon sx={{ fontSize: 22 }} /> : null}
+    </Box>
+  );
+}
 
 interface OnboardingWizardProps {
   onComplete: (data: {
@@ -40,8 +106,17 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
   const [walletError, setWalletError] = useState<string | null>(null);
   const [linkedWalletAddress, setLinkedWalletAddress] = useState<string | null>(null);
   const [linkedWallet, setLinkedWallet] = useState<LinkedEthAddress | undefined>();
+  const [deferredInstallPrompt, setDeferredInstallPrompt] = useState<BeforeInstallPromptEvent | null>(null);
+  const [installBusy, setInstallBusy] = useState(false);
+  const [installStatus, setInstallStatus] = useState<'idle' | 'installed' | 'dismissed'>(
+    isInstalledAsStandalone() ? 'installed' : 'idle',
+  );
 
-  const steps = ['Set Profile', 'Secure Identity', 'Optional ENS'];
+  const steps = ONBOARDING_STEPS.map((step) => step.label);
+
+  const canPromptInstall = deferredInstallPrompt != null && installStatus !== 'installed';
+
+  const CurrentStepIcon = ONBOARDING_STEPS[activeStep]?.Icon;
 
   const handleNext = async () => {
     if (activeStep === 0 && displayName.trim()) {
@@ -62,6 +137,8 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
         setActiveStep(2);
       }
     } else if (activeStep === 2 && resolvedIdentity) {
+      setActiveStep(3);
+    } else if (activeStep === 3 && resolvedIdentity) {
       onComplete({
         displayName,
         identityProtobuf: resolvedIdentity.protobuf,
@@ -103,6 +180,46 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
     navigator.clipboard.writeText(text);
   };
 
+  const handleInstall = async () => {
+    if (!deferredInstallPrompt) {
+      return;
+    }
+
+    try {
+      setInstallBusy(true);
+      await deferredInstallPrompt.prompt();
+      const choice = await deferredInstallPrompt.userChoice;
+      setInstallStatus(choice.outcome === 'accepted' ? 'installed' : 'dismissed');
+    } finally {
+      setInstallBusy(false);
+      setDeferredInstallPrompt(null);
+    }
+  };
+
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return;
+    }
+
+    const handleBeforeInstallPrompt = (event: Event) => {
+      event.preventDefault();
+      setDeferredInstallPrompt(event as BeforeInstallPromptEvent);
+    };
+
+    const handleAppInstalled = () => {
+      setInstallStatus('installed');
+      setDeferredInstallPrompt(null);
+    };
+
+    window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt as EventListener);
+    window.addEventListener('appinstalled', handleAppInstalled);
+
+    return () => {
+      window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt as EventListener);
+      window.removeEventListener('appinstalled', handleAppInstalled);
+    };
+  }, []);
+
   return (
     <Box
       sx={{
@@ -111,7 +228,11 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
-        bgcolor: 'transparent',
+        bgcolor: '#f8f5ff',
+        backgroundImage:
+          'url("data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' viewBox=\'0 0 28 28\' width=\'28\' height=\'28\'%3E%3Ccircle cx=\'2\' cy=\'2\' r=\'1\' fill=\'%23ffffff\' fill-opacity=\'0.42\'/%3E%3Ccircle cx=\'14\' cy=\'14\' r=\'1\' fill=\'%23ffffff\' fill-opacity=\'0.28\'/%3E%3Ccircle cx=\'26\' cy=\'26\' r=\'1\' fill=\'%23ffffff\' fill-opacity=\'0.36\'/%3E%3C/svg%3E"), radial-gradient(circle at 15% 20%, rgba(255, 182, 193, 0.38), transparent 38%), radial-gradient(circle at 85% 18%, rgba(255, 223, 128, 0.35), transparent 36%), radial-gradient(circle at 72% 78%, rgba(173, 216, 230, 0.34), transparent 34%), linear-gradient(135deg, #fff8f2 0%, #f8f5ff 52%, #f2fbff 100%)',
+        backgroundRepeat: 'repeat, no-repeat, no-repeat, no-repeat, no-repeat',
+        backgroundSize: '28px 28px, auto, auto, auto, auto',
         p: 2
       }}
     >
@@ -145,7 +266,7 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
       >
         <Box sx={{ textAlign: 'center' }}>
           <Typography variant="h5" sx={{ fontWeight: 'bold', mb: 1 }}>
-            Welcome to Skypier
+            Welcome to Skypier dMessenger
           </Typography>
           <Typography variant="caption" color="text.secondary">
             Set up your decentralized identity
@@ -155,12 +276,19 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
         <Stepper activeStep={activeStep} alternativeLabel>
           {steps.map((label) => (
             <Step key={label}>
-              <StepLabel>{label}</StepLabel>
+              <StepLabel StepIconComponent={WizardStepIcon}>{label}</StepLabel>
             </Step>
           ))}
         </Stepper>
 
         <Box sx={{ mt: 2, flexGrow: 1 }}>
+          <Stack alignItems="center" justifyContent="center" spacing={1} sx={{ mb: 2.75, textAlign: 'center' }}>
+            {CurrentStepIcon ? <CurrentStepIcon sx={{ color: 'text.secondary', fontSize: 48 }} /> : null}
+            <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>
+              {steps[activeStep]}
+            </Typography>
+          </Stack>
+
           {activeStep === 0 && (
             <Stack gap={3}>
               <Typography variant="body2" sx={{ opacity: 0.8 }}>
@@ -303,6 +431,48 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
               </Stack>
             </Stack>
           )}
+
+          {activeStep === 3 && (
+            <Stack gap={2.5}>
+              <Typography variant="body2" sx={{ opacity: 0.8 }}>
+                Install Skypier as an app for a faster startup, offline shell, and a native-like experience.
+              </Typography>
+
+              <Box sx={{ p: 2, bgcolor: 'rgba(255,255,255,0.05)', borderRadius: 2, border: '1px solid rgba(255,255,255,0.1)' }}>
+                {installStatus === 'installed' ? (
+                  <Typography variant="body2" color="success.main">
+                    Skypier is already installed on this device.
+                  </Typography>
+                ) : canPromptInstall ? (
+                  <Typography variant="body2" color="text.secondary">
+                    Installation is available for this browser.
+                  </Typography>
+                ) : (
+                  <Typography variant="body2" color="text.secondary">
+                    Install option not exposed by this browser right now. You can still finish setup.
+                  </Typography>
+                )}
+              </Box>
+
+              <Stack direction="row" spacing={1.5}>
+                <Button
+                  variant="outlined"
+                  onClick={handleInstall}
+                  disabled={!canPromptInstall || installBusy}
+                  startIcon={installBusy ? <CircularProgress size={16} /> : undefined}
+                >
+                  Install App
+                </Button>
+                <Button
+                  variant="text"
+                  onClick={() => setInstallStatus('dismissed')}
+                  disabled={installBusy || installStatus === 'installed'}
+                >
+                  Skip for now
+                </Button>
+              </Stack>
+            </Stack>
+          )}
         </Box>
 
         <Box sx={{ display: 'flex', justifyContent: 'space-between', mt: 2 }}>
@@ -317,7 +487,7 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
             disabled={
               (activeStep === 0 && !displayName.trim())
               || (activeStep === 1 && !identity && !importedProtobuf)
-              || (activeStep === 2 && !resolvedIdentity)
+              || ((activeStep === 2 || activeStep === 3) && !resolvedIdentity)
             }
             onClick={handleNext}
           >
