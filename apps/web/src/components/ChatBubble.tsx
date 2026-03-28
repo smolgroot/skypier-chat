@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type PointerEvent } from 'react';
 import { Box, Paper, Typography, Badge, IconButton, Modal, Fade, CircularProgress } from '@mui/material';
-import { styled } from '@mui/material/styles';
+import { styled, useTheme } from '@mui/material/styles';
 import { reachabilityLabel } from '@skypier/network';
 import type { ChatMessage } from '@skypier/protocol';
 import { loadAttachmentBlob } from '@skypier/storage';
@@ -143,21 +143,15 @@ const StyledBubble = styled(Paper, {
   borderRadius: isSelf ? '20px 20px 4px 20px' : '20px 20px 20px 4px',
   background: isSelf 
     ? (theme.palette.mode === 'dark' 
-        ? 'linear-gradient(135deg, rgba(142, 45, 226, 0.4), rgba(74, 0, 224, 0.4))' 
+        ? 'linear-gradient(135deg, #8e2de2, #4a00e0)' 
         : 'linear-gradient(135deg, #1f7cff, #42c6ff)')
     : (theme.palette.mode === 'dark' 
-        ? 'rgba(30, 20, 50, 0.3)' 
+        ? '#1e1432' 
         : '#ffffff'),
   color: isSelf ? '#fff' : theme.palette.text.primary,
-  backdropFilter: theme.palette.mode === 'dark' 
-    ? `blur(20px) saturate(190%) url(#liquid-glass-refraction-${theme.palette.mode})`
-    : 'none',
-  WebkitBackdropFilter: theme.palette.mode === 'dark' 
-    ? `blur(20px) saturate(190%) url(#liquid-glass-refraction-${theme.palette.mode})`
-    : 'none',
-  filter: theme.palette.mode === 'dark'
-    ? `url(#liquid-glass-gloss-${theme.palette.mode})`
-    : 'none',
+  backdropFilter: 'none',
+  WebkitBackdropFilter: 'none',
+  filter: 'none',
   border: (theme.palette.mode === 'dark' 
       ? '1px solid rgba(171, 110, 255, 0.2)' 
       : '1px solid rgba(0, 0, 0, 0.05)'),
@@ -191,13 +185,20 @@ const QUICK_REACTION_EMOJIS = ['👍', '❤️', '😂', '😮', '😢', '🙏']
 const DOUBLE_TAP_REACTION = '👍';
 const DOUBLE_TAP_WINDOW_MS = 320;
 
-function deliveryIndicator(delivery: ChatMessage['delivery']): { label: string; color: string } {
+function deliveryIndicator(
+  delivery: ChatMessage['delivery'],
+  options?: { useHighContrastDeliveredColor?: boolean },
+): { label: string; color: string } {
+  const deliveredColor = options?.useHighContrastDeliveredColor
+    ? 'rgba(255,255,255,0.95)'
+    : 'rgba(76,175,80,0.9)';
+
   switch (delivery) {
     case 'sending':
       return { label: '···', color: 'rgba(255,255,255,0.4)' };
     case 'delivered':
     case 'read':
-      return { label: '✓✓', color: 'rgba(76,175,80,0.9)' };
+      return { label: '✓✓', color: deliveredColor };
     case 'sent':
       return { label: '✓', color: 'inherit' };
     case 'queued':
@@ -220,6 +221,7 @@ function isEmojiOnly(text: string): boolean {
 }
 
 export function ChatBubble({ message, isSelf, onReplySelect, onToggleReaction, onRetryMessage }: ChatBubbleProps) {
+  const theme = useTheme();
   const [{ x }, api] = useSpring(() => ({ x: 0 }));
   const [lightboxSrc, setLightboxSrc] = useState<string | null>(null);
   const [lightboxLoading, setLightboxLoading] = useState(false);
@@ -378,7 +380,9 @@ export function ChatBubble({ message, isSelf, onReplySelect, onToggleReaction, o
               </Typography>
               {isSelf && (() => {
                 const isSending = message.delivery === 'sending';
-                const { label, color } = deliveryIndicator(message.delivery);
+                const { label, color } = deliveryIndicator(message.delivery, {
+                  useHighContrastDeliveredColor: isSelf && theme.palette.mode === 'light',
+                });
                 return isSending
                   ? <CircularProgress size={10} thickness={5} sx={{ color: 'rgba(255,255,255,0.45)' }} />
                   : <Typography variant="caption" sx={{ color, fontSize: '0.7rem', fontWeight: 600 }}>{label}</Typography>;
@@ -454,7 +458,9 @@ export function ChatBubble({ message, isSelf, onReplySelect, onToggleReaction, o
               </Typography>
               {isSelf && (() => {
                 const isSending = message.delivery === 'sending';
-                const { label, color } = deliveryIndicator(message.delivery);
+                const { label, color } = deliveryIndicator(message.delivery, {
+                  useHighContrastDeliveredColor: isSelf && theme.palette.mode === 'light',
+                });
                 const isFailed = message.delivery === 'local-only';
                 return (
                   <Box component="span" sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>

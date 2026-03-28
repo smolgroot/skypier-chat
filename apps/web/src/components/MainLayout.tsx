@@ -7,7 +7,6 @@ import {
   ListItemIcon, 
   ListItemText, 
   Typography, 
-  Avatar, 
   IconButton, 
   Divider,
   AppBar,
@@ -59,6 +58,8 @@ interface MainLayoutProps {
   onBack?: () => void; // New prop for mobile navigation back
   onOpenSelectedContact?: () => void;
   linkedWallets?: { address: string; chainId: number }[];
+  localAvatarUrl?: string;
+  avatarByPeerId?: Record<string, string | undefined>;
   onOpenRetryDetails?: () => void;
   retryBadgeCount?: number;
   onStartCall?: () => void;
@@ -83,6 +84,8 @@ export function MainLayout(props: MainLayoutProps) {
     onBack,
     onOpenSelectedContact,
     linkedWallets = [],
+    localAvatarUrl,
+    avatarByPeerId = {},
     onOpenRetryDetails,
     retryBadgeCount = 0,
     onStartCall,
@@ -110,6 +113,7 @@ export function MainLayout(props: MainLayoutProps) {
   const selectedConversation = conversations.find((conversation) => conversation.id === selectedConversationId);
   const selectedRemotePeer = selectedConversation?.participants.find((participant) => participant.peerId !== peerId)
     ?? selectedConversation?.participants[0];
+  const selectedRemoteAvatarUrl = selectedRemotePeer?.peerId ? avatarByPeerId[selectedRemotePeer.peerId] : undefined;
 
   // Determine if we should show the back button on mobile.
   // We show it if we're on mobile and a conversation is selected while in chat view.
@@ -150,7 +154,7 @@ export function MainLayout(props: MainLayoutProps) {
     >
       {isMobile && <Toolbar sx={{ pt: 'env(safe-area-inset-top)' }} />}
       <Box sx={{ p: 2, display: 'flex', alignItems: 'center', gap: 2 }}>
-        <UserAvatar seed={peerId} size={40} src={ensAvatar} />
+        <UserAvatar seed={peerId} size={40} src={localAvatarUrl ?? ensAvatar} />
         <Box sx={{ flexGrow: 1, minWidth: 0 }}>
           <Typography variant="subtitle1" noWrap sx={{ fontWeight: 'bold' }}>
             {ensName || userName}
@@ -237,6 +241,7 @@ export function MainLayout(props: MainLayoutProps) {
           onNewChat={() => setNewChatOpen(true)}
           onDeleteConversation={onDeleteConversation}
           localPeerId={peerId}
+          avatarByPeerId={avatarByPeerId}
           dense
         />
       )}
@@ -372,7 +377,7 @@ export function MainLayout(props: MainLayoutProps) {
                     sx={{ p: 0 }}
                     aria-label="Open contact details"
                   >
-                    <UserAvatar seed={selectedRemotePeer?.peerId ?? selectedConversationId} size={32} />
+                    <UserAvatar seed={selectedRemotePeer?.peerId ?? selectedConversationId} size={32} src={selectedRemoteAvatarUrl} />
                   </IconButton>
                   <Box sx={{ display: 'flex', flexDirection: 'column' }}>
                     <Typography variant="subtitle1" sx={{ fontWeight: 'bold', lineHeight: 1.2 }}>
@@ -509,6 +514,7 @@ export function MainLayout(props: MainLayoutProps) {
               onNewChat={() => setNewChatOpen(true)}
               onDeleteConversation={onDeleteConversation}
               localPeerId={peerId}
+              avatarByPeerId={avatarByPeerId}
             />
           </Box>
         ) : (

@@ -16,11 +16,16 @@ function isPlaceholderLocalPeerId(peerId: string | undefined): boolean {
 interface ContactDetailPageProps {
   conversation: Conversation;
   localPeerId: string;
+  avatarByPeerId?: Record<string, string | undefined>;
   isDialing: boolean;
+  isProfileDebugBusy?: boolean;
+  profileDebugMessage?: string;
+  profileDebugError?: string;
   dialError?: string;
   dialSuccess?: string;
   dialLogs?: DialLogEntry[];
   onDialPeer: (peerId: string) => void;
+  onDebugFetchProfile?: (peerId: string) => void;
   onStartCall?: (peerId: string) => void;
   callDisabled?: boolean;
   callStatusLabel?: string;
@@ -28,11 +33,29 @@ interface ContactDetailPageProps {
 }
 
 export function ContactDetailPage(props: ContactDetailPageProps) {
-  const { conversation, localPeerId, isDialing, dialError, dialSuccess, dialLogs = [], onDialPeer, onStartCall, callDisabled, callStatusLabel, onOpenChat } = props;
+  const {
+    conversation,
+    localPeerId,
+    avatarByPeerId = {},
+    isDialing,
+    isProfileDebugBusy,
+    profileDebugMessage,
+    profileDebugError,
+    dialError,
+    dialSuccess,
+    dialLogs = [],
+    onDialPeer,
+    onDebugFetchProfile,
+    onStartCall,
+    callDisabled,
+    callStatusLabel,
+    onOpenChat,
+  } = props;
 
   const remoteParticipant = conversation.participants.find(
     (participant) => participant.peerId !== localPeerId && !isPlaceholderLocalPeerId(participant.peerId),
   ) ?? conversation.participants.find((participant) => participant.peerId !== localPeerId);
+  const remoteAvatarSrc = remoteParticipant?.peerId ? avatarByPeerId[remoteParticipant.peerId] : undefined;
 
   if (!remoteParticipant) {
     return (
@@ -54,7 +77,7 @@ export function ContactDetailPage(props: ContactDetailPageProps) {
       }} />
 
       <Stack spacing={3} alignItems="center" sx={{ width: '100%' }}>
-        <UserAvatar seed={remoteParticipant.peerId} size={100} sx={{ boxShadow: (theme: import('@mui/material').Theme) => `0 8px 32px ${theme.palette.primary.main}44` }} />
+        <UserAvatar seed={remoteParticipant.peerId} size={100} src={remoteAvatarSrc} sx={{ boxShadow: (theme: import('@mui/material').Theme) => `0 8px 32px ${theme.palette.primary.main}44` }} />
         
         <Box sx={{ textAlign: 'center' }}>
           <Typography variant="h4" sx={{ fontWeight: 'bold' }}>{remoteParticipant.displayName}</Typography>
@@ -95,6 +118,16 @@ export function ContactDetailPage(props: ContactDetailPageProps) {
           >
             {isDialing ? 'Dialing…' : 'Test connectivity'}
           </Button>
+          <Button
+            fullWidth
+            variant="outlined"
+            onClick={() => onDebugFetchProfile?.(remoteParticipant.peerId)}
+            disabled={isProfileDebugBusy || !onDebugFetchProfile}
+            size="large"
+            sx={{ borderRadius: 3 }}
+          >
+            {isProfileDebugBusy ? 'Fetching profile…' : 'Debug: fetch profile'}
+          </Button>
           <Button 
             fullWidth 
             variant="outlined" 
@@ -109,6 +142,8 @@ export function ContactDetailPage(props: ContactDetailPageProps) {
 
         {dialError ? <Typography color="error" variant="caption" sx={{ mt: 1 }}>{dialError}</Typography> : null}
         {dialSuccess ? <Typography color="success.main" variant="caption" sx={{ mt: 1 }}>{dialSuccess}</Typography> : null}
+        {profileDebugError ? <Typography color="error" variant="caption" sx={{ mt: 1 }}>{profileDebugError}</Typography> : null}
+        {profileDebugMessage ? <Typography color="success.main" variant="caption" sx={{ mt: 1 }}>{profileDebugMessage}</Typography> : null}
 
         {/* Dial Logs Section */}
         {(isDialing || dialLogs.length > 0) && (

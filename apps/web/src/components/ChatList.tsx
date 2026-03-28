@@ -28,9 +28,10 @@ interface ChatListProps {
   onDeleteConversation?: (conversationId: string) => void;
   localPeerId?: string;
   dense?: boolean;
+  avatarByPeerId?: Record<string, string | undefined>;
 }
 
-export function ChatList({ conversations, selectedConversationId, onSelectConversation, onNewChat, onDeleteConversation, localPeerId, dense = false }: ChatListProps) {
+export function ChatList({ conversations, selectedConversationId, onSelectConversation, onNewChat, onDeleteConversation, localPeerId, dense = false, avatarByPeerId = {} }: ChatListProps) {
   const [menuAnchor, setMenuAnchor] = useState<HTMLElement | null>(null);
   const [menuConvId, setMenuConvId] = useState<string | null>(null);
 
@@ -66,6 +67,7 @@ export function ChatList({ conversations, selectedConversationId, onSelectConver
           const remotePeer = conv.participants.find((participant) => participant.peerId !== localPeerId)
             ?? conv.participants[0];
           const avatarSeed = remotePeer?.peerId || conv.id;
+          const avatarSrc = remotePeer?.peerId ? avatarByPeerId[remotePeer.peerId] : undefined;
           return (
           <ListItem
             key={conv.id}
@@ -102,7 +104,7 @@ export function ChatList({ conversations, selectedConversationId, onSelectConver
             >
               <ListItemIcon sx={{ minWidth: dense ? 48 : 64 }}>
                 <Box sx={{ position: 'relative', display: 'inline-flex' }}>
-                  <UserAvatar seed={avatarSeed} size={dense ? 40 : 48} />
+                  <UserAvatar seed={avatarSeed} size={dense ? 40 : 48} src={avatarSrc} />
                   {reachabilityColor(conv.reachability) != null && (
                     <Box
                       sx={{

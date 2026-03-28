@@ -12,6 +12,9 @@ import type {
   MailboxEnqueueResponse,
   MailboxPullRequest,
   MailboxPullResponse,
+  ProfileShareRequest,
+  ProfileShareResponse,
+  SharedPeerProfileMetadata,
 } from '@skypier/protocol';
 import {
   loadPendingQueue,
@@ -59,6 +62,10 @@ export interface BrowserLiveSessionEventMap {
   };
   peerReachability: PeerReachabilityEvent;
   deliveryStatus: DeliveryStatusEvent;
+  remoteProfile: {
+    peerId: string;
+    profile: SharedPeerProfileMetadata;
+  };
   dialLog: DialLogEntry;
 }
 
@@ -102,6 +109,7 @@ export interface BrowserLiveSession {
   sendEnvelopeToConnected(envelope: WireEnvelope): Promise<number>;
   sendChatMessageToConnected(message: ChatMessage): Promise<number>;
   sendChatMessageToPeer(message: ChatMessage, targetPeerId: string): Promise<boolean>;
+  requestPeerProfile(targetPeerId: string): Promise<SharedPeerProfileMetadata | null>;
   enqueueMailboxForPeer(message: ChatMessage, targetPeerId: string): Promise<boolean>;
   pullMailboxFromPeer(targetPeerId: string, limit?: number): Promise<MailboxPullResponse | null>;
   ackMailboxFromPeer(targetPeerId: string, envelopeIds: string[]): Promise<MailboxAckResponse | null>;
@@ -157,6 +165,7 @@ const MAX_RETRY_DELAY_MS = 5 * 60 * 1_000;
 const RETRY_TICK_INTERVAL_MS = 10_000;
 const RELAY_RESERVATION_WAIT_TIMEOUT_MS = 12_000;
 const RELAY_RESERVATION_POLL_INTERVAL_MS = 500;
+const REQUEST_RESPONSE_TIMEOUT_MS = 10_000;
 
 function computeNextRetryDelay(retryCount: number): number {
   return Math.min(BASE_RETRY_DELAY_MS * Math.pow(2, retryCount), MAX_RETRY_DELAY_MS);
@@ -166,6 +175,8 @@ export interface CreateBrowserLiveSessionOptions {
   nodeOptions?: CreateBrowserSkypierNodeOptions;
   /** Called each time a sync message is sent to include the local public prekey bundle. */
   getLocalPreKeyBundle?: () => DevicePreKeyBundle | undefined;
+  /** Called when a remote peer asks for profile metadata over profile subprotocol. */
+  getLocalProfileMetadata?: () => SharedPeerProfileMetadata | undefined;
 }
 
 // ─── Media prefix ─────────────────────────────────────────────────────────────
@@ -251,6 +262,79 @@ function tryParseSyncPayload(payload: string): SyncPayload | null {
   }
 }
 
+function isSharedPeerProfileMetadata(value: unknown): value is SharedPeerProfileMetadata {
+  if (value == null || typeof value !== 'object') {
+    return false;
+  }
+
+  const profile = value as Partial<SharedPeerProfileMetadata>;
+  if (typeof profile.peerId !== 'string' || typeof profile.displayName !== 'string' || typeof profile.updatedAt !== 'string') {
+    return false;
+  }
+
+  if (profile.avatarUrl != null && typeof profile.avatarUrl !== 'string') return false;
+  if (profile.bio != null && typeof profile.bio !== 'string') return false;
+  if (profile.ethAddress != null && typeof profile.ethAddress !== 'string') return false;
+  if (profile.ensName != null && typeof profile.ensName !== 'string') return false;
+
+  return true;
+}
+
+const MAX_SHARED_PROFILE_PAYLOAD_BYTES = 48 * 1024;
+const MAX_SHARED_DISPLAY_NAME_LENGTH = 64;
+const MAX_SHARED_BIO_LENGTH = 280;
+const MAX_SHARED_ENS_NAME_LENGTH = 128;
+
+function clampText(value: string | undefined, maxLength: number): string | undefined {
+  if (typeof value !== 'string') {
+    return undefined;
+  }
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return undefined;
+  }
+  return trimmed.length > maxLength ? trimmed.slice(0, maxLength) : trimmed;
+}
+
+function approximateDataUriBytes(value: string): number {
+  const marker = 'base64,';
+  const markerIndex = value.indexOf(marker);
+  if (markerIndex === -1) {
+    return value.length;
+  }
+  const base64 = value.slice(markerIndex + marker.length);
+  return Math.ceil(base64.length * 0.75);
+}
+
+function sanitizeSharedProfile(profile: SharedPeerProfileMetadata, enforcedPeerId?: string): SharedPeerProfileMetadata {
+  const sanitized: SharedPeerProfileMetadata = {
+    ...profile,
+    peerId: enforcedPeerId ?? profile.peerId,
+    displayName: clampText(profile.displayName, MAX_SHARED_DISPLAY_NAME_LENGTH) ?? profile.displayName,
+    bio: clampText(profile.bio, MAX_SHARED_BIO_LENGTH),
+    ensName: clampText(profile.ensName, MAX_SHARED_ENS_NAME_LENGTH),
+    updatedAt: profile.updatedAt,
+  };
+
+  if (typeof sanitized.avatarUrl === 'string' && sanitized.avatarUrl.startsWith('data:')) {
+    if (approximateDataUriBytes(sanitized.avatarUrl) > MAX_SHARED_PROFILE_PAYLOAD_BYTES) {
+      sanitized.avatarUrl = undefined;
+    }
+  }
+
+  let encoded = new TextEncoder().encode(JSON.stringify({ v: 1, profile: sanitized } satisfies ProfileShareResponse));
+  if (encoded.byteLength > MAX_SHARED_PROFILE_PAYLOAD_BYTES) {
+    sanitized.avatarUrl = undefined;
+    encoded = new TextEncoder().encode(JSON.stringify({ v: 1, profile: sanitized } satisfies ProfileShareResponse));
+  }
+
+  if (encoded.byteLength > MAX_SHARED_PROFILE_PAYLOAD_BYTES && sanitized.bio) {
+    sanitized.bio = undefined;
+  }
+
+  return sanitized;
+}
+
 export function createBrowserLiveSession(options: CreateBrowserLiveSessionOptions = {}): BrowserLiveSession {
   let node: SkypierBrowserNode | undefined;
   let retryTimer: ReturnType<typeof setInterval> | undefined;
@@ -282,8 +366,12 @@ export function createBrowserLiveSession(options: CreateBrowserLiveSessionOption
     audioCallChunk: new Set<(payload: { fromPeerId: string; chunk: AudioCallChunk }) => void>(),
     peerReachability: new Set<(payload: PeerReachabilityEvent) => void>(),
     deliveryStatus: new Set<(payload: DeliveryStatusEvent) => void>(),
+    remoteProfile: new Set<(payload: { peerId: string; profile: SharedPeerProfileMetadata }) => void>(),
     dialLog: new Set<(payload: DialLogEntry) => void>(),
   };
+
+  const fetchedProfilePeers = new Set<string>();
+  const profileFetchInFlight = new Set<string>();
 
   const redialInFlight = new Map<string, Promise<Awaited<ReturnType<SkypierBrowserNode['dial']>> | undefined>>();
   const redialCooldownUntil = new Map<string, number>();
@@ -407,6 +495,10 @@ export function createBrowserLiveSession(options: CreateBrowserLiveSessionOption
       timestamp: new Date().toISOString(),
     };
     listeners.dialLog.forEach((handler) => handler(entry));
+  }
+
+  function emitRemoteProfile(payload: { peerId: string; profile: SharedPeerProfileMetadata }) {
+    listeners.remoteProfile.forEach((handler) => handler(payload));
   }
 
   function extractPeerIdFromMultiaddr(address: string): string | undefined {
@@ -782,6 +874,37 @@ export function createBrowserLiveSession(options: CreateBrowserLiveSessionOption
 
   // ─── Read a full envelope from an inbound length-prefixed stream ───────
 
+  function createTimeoutError(label: string): Error {
+    const error = new Error(`${label} timed out`);
+    (error as Error & { name: string }).name = 'TimeoutError';
+    return error;
+  }
+
+  async function readFirstFrameFromStream(source: AsyncIterable<any>): Promise<Uint8Array> {
+    for await (const chunk of lp.decode(source)) {
+      return normalizeChunk(chunk);
+    }
+    return new Uint8Array();
+  }
+
+  async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, label: string): Promise<T> {
+    return await new Promise<T>((resolve, reject) => {
+      const timer = setTimeout(() => {
+        reject(createTimeoutError(label));
+      }, timeoutMs);
+
+      promise
+        .then((value) => {
+          clearTimeout(timer);
+          resolve(value);
+        })
+        .catch((error) => {
+          clearTimeout(timer);
+          reject(error);
+        });
+    });
+  }
+
   async function readBytesFromStream(source: AsyncIterable<any>): Promise<Uint8Array> {
     const chunks: Uint8Array[] = [];
 
@@ -800,15 +923,15 @@ export function createBrowserLiveSession(options: CreateBrowserLiveSessionOption
   }
 
   async function readEnvelopeFromStream(source: AsyncIterable<any>): Promise<WireEnvelope> {
-    return deserializeWireEnvelope(await readBytesFromStream(source));
+    return deserializeWireEnvelope(await readFirstFrameFromStream(source));
   }
 
   async function readAudioCallSignalFromStream(source: AsyncIterable<any>): Promise<AudioCallSignal> {
-    return JSON.parse(new TextDecoder().decode(await readBytesFromStream(source))) as AudioCallSignal;
+    return JSON.parse(new TextDecoder().decode(await readFirstFrameFromStream(source))) as AudioCallSignal;
   }
 
   async function readAudioCallChunkFromStream(source: AsyncIterable<any>): Promise<AudioCallChunk> {
-    return JSON.parse(new TextDecoder().decode(await readBytesFromStream(source))) as AudioCallChunk;
+    return JSON.parse(new TextDecoder().decode(await readFirstFrameFromStream(source))) as AudioCallChunk;
   }
 
   async function requestMailboxProtocol<TResponse>(
@@ -830,7 +953,11 @@ export function createBrowserLiveSession(options: CreateBrowserLiveSessionOption
       }
       await (stream as { closeWrite?: () => Promise<void> }).closeWrite?.();
 
-      const responseBytes = await readBytesFromStream(stream);
+      const responseBytes = await withTimeout(
+        readFirstFrameFromStream(stream),
+        REQUEST_RESPONSE_TIMEOUT_MS,
+        `request ${protocol} response from ${peerId}`,
+      );
       if (responseBytes.byteLength === 0) {
         return null;
       }
@@ -844,6 +971,41 @@ export function createBrowserLiveSession(options: CreateBrowserLiveSessionOption
       return null;
     } finally {
       await stream?.close().catch(() => {});
+    }
+  }
+
+  async function requestPeerProfileFromPeer(peerId: string): Promise<SharedPeerProfileMetadata | null> {
+    const response = await requestMailboxProtocol<ProfileShareResponse>(
+      peerId,
+      SKYPIER_CHAT_PROTOCOLS.profile,
+      { v: 1 } satisfies ProfileShareRequest,
+    );
+
+    if (!response || response.v !== 1 || !isSharedPeerProfileMetadata(response.profile)) {
+      return null;
+    }
+
+    return {
+      ...response.profile,
+      // Always bind metadata to the actual peer we queried.
+      peerId,
+    };
+  }
+
+  async function maybeFetchPeerProfile(peerId: string): Promise<void> {
+    if (!peerId || fetchedProfilePeers.has(peerId) || profileFetchInFlight.has(peerId)) {
+      return;
+    }
+
+    profileFetchInFlight.add(peerId);
+    try {
+      const profile = await requestPeerProfileFromPeer(peerId);
+      if (profile) {
+        fetchedProfilePeers.add(peerId);
+        emitRemoteProfile({ peerId, profile });
+      }
+    } finally {
+      profileFetchInFlight.delete(peerId);
     }
   }
 
@@ -969,6 +1131,7 @@ export function createBrowserLiveSession(options: CreateBrowserLiveSessionOption
           const fromPeerId = connection.remotePeer.toString();
           console.log('[skypier:session] ⇐ inbound stream from', fromPeerId);
           void markAsChatPeer(fromPeerId);
+          void maybeFetchPeerProfile(fromPeerId);
           try {
             const envelope = await readEnvelopeFromStream(stream);
             console.log('[skypier:session] ⇐ received envelope from', fromPeerId, '— kind:', envelope.kind, 'msgId:', envelope.messageId, 'conv:', envelope.conversationId);
@@ -1012,6 +1175,7 @@ export function createBrowserLiveSession(options: CreateBrowserLiveSessionOption
         await node.handle(SKYPIER_CHAT_PROTOCOLS.callControl, async (stream, connection) => {
           const fromPeerId = connection.remotePeer.toString();
           void markAsChatPeer(fromPeerId);
+          void maybeFetchPeerProfile(fromPeerId);
           try {
             const signal = await readAudioCallSignalFromStream(stream);
             if (typeof signal?.type !== 'string' || typeof signal?.callId !== 'string') {
@@ -1027,6 +1191,7 @@ export function createBrowserLiveSession(options: CreateBrowserLiveSessionOption
         await node.handle(SKYPIER_CHAT_PROTOCOLS.callAudio, async (stream, connection) => {
           const fromPeerId = connection.remotePeer.toString();
           void markAsChatPeer(fromPeerId);
+          void maybeFetchPeerProfile(fromPeerId);
           try {
             const chunk = await readAudioCallChunkFromStream(stream);
             if (typeof chunk?.callId !== 'string' || typeof chunk?.sequence !== 'number') {
@@ -1035,6 +1200,39 @@ export function createBrowserLiveSession(options: CreateBrowserLiveSessionOption
             emitAudioCallChunk({ fromPeerId, chunk });
           } catch (err) {
             console.error('[skypier:session] ✗ failed to read audio call chunk from', fromPeerId, err);
+          }
+        });
+
+        console.log('[skypier:session] registering protocol handler:', SKYPIER_CHAT_PROTOCOLS.profile);
+        await node.handle(SKYPIER_CHAT_PROTOCOLS.profile, async (stream) => {
+          try {
+            const request = JSON.parse(new TextDecoder().decode(await readFirstFrameFromStream(stream))) as Partial<ProfileShareRequest>;
+            if (request.v !== 1) {
+              throw new Error('Malformed profile request');
+            }
+
+            const localProfile = options.getLocalProfileMetadata?.();
+            if (!localProfile) {
+              return;
+            }
+
+            const runtimePeerId = node?.peerId.toString();
+            const sanitizedProfile = sanitizeSharedProfile(localProfile, runtimePeerId ?? localProfile.peerId);
+
+            const response: ProfileShareResponse = {
+              v: 1,
+              profile: sanitizedProfile,
+            };
+
+            const encoded = new TextEncoder().encode(JSON.stringify(response));
+            for await (const chunk of lp.encode([encoded])) {
+              stream.send(normalizeChunk(chunk));
+            }
+          } catch (error) {
+            console.warn('[skypier:session] failed to handle profile request', error);
+          } finally {
+            await (stream as { closeWrite?: () => Promise<void> }).closeWrite?.().catch(() => {});
+            await stream.close().catch(() => {});
           }
         });
 
@@ -1055,6 +1253,8 @@ export function createBrowserLiveSession(options: CreateBrowserLiveSessionOption
                 : 'direct';
               console.log('[skypier:session] peer:connect', pid, '→', reachability, 'addr:', conn.remoteAddr.toString());
               listeners.peerReachability.forEach((h) => h({ peerId: pid, reachability }));
+
+              void maybeFetchPeerProfile(pid);
             }
           }
           void trimExcessConnections();
@@ -1459,6 +1659,14 @@ export function createBrowserLiveSession(options: CreateBrowserLiveSessionOption
       return result === true;
     },
 
+    async requestPeerProfile(targetPeerId: string) {
+      const profile = await requestPeerProfileFromPeer(targetPeerId);
+      if (profile) {
+        emitRemoteProfile({ peerId: targetPeerId, profile });
+      }
+      return profile;
+    },
+
     async enqueueMailboxForPeer(message: ChatMessage, targetPeerId: string) {
       if (!message.ciphertext.keyWraps || message.ciphertext.keyWraps.length === 0) {
         return false;
@@ -1642,9 +1850,10 @@ export function createBrowserLiveSession(options: CreateBrowserLiveSessionOption
     },
 
     subscribe(event, handler) {
-      listeners[event].add(handler as any);
+      const targetListeners = listeners[event as keyof typeof listeners] as Set<(payload: unknown) => void>;
+      targetListeners.add(handler as unknown as (payload: unknown) => void);
       return () => {
-        listeners[event].delete(handler as any);
+        targetListeners.delete(handler as unknown as (payload: unknown) => void);
       };
     },
   };

@@ -39,7 +39,7 @@ import { UserAvatar } from './UserAvatar';
 
 interface ContactsPageProps {
   contacts: Contact[];
-  onSaveContact: (id: string, peerId: string, displayName: string, avatarUrl?: string) => Promise<void>;
+  onSaveContact: (id: string, peerId: string, displayName: string, avatarUrl?: string, extras?: { bio?: string; ensName?: string; ethAddress?: string }) => Promise<void>;
   onDeleteContact: (id: string) => Promise<void>;
   onStartChat: (peerId: string, displayName: string) => Promise<void>;
 }
@@ -237,23 +237,37 @@ export function ContactsPage({ contacts, onSaveContact, onDeleteContact, onStart
                   }}
                 >
                   <ListItemAvatar>
-                    <UserAvatar seed={contact.peerId} size={48} />
+                    <UserAvatar seed={contact.peerId} size={48} src={contact.avatarUrl ?? undefined} />
                   </ListItemAvatar>
                   <ListItemText
                     primary={
-                      <Typography fontWeight={600} variant="body1">
-                        {contact.displayName}
-                      </Typography>
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                        <Typography fontWeight={600} variant="body1">
+                          {contact.displayName}
+                        </Typography>
+                        {contact.ensName ? (
+                          <Typography variant="caption" color="primary.main" sx={{ fontWeight: 600 }}>
+                            {contact.ensName}
+                          </Typography>
+                        ) : null}
+                      </Box>
                     }
                     secondary={
-                      <Typography
-                        variant="caption"
-                        color="text.secondary"
-                        noWrap
-                        sx={{ fontFamily: 'monospace', display: 'block' }}
-                      >
-                        {contact.peerId.slice(0, 24)}…
-                      </Typography>
+                      <>
+                        {contact.bio ? (
+                          <Typography variant="caption" color="text.secondary" noWrap sx={{ display: 'block' }}>
+                            {contact.bio}
+                          </Typography>
+                        ) : null}
+                        <Typography
+                          variant="caption"
+                          color="text.secondary"
+                          noWrap
+                          sx={{ fontFamily: 'monospace', display: 'block' }}
+                        >
+                          {contact.peerId.slice(0, 24)}…
+                        </Typography>
+                      </>
                     }
                   />
                   <IconButton
@@ -296,11 +310,21 @@ export function ContactsPage({ contacts, onSaveContact, onDeleteContact, onStart
             }}
           >
             <Box sx={{ display: 'flex', justifyContent: 'center', mb: 2 }}>
-              <UserAvatar seed={selectedContact.peerId} size={96} />
+              <UserAvatar seed={selectedContact.peerId} size={96} src={selectedContact.avatarUrl ?? undefined} />
             </Box>
             <Typography variant="h5" fontWeight={700} gutterBottom>
               {selectedContact.displayName}
             </Typography>
+            {selectedContact.ensName ? (
+              <Typography variant="body2" color="primary.main" sx={{ fontWeight: 600, mb: 1 }}>
+                {selectedContact.ensName}
+              </Typography>
+            ) : null}
+            {selectedContact.bio ? (
+              <Typography variant="body2" color="text.secondary" sx={{ maxWidth: 420, mx: 'auto', mb: 1.5 }}>
+                {selectedContact.bio}
+              </Typography>
+            ) : null}
             <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 0.5 }}>
               <Typography
                 variant="body2"
@@ -379,6 +403,32 @@ export function ContactsPage({ contacts, onSaveContact, onDeleteContact, onStart
                     }
                   />
                 </ListItem>
+                {selectedContact.ethAddress ? (
+                  <>
+                    <Divider />
+                    <ListItem>
+                      <ListItemText
+                        primary={
+                          <Typography variant="caption" color="text.secondary" sx={{ textTransform: 'uppercase', letterSpacing: 1 }}>
+                            ETH Address
+                          </Typography>
+                        }
+                        secondary={
+                          <Typography
+                            variant="body2"
+                            sx={{
+                              fontFamily: 'monospace',
+                              wordBreak: 'break-all',
+                              mt: 0.5,
+                            }}
+                          >
+                            {selectedContact.ethAddress}
+                          </Typography>
+                        }
+                      />
+                    </ListItem>
+                  </>
+                ) : null}
                 <Divider />
                 <ListItem>
                   <ListItemText
@@ -576,6 +626,15 @@ export function ContactsPage({ contacts, onSaveContact, onDeleteContact, onStart
             fullWidth
             placeholder="Alice"
             autoFocus={!!editingContact}
+          />
+
+          <TextField
+            label="Avatar URL"
+            value={form.avatarUrl}
+            onChange={(e) => { setForm(f => ({ ...f, avatarUrl: e.target.value })); setFormError(''); }}
+            fullWidth
+            placeholder="https://example.com/avatar.png"
+            helperText="Optional custom avatar image URL"
           />
 
           {formError && (

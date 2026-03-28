@@ -2,15 +2,21 @@ import { useState, useEffect } from 'react';
 import { createPublicClient, http } from 'viem';
 import { mainnet } from 'viem/chains';
 
+const ENS_RPC_URL = import.meta.env.VITE_ENS_RPC_URL ?? 'https://ethereum.publicnode.com';
+
 const publicClient = createPublicClient({
   chain: mainnet,
-  transport: http(),
+  transport: http(ENS_RPC_URL),
 });
 
 export interface ENSData {
   name: string | null;
   avatar: string | null;
   loading: boolean;
+}
+
+interface UseENSOptions {
+  enabled?: boolean;
 }
 
 function canUseDomImageCheck(): boolean {
@@ -79,11 +85,12 @@ async function resolveEnsAvatar(name: string): Promise<string | null> {
   return null;
 }
 
-export function useENS(address?: string): ENSData {
+export function useENS(address?: string, options?: UseENSOptions): ENSData {
   const [data, setData] = useState<ENSData>({ name: null, avatar: null, loading: false });
+  const enabled = options?.enabled ?? true;
 
   useEffect(() => {
-    if (!address || !address.startsWith('0x')) {
+    if (!enabled || !address || !address.startsWith('0x')) {
       setData({ name: null, avatar: null, loading: false });
       return;
     }
@@ -103,7 +110,8 @@ export function useENS(address?: string): ENSData {
           setData({ name, avatar, loading: false });
         }
       } catch (error) {
-        console.error('Error fetching ENS data:', error);
+        // Keep this intentionally quiet in dev because RPC providers can intermittently reject
+        // browser CORS/preflight and we don't want repeated console noise.
         if (isMounted) {
           setData({ name: null, avatar: null, loading: false });
         }
@@ -115,7 +123,7 @@ export function useENS(address?: string): ENSData {
     return () => {
       isMounted = false;
     };
-  }, [address]);
+  }, [address, enabled]);
 
   return data;
 }

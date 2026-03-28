@@ -1,16 +1,96 @@
-import { useMemo, useState } from 'react';
-import { Box, Typography, Button, Paper, Divider, Stack, Snackbar, Alert } from '@mui/material';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { Alert, Box, Button, Chip, Dialog, DialogActions, DialogContent, DialogTitle, Divider, FormControlLabel, Paper, Snackbar, Stack, Switch, TextField, Typography } from '@mui/material';
 import { QRCodeSVG } from 'qrcode.react';
 import ContentCopyIcon from '@mui/icons-material/ContentCopy';
 import ShareIcon from '@mui/icons-material/Share';
 import OpenInNewIcon from '@mui/icons-material/OpenInNew';
+import EditIcon from '@mui/icons-material/Edit';
+import PhotoCameraIcon from '@mui/icons-material/PhotoCamera';
+import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline';
 import { UserAvatar } from './UserAvatar';
-import { useENS } from '../hooks/useENS';
 
 interface ProfilePageProps {
   peerId: string;
   displayName: string;
+  avatarUrl?: string;
+  bio?: string;
+  shareEnsDisplayName?: boolean;
+  preferEnsAvatar?: boolean;
+  resolvedEnsName?: string | null;
+  resolvedEnsAvatar?: string | null;
   linkedWallets: { address: string; chainId: number }[];
+  onSaveProfile: (updates: {
+    displayName: string;
+    profileBio?: string;
+    profileAvatarUrl?: string;
+    shareEnsDisplayName: boolean;
+    preferEnsAvatar: boolean;
+  }) => Promise<void> | void;
+}
+
+const MAX_PROFILE_AVATAR_BYTES = 48 * 1024;
+
+function estimateBase64Bytes(dataUri: string): number {
+  const base64 = dataUri.split(',')[1] ?? '';
+  return Math.ceil(base64.length * 0.75);
+}
+
+async function compressProfileAvatar(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    const objectUrl = URL.createObjectURL(file);
+
+    img.onload = () => {
+      URL.revokeObjectURL(objectUrl);
+      const MAX_EDGE = 192;
+      let { naturalWidth: width, naturalHeight: height } = img;
+      if (width > MAX_EDGE || height > MAX_EDGE) {
+        const ratio = Math.min(MAX_EDGE / width, MAX_EDGE / height);
+        width = Math.max(1, Math.round(width * ratio));
+        height = Math.max(1, Math.round(height * ratio));
+      }
+
+      const canvas = document.createElement('canvas');
+      canvas.width = width;
+      canvas.height = height;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) {
+        canvas.width = 0;
+        canvas.height = 0;
+        reject(new Error('Could not prepare image compression.'));
+        return;
+      }
+
+      ctx.drawImage(img, 0, 0, width, height);
+      const qualitySteps = [0.82, 0.72, 0.62, 0.5];
+      let best = '';
+
+      for (const quality of qualitySteps) {
+        const candidate = canvas.toDataURL('image/jpeg', quality);
+        best = candidate;
+        if (estimateBase64Bytes(candidate) <= MAX_PROFILE_AVATAR_BYTES) {
+          break;
+        }
+      }
+
+      canvas.width = 0;
+      canvas.height = 0;
+
+      if (!best || estimateBase64Bytes(best) > MAX_PROFILE_AVATAR_BYTES) {
+        reject(new Error('Profile image is still too large after compression. Try a smaller image.'));
+        return;
+      }
+
+      resolve(best);
+    };
+
+    img.onerror = () => {
+      URL.revokeObjectURL(objectUrl);
+      reject(new Error('Failed to load selected image.'));
+    };
+
+    img.src = objectUrl;
+  });
 }
 
 function getBlockscoutAddressUrl(chainId: number, address: string): string {
@@ -31,17 +111,42 @@ function getBlockscoutAddressUrl(chainId: number, address: string): string {
   return `${host}/address/${address}`;
 }
 
-export function ProfilePage({ peerId, displayName, linkedWallets }: ProfilePageProps) {
-  const firstWallet = linkedWallets[0]?.address;
-  const { name: ensName, avatar: ensAvatar } = useENS(firstWallet);
+export function ProfilePage({ peerId, displayName, avatarUrl, bio, shareEnsDisplayName = false, preferEnsAvatar = false, resolvedEnsName, resolvedEnsAvatar, linkedWallets, onSaveProfile }: ProfilePageProps) {
   const [shareSuccess, setShareSuccess] = useState<string | undefined>();
   const [shareError, setShareError] = useState<string | undefined>();
   const [shareBusy, setShareBusy] = useState(false);
+  const [editOpen, setEditOpen] = useState(false);
+  const [saveBusy, setSaveBusy] = useState(false);
+  const [editError, setEditError] = useState<string | undefined>();
+  const [form, setForm] = useState({
+    displayName,
+    profileBio: bio ?? '',
+    profileAvatarUrl: avatarUrl ?? '',
+    shareEnsDisplayName,
+    preferEnsAvatar,
+  });
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
   const appUrl = 'https://skypier.chat';
+  const effectiveAvatarUrl = preferEnsAvatar && resolvedEnsAvatar ? resolvedEnsAvatar : avatarUrl;
 
   const inviteText = useMemo(() => (
     `Hey, I'm using Skypier dMessenger, the decentralized and privacy-focused chat. Let's join me there.\n\n${appUrl}\n\nPeer ID: ${peerId}`
   ), [appUrl, peerId]);
+
+  useEffect(() => {
+    if (editOpen) {
+      return;
+    }
+
+    setForm({
+      displayName,
+      profileBio: bio ?? '',
+      profileAvatarUrl: avatarUrl ?? '',
+      shareEnsDisplayName,
+      preferEnsAvatar,
+    });
+    setEditError(undefined);
+  }, [avatarUrl, bio, displayName, editOpen, preferEnsAvatar, shareEnsDisplayName]);
 
   const copyToClipboard = async (text: string, successMessage?: string) => {
     try {
@@ -78,6 +183,50 @@ export function ProfilePage({ peerId, displayName, linkedWallets }: ProfilePageP
       await copyToClipboard(inviteText, 'Share failed. Invite copied to clipboard.');
     } finally {
       setShareBusy(false);
+    }
+  };
+
+  const handleAvatarSelected = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) {
+      return;
+    }
+
+    try {
+      const compressed = await compressProfileAvatar(file);
+      setForm((current) => ({ ...current, profileAvatarUrl: compressed }));
+      setEditError(undefined);
+      setShareSuccess('Profile image updated. Save to publish it.');
+    } catch (error) {
+      setEditError(error instanceof Error ? error.message : 'Could not process that image.');
+    } finally {
+      event.target.value = '';
+    }
+  };
+
+  const handleSaveProfile = async () => {
+    const trimmedName = form.displayName.trim();
+    if (!trimmedName) {
+      setEditError('Display name is required.');
+      return;
+    }
+
+    setSaveBusy(true);
+    try {
+      await onSaveProfile({
+        displayName: trimmedName,
+        profileBio: form.profileBio.trim() || undefined,
+        profileAvatarUrl: form.profileAvatarUrl || undefined,
+        shareEnsDisplayName: form.shareEnsDisplayName,
+        preferEnsAvatar: form.preferEnsAvatar,
+      });
+      setEditOpen(false);
+      setEditError(undefined);
+      setShareSuccess('Profile updated.');
+    } catch (error) {
+      setEditError(error instanceof Error ? error.message : 'Failed to save profile.');
+    } finally {
+      setSaveBusy(false);
     }
   };
 
@@ -118,19 +267,28 @@ export function ProfilePage({ peerId, displayName, linkedWallets }: ProfilePageP
         <UserAvatar 
           seed={peerId} 
           size={120} 
-          src={ensAvatar}
+          src={effectiveAvatarUrl || undefined}
           sx={{ boxShadow: '0 8px 32px rgba(142, 45, 226, 0.3)' }} 
         />
 
         <Box sx={{ textAlign: 'center', width: '100%' }}>
           <Typography variant="h2" gutterBottom>
-            {ensName || displayName}
+            {displayName}
           </Typography>
-          {ensName && (
+          {shareEnsDisplayName && resolvedEnsName ? (
             <Typography variant="subtitle1" color="text.secondary" sx={{ mb: 1 }}>
-              ({displayName})
+              {resolvedEnsName}
             </Typography>
-          )}
+          ) : null}
+          {bio ? (
+            <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
+              {bio}
+            </Typography>
+          ) : null}
+          <Stack direction="row" spacing={1} justifyContent="center" sx={{ mb: 1.5, flexWrap: 'wrap' }}>
+            {shareEnsDisplayName && resolvedEnsName ? <Chip size="small" label="Sharing ENS name" color="primary" variant="outlined" /> : null}
+            {preferEnsAvatar && resolvedEnsAvatar ? <Chip size="small" label="Using ENS avatar" color="primary" variant="outlined" /> : null}
+          </Stack>
           <Typography variant="body2" color="text.secondary" sx={{ wordBreak: 'break-all', mb: 1 }}>
             Peer ID: {peerId}
           </Typography>
@@ -153,6 +311,9 @@ export function ProfilePage({ peerId, displayName, linkedWallets }: ProfilePageP
         </Typography>
 
         <Stack direction="row" spacing={2}>
+          <Button variant="outlined" startIcon={<EditIcon />} onClick={() => setEditOpen(true)}>
+            Edit Profile
+          </Button>
           <Button variant="contained" startIcon={<ShareIcon />} onClick={() => { void handleShare(); }} disabled={shareBusy}>
             {shareBusy ? 'Sharing…' : 'Share Invite'}
           </Button>
@@ -242,6 +403,102 @@ export function ProfilePage({ peerId, displayName, linkedWallets }: ProfilePageP
           {shareError}
         </Alert>
       </Snackbar>
+
+      <Dialog open={editOpen} onClose={() => !saveBusy && setEditOpen(false)} fullWidth maxWidth="sm">
+        <DialogTitle>Edit profile</DialogTitle>
+        <DialogContent sx={{ display: 'flex', flexDirection: 'column', gap: 2, pt: 1 }}>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/*"
+            onChange={(event) => { void handleAvatarSelected(event); }}
+            style={{ display: 'none' }}
+          />
+
+          <Box sx={{ display: 'flex', justifyContent: 'center', py: 1 }}>
+            <UserAvatar
+              seed={peerId}
+              size={96}
+              src={(form.preferEnsAvatar && resolvedEnsAvatar) ? resolvedEnsAvatar : (form.profileAvatarUrl || undefined)}
+            />
+          </Box>
+
+          <Stack direction="row" spacing={1} justifyContent="center" flexWrap="wrap">
+            <Button startIcon={<PhotoCameraIcon />} variant="outlined" onClick={() => fileInputRef.current?.click()}>
+              Upload avatar
+            </Button>
+            <Button
+              startIcon={<DeleteOutlineIcon />}
+              color="inherit"
+              onClick={() => setForm((current) => ({ ...current, profileAvatarUrl: '' }))}
+              disabled={!form.profileAvatarUrl}
+            >
+              Remove upload
+            </Button>
+          </Stack>
+
+          <Typography variant="caption" color="text.secondary">
+            Uploaded avatars are compressed into a small base64 JPEG before saving.
+          </Typography>
+
+          <TextField
+            label="Display name"
+            fullWidth
+            value={form.displayName}
+            onChange={(event) => setForm((current) => ({ ...current, displayName: event.target.value }))}
+          />
+
+          <TextField
+            label="Bio"
+            fullWidth
+            multiline
+            minRows={3}
+            value={form.profileBio}
+            onChange={(event) => setForm((current) => ({ ...current, profileBio: event.target.value }))}
+            placeholder="A short profile blurb"
+          />
+
+          <FormControlLabel
+            control={(
+              <Switch
+                checked={form.shareEnsDisplayName}
+                onChange={(event) => setForm((current) => ({ ...current, shareEnsDisplayName: event.target.checked }))}
+                disabled={!resolvedEnsName}
+              />
+            )}
+            label={resolvedEnsName ? `Share ENS display name (${resolvedEnsName})` : 'Share ENS display name'}
+          />
+
+          <FormControlLabel
+            control={(
+              <Switch
+                checked={form.preferEnsAvatar}
+                onChange={(event) => setForm((current) => ({ ...current, preferEnsAvatar: event.target.checked }))}
+                disabled={!resolvedEnsAvatar}
+              />
+            )}
+            label={resolvedEnsAvatar ? 'Prefer ENS avatar over uploaded avatar' : 'Prefer ENS avatar when one is available'}
+          />
+
+          {!resolvedEnsName && linkedWallets.length > 0 ? (
+            <Typography variant="caption" color="text.secondary">
+              ENS data has not resolved yet for your linked wallet.
+            </Typography>
+          ) : null}
+          {linkedWallets.length === 0 ? (
+            <Typography variant="caption" color="text.secondary">
+              Link a wallet in Settings to enable ENS sharing options.
+            </Typography>
+          ) : null}
+          {editError ? <Alert severity="error">{editError}</Alert> : null}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setEditOpen(false)} disabled={saveBusy}>Cancel</Button>
+          <Button onClick={() => { void handleSaveProfile(); }} variant="contained" disabled={saveBusy}>
+            {saveBusy ? 'Saving…' : 'Save'}
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Box>
   );
 }

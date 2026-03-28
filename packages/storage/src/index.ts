@@ -184,6 +184,9 @@ export interface Contact {
   peerId: string;
   displayName: string;
   avatarUrl?: string;
+  bio?: string;
+  ensName?: string;
+  ethAddress?: string;
   addedAt: string;
 }
 
@@ -473,11 +476,16 @@ function normalizePersistedState(raw: PersistedChatState): PersistedChatState {
     displayName: 'You',
     linkedEthAddresses: [],
   };
+  const legacyAccount = account as typeof account & { profileEnsName?: string };
 
   return {
     account: {
       userId: account.userId ?? 'user-1',
       displayName: account.displayName ?? 'You',
+      profileAvatarUrl: account.profileAvatarUrl,
+      profileBio: account.profileBio,
+      shareEnsDisplayName: account.shareEnsDisplayName ?? Boolean(legacyAccount.profileEnsName),
+      preferEnsAvatar: account.preferEnsAvatar ?? false,
       linkedEthAddresses: account.linkedEthAddresses ?? [],
       themePreference: account.themePreference ?? 'light',
       biometricUnlockEnabled: account.biometricUnlockEnabled ?? false,

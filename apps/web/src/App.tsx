@@ -20,6 +20,7 @@ import { ContactDetailPage } from './components/ContactDetailPage';
 import { ContactsPage } from './components/ContactsPage';
 import { useNotifications } from './hooks/useNotifications';
 import { useAudioCall } from './hooks/useAudioCall';
+import { useENS } from './hooks/useENS';
 import { matchPath, useLocation, useNavigate } from 'react-router-dom';
 import { MessageRetryDrawer } from './components/MessageRetryDrawer';
 import { AudioCallDrawer } from './components/AudioCallDrawer';
@@ -30,6 +31,7 @@ import {
   type AudioCallSignal,
   type ChatMessage,
   type ChatReactionEvent,
+  type SharedPeerProfileMetadata,
 } from '@skypier/protocol';
 
 const PLACEHOLDER_LOCAL_PEER_ID = '12D3KooWLocalPeer';
@@ -74,6 +76,30 @@ function previewFromInboundPayload(payload: string): string {
   }
 
   return e2eePayload.keyWraps?.length ? '🔐 Encrypted message' : decodeBase64ToUtf8(e2eePayload.ciphertext) ?? '🔐 Encrypted message';
+}
+
+function capSharedAvatarDataUri(value: string | undefined, maxBytes = 48 * 1024): string | undefined {
+  if (!value) {
+    return undefined;
+  }
+
+  if (!value.startsWith('data:')) {
+    return value;
+  }
+
+  const marker = 'base64,';
+  const markerIndex = value.indexOf(marker);
+  if (markerIndex === -1) {
+    return undefined;
+  }
+
+  const base64 = value.slice(markerIndex + marker.length);
+  const approxBytes = Math.ceil(base64.length * 0.75);
+  if (approxBytes > maxBytes) {
+    return undefined;
+  }
+
+  return value;
 }
 
 function sanitizeReturnToPath(value: unknown): string {
@@ -195,6 +221,7 @@ export function App() {
     saveContact,
     deleteContact,
     appendCallHistoryEntry,
+    applyRemotePeerProfile,
   } = useChatController();
 
   const activeView = resolveActiveView(location.pathname);
@@ -208,6 +235,9 @@ export function App() {
   const [contactDialBusy, setContactDialBusy] = useState(false);
   const [contactDialError, setContactDialError] = useState<string | undefined>();
   const [contactDialSuccess, setContactDialSuccess] = useState<string | undefined>();
+  const [profileDebugBusy, setProfileDebugBusy] = useState(false);
+  const [profileDebugError, setProfileDebugError] = useState<string | undefined>();
+  const [profileDebugMessage, setProfileDebugMessage] = useState<string | undefined>();
   const [dialLogs, setDialLogs] = useState<DialLogEntry[]>([]);
   const [isBrowserOffline, setIsBrowserOffline] = useState(() => typeof navigator !== 'undefined' ? !navigator.onLine : false);
   const [offlineAlertOpen, setOfflineAlertOpen] = useState(false);
@@ -218,6 +248,7 @@ export function App() {
   const audioCallChunkHandlerRef = useRef<((payload: { fromPeerId: string; chunk: AudioCallChunk }) => void) | undefined>(undefined);
   const loggedCallAttemptsRef = useRef<Set<string>>(new Set());
   const loggedCallEndsRef = useRef<Set<string>>(new Set());
+  const profileFetchCooldownUntilRef = useRef<Map<string, number>>(new Map());
 
   const getCallDurationMs = useCallback((startedAt?: string): number | undefined => {
     if (!startedAt) {
@@ -243,6 +274,10 @@ export function App() {
   const networkLog = useNetworkLog();
   const currentTheme = useMemo(() => theme(colorMode), [colorMode]);
   const { notifyIncomingMessage, notifyIncomingCall } = useNotifications();
+  const firstLinkedWalletAddress = account.linkedEthAddresses[0]?.address;
+  const shouldResolveEns = Boolean(firstLinkedWalletAddress)
+    && (activeView === 'profile' || account.shareEnsDisplayName || account.preferEnsAvatar);
+  const { name: resolvedEnsName, avatar: resolvedEnsAvatar } = useENS(firstLinkedWalletAddress, { enabled: shouldResolveEns });
 
   const totalUnreadCount = useMemo(
     () => conversations.reduce((sum, conversation) => sum + Math.max(0, conversation.unreadCount ?? 0), 0),
@@ -342,6 +377,20 @@ export function App() {
     return exportDevicePreKeyBundle(account.deviceCryptoState);
   }, [account.deviceCryptoState]);
 
+  const getLocalProfileMetadata = useCallback((): SharedPeerProfileMetadata => {
+    const firstWallet = account.linkedEthAddresses[0];
+    const preferredAvatar = account.preferEnsAvatar && resolvedEnsAvatar ? resolvedEnsAvatar : account.profileAvatarUrl;
+    return {
+      peerId: account.localPeerId ?? localPeerId ?? getCurrentDevice().peerId,
+      displayName: account.displayName,
+      avatarUrl: capSharedAvatarDataUri(preferredAvatar),
+      bio: account.profileBio,
+      ensName: account.shareEnsDisplayName ? (resolvedEnsName ?? undefined) : undefined,
+      ethAddress: firstWallet?.address,
+      updatedAt: new Date().toISOString(),
+    };
+  }, [account.displayName, account.linkedEthAddresses, account.localPeerId, account.preferEnsAvatar, account.profileAvatarUrl, account.profileBio, account.shareEnsDisplayName, localPeerId, resolvedEnsAvatar, resolvedEnsName]);
+
   const handleInboundMessage = useCallback(async ({ fromPeerId, envelope }: { fromPeerId: string; envelope: { kind: 'message' | 'receipt' | 'presence' | 'sync'; conversationId: string; senderPeerId: string; sentAt: string; payload: string } }) => {
     console.log('[skypier:app] \u21d0 inbound message from', fromPeerId, '\u2014 kind:', envelope.kind, 'conv:', envelope.conversationId, 'payload:', envelope.payload.slice(0, 80));
     await ingestIncomingEnvelope(envelope, fromPeerId);
@@ -380,6 +429,7 @@ export function App() {
     dialPeerById,
     broadcastChatMessage,
     sendChatMessageToPeer,
+    requestPeerProfile,
     enqueueMailboxForPeer,
     pullMailboxFromPeer,
     ackMailboxFromPeer,
@@ -388,7 +438,12 @@ export function App() {
     retryMessage,
     getDebugInfo,
   } = useLiveChatSession({
-    onInboundMessage: handleInboundMessage,
+    onInboundMessage: async (payload) => {
+      await handleInboundMessage(payload);
+      if (payload.envelope.kind === 'message') {
+        maybeFetchRemoteProfile(payload.envelope.senderPeerId || payload.fromPeerId);
+      }
+    },
     onAudioCallSignal: (payload) => {
       audioCallSignalHandlerRef.current?.(payload);
     },
@@ -397,14 +452,46 @@ export function App() {
     },
     onPeerReachabilityChange: handlePeerReachabilityChange,
     onDeliveryStatus: handleDeliveryStatus,
+    onRemoteProfile: ({ peerId, profile }) => {
+      void applyRemotePeerProfile({ ...profile, peerId });
+    },
     onDialLog: (log) => setDialLogs(prev => {
       const next = [...prev, log];
       return next.length > 200 ? next.slice(-200) : next;
     }),
     onSyncRequest: getRecentMessagesForPeer,
     getLocalPreKeyBundle,
+    getLocalProfileMetadata,
     identityProtobuf
   });
+
+  const maybeFetchRemoteProfile = useCallback((peerId: string | undefined) => {
+    const normalizedPeerId = peerId?.trim();
+    if (!normalizedPeerId) {
+      return;
+    }
+
+    const selfPeerId = liveState.localPeerId ?? localPeerId ?? getCurrentDevice().peerId;
+    if (normalizedPeerId === selfPeerId) {
+      return;
+    }
+
+    const now = Date.now();
+    const cooldownUntil = profileFetchCooldownUntilRef.current.get(normalizedPeerId) ?? 0;
+    if (now < cooldownUntil) {
+      return;
+    }
+
+    profileFetchCooldownUntilRef.current.set(normalizedPeerId, now + 15_000);
+    void requestPeerProfile(normalizedPeerId).then((profile) => {
+      profileFetchCooldownUntilRef.current.set(
+        normalizedPeerId,
+        Date.now() + (profile ? 5 * 60_000 : 30_000),
+      );
+    }).catch(() => {
+      profileFetchCooldownUntilRef.current.set(normalizedPeerId, Date.now() + 30_000);
+    });
+  }, [liveState.localPeerId, localPeerId, requestPeerProfile]);
 
   const audioCall = useAudioCall({
     localPeerId: liveState.localPeerId ?? localPeerId,
@@ -444,12 +531,14 @@ export function App() {
     void (async () => {
       for (const peerId of connectedPeers) {
         const pulled = await pullMailboxFromPeer(peerId, 50);
-        if (cancelled || !pulled || pulled.items.length === 0) {
+        const items = Array.isArray(pulled?.items) ? pulled.items : [];
+        if (cancelled || items.length === 0) {
           continue;
         }
 
         const ackIds: string[] = [];
-        for (const item of pulled.items) {
+        for (const item of items) {
+          const keyWraps = Array.isArray(item.encryptedEnvelope.keyWraps) ? item.encryptedEnvelope.keyWraps : [];
           await ingestIncomingEnvelope({
             kind: 'message',
             messageId: item.messageId,
@@ -462,12 +551,13 @@ export function App() {
               ciphertext: item.encryptedEnvelope.ciphertext,
               nonce: item.encryptedEnvelope.nonce,
               senderDeviceId: item.encryptedEnvelope.senderKeyId,
-              recipientDeviceIds: item.encryptedEnvelope.keyWraps.map((wrap) => wrap.recipientDeviceId),
+              recipientDeviceIds: keyWraps.map((wrap) => wrap.recipientDeviceId),
               senderKeyId: item.encryptedEnvelope.senderKeyId,
               aad: item.encryptedEnvelope.aad,
-              keyWraps: item.encryptedEnvelope.keyWraps,
+              keyWraps,
             }),
           }, item.senderPeerId);
+          maybeFetchRemoteProfile(item.senderPeerId);
           notifyIncomingMessage({
             senderName: `Peer ${item.senderPeerId.slice(0, 10)}…`,
             messagePreview: '🔐 Encrypted message',
@@ -489,6 +579,7 @@ export function App() {
     connectedPeers,
     ingestIncomingEnvelope,
     liveState.status,
+    maybeFetchRemoteProfile,
     notifyIncomingMessage,
     pullMailboxFromPeer,
   ]);
@@ -762,6 +853,8 @@ export function App() {
     }
     setContactDialError(undefined);
     setContactDialSuccess(undefined);
+    setProfileDebugError(undefined);
+    setProfileDebugMessage(undefined);
     navigate(`/chats/${selectedConversationId}/contact`);
   }, [navigate, selectedConversationId]);
 
@@ -793,6 +886,31 @@ export function App() {
       setContactDialBusy(false);
     }
   }, [dialPeerById, liveState.status, startSession, updateConversationConnection]);
+
+  const handleDebugFetchProfile = useCallback(async (peerId: string) => {
+    setProfileDebugBusy(true);
+    setProfileDebugError(undefined);
+    setProfileDebugMessage(undefined);
+
+    try {
+      if (liveState.status !== 'running') {
+        await startSession();
+      }
+
+      const profile = await requestPeerProfile(peerId);
+      if (!profile) {
+        setProfileDebugError('No profile response from remote peer.');
+        return;
+      }
+
+      await applyRemotePeerProfile({ ...profile, peerId });
+      setProfileDebugMessage(`Profile fetched: ${profile.displayName}`);
+    } catch (error) {
+      setProfileDebugError(error instanceof Error ? error.message : 'Failed to fetch remote profile.');
+    } finally {
+      setProfileDebugBusy(false);
+    }
+  }, [applyRemotePeerProfile, liveState.status, requestPeerProfile, startSession]);
 
   // Reset network alert when status changes to avoid persistent dismissals blocking important info
   useEffect(() => {
@@ -965,6 +1083,39 @@ export function App() {
     );
   }, [liveState.localPeerId, localPeerId, selectedConversation]);
 
+  useEffect(() => {
+    if (liveState.status !== 'running') {
+      return;
+    }
+
+    for (const peerId of connectedPeers) {
+      maybeFetchRemoteProfile(peerId);
+    }
+  }, [connectedPeers, liveState.status, maybeFetchRemoteProfile]);
+
+  useEffect(() => {
+    if (liveState.status !== 'running') {
+      return;
+    }
+
+    maybeFetchRemoteProfile(selectedRemotePeer?.peerId);
+  }, [liveState.status, maybeFetchRemoteProfile, selectedRemotePeer?.peerId]);
+
+  const avatarByPeerId = useMemo(() => {
+    const map: Record<string, string | undefined> = {};
+    for (const contact of contacts) {
+      if (contact.peerId) {
+        map[contact.peerId] = contact.avatarUrl;
+      }
+    }
+    return map;
+  }, [contacts]);
+
+  const localAvatarUrl = useMemo(
+    () => (account.preferEnsAvatar && resolvedEnsAvatar ? resolvedEnsAvatar : account.profileAvatarUrl),
+    [account.preferEnsAvatar, account.profileAvatarUrl, resolvedEnsAvatar],
+  );
+
   const activeCallLabel = useMemo(() => {
     if (!audioCall.call) {
       return undefined;
@@ -1096,7 +1247,16 @@ export function App() {
         <ProfilePage 
           peerId={liveState.localPeerId ?? localPeerId ?? getCurrentDevice().peerId} 
           displayName={account.displayName}
+          avatarUrl={account.profileAvatarUrl}
+          bio={account.profileBio}
+          shareEnsDisplayName={account.shareEnsDisplayName}
+          preferEnsAvatar={account.preferEnsAvatar}
+          resolvedEnsName={resolvedEnsName}
+          resolvedEnsAvatar={resolvedEnsAvatar}
           linkedWallets={account.linkedEthAddresses} 
+          onSaveProfile={async (updates) => {
+            await updateAccount(updates);
+          }}
         />
       );
     }
@@ -1166,6 +1326,7 @@ export function App() {
         <ChatThread 
           conversation={selectedConversation}
           localPeerId={liveState.localPeerId ?? localPeerId ?? getCurrentDevice().peerId}
+          remoteAvatarUrl={selectedRemotePeer?.peerId ? avatarByPeerId[selectedRemotePeer.peerId] : undefined}
           messages={messages}
           currentUserDisplayName={account.displayName}
           composerValue={composerValue}
@@ -1391,11 +1552,16 @@ export function App() {
           <ContactDetailPage
             conversation={selectedConversation}
             localPeerId={liveState.localPeerId ?? localPeerId ?? getCurrentDevice().peerId}
+            avatarByPeerId={avatarByPeerId}
             isDialing={contactDialBusy}
+            isProfileDebugBusy={profileDebugBusy}
+            profileDebugError={profileDebugError}
+            profileDebugMessage={profileDebugMessage}
             dialError={contactDialError}
             dialSuccess={contactDialSuccess}
             dialLogs={dialLogs}
             onDialPeer={(peerId) => { void handleContactDial(peerId); }}
+            onDebugFetchProfile={(peerId) => { void handleDebugFetchProfile(peerId); }}
             onStartCall={(peerId) => {
               void startConversationCall(peerId, selectedConversation.title, selectedConversation.id);
             }}
@@ -1503,6 +1669,8 @@ export function App() {
         userName={account.displayName}
         localPeerStatus={localPeerStatus}
         linkedWallets={account.linkedEthAddresses}
+        localAvatarUrl={localAvatarUrl}
+        avatarByPeerId={avatarByPeerId}
         onCreateChat={handleCreateChat}
         onDeleteConversation={(id) => void deleteConversation(id)}
         onOpenSelectedContact={openSelectedContact}

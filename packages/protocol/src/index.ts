@@ -267,6 +267,25 @@ export interface PresenceSnapshot {
   lastSeenAt?: string;
 }
 
+export interface SharedPeerProfileMetadata {
+  peerId: string;
+  displayName: string;
+  avatarUrl?: string;
+  bio?: string;
+  ethAddress?: string;
+  ensName?: string;
+  updatedAt: string;
+}
+
+export interface ProfileShareRequest {
+  v: 1;
+}
+
+export interface ProfileShareResponse {
+  v: 1;
+  profile: SharedPeerProfileMetadata;
+}
+
 export interface BackupManifest {
   conversationIds: string[];
   exportedAt: string;
@@ -294,6 +313,10 @@ export interface LinkedEthAddress {
 export interface AccountProfile {
   userId: string;
   displayName: string;
+  profileAvatarUrl?: string;
+  profileBio?: string;
+  shareEnsDisplayName?: boolean;
+  preferEnsAvatar?: boolean;
   localPeerId?: string;
   identityProtobuf?: string; // Base64 encoded PeerID protobuf (includes private key)
   deviceCryptoState?: LocalDeviceCryptoState;

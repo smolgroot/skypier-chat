@@ -71,6 +71,7 @@ function callTimelineMeta(message: ChatMessage): string {
 interface ChatThreadProps {
   conversation: Conversation;
   localPeerId: string;
+  remoteAvatarUrl?: string;
   messages: ChatMessage[];
   composerValue: string;
   replyTarget?: ChatMessage;
@@ -93,6 +94,7 @@ export function ChatThread(props: ChatThreadProps) {
   const {
     conversation,
     localPeerId,
+    remoteAvatarUrl,
     messages,
     composerValue,
     replyTarget,
@@ -164,7 +166,7 @@ export function ChatThread(props: ChatThreadProps) {
           zIndex: 1
         }}>
           <IconButton onClick={onOpenContact} sx={{ p: 0 }} aria-label="Open contact details">
-            <UserAvatar seed={remoteParticipant?.peerId ?? conversation.id} size={40} />
+            <UserAvatar seed={remoteParticipant?.peerId ?? conversation.id} size={40} src={remoteAvatarUrl} />
           </IconButton>
           <Box sx={{ flexGrow: 1 }}>
             <Typography variant="subtitle1" sx={{ fontWeight: 'bold' }}>{conversation.title}</Typography>

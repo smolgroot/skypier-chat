@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createBrowserLiveSession, type BrowserLiveSession, type BrowserLiveSessionState, type DeliveryStatusEvent, type NetworkDebugSnapshot, type PeerReachabilityEvent, type SyncMessageEntry } from '@skypier/network';
-import type { AudioCallChunk, AudioCallSignal, ChatMessage, DevicePreKeyBundle, MailboxAckResponse, MailboxPullResponse } from '@skypier/protocol';
+import type { AudioCallChunk, AudioCallSignal, ChatMessage, DevicePreKeyBundle, MailboxAckResponse, MailboxPullResponse, SharedPeerProfileMetadata } from '@skypier/protocol';
 
 interface UseLiveChatSessionOptions {
   onInboundMessage: (payload: { fromPeerId: string; envelope: { kind: 'message' | 'receipt' | 'presence' | 'sync'; conversationId: string; senderPeerId: string; sentAt: string; payload: string } }) => Promise<void> | void;
@@ -8,6 +8,7 @@ interface UseLiveChatSessionOptions {
   onAudioCallChunk?: (payload: { fromPeerId: string; chunk: AudioCallChunk }) => void;
   onPeerReachabilityChange?: (event: PeerReachabilityEvent) => void;
   onDeliveryStatus?: (event: DeliveryStatusEvent) => void;
+  onRemoteProfile?: (payload: { peerId: string; profile: SharedPeerProfileMetadata }) => void;
   onDialLog?: (event: import('@skypier/network').DialLogEntry) => void;
   identityProtobuf?: string;
   /**
@@ -18,6 +19,8 @@ interface UseLiveChatSessionOptions {
   onSyncRequest?: (fromPeerId: string, requestedSince: string | undefined) => SyncMessageEntry[];
   /** Called to get the local public prekey bundle for inclusion in sync messages. */
   getLocalPreKeyBundle?: () => DevicePreKeyBundle | undefined;
+  /** Called to get the local profile metadata for profile sharing. */
+  getLocalProfileMetadata?: () => SharedPeerProfileMetadata;
 }
 
 /**
@@ -143,6 +146,7 @@ export function useLiveChatSession(options: UseLiveChatSessionOptions) {
   const audioCallSignalHandlerRef = useRef(options.onAudioCallSignal);
   const audioCallChunkHandlerRef = useRef(options.onAudioCallChunk);
   const peerReachabilityHandlerRef = useRef(options.onPeerReachabilityChange);
+  const remoteProfileHandlerRef = useRef(options.onRemoteProfile);
   const [state, setState] = useState<BrowserLiveSessionState>(INITIAL_STATE);
 
   useEffect(() => {
@@ -161,6 +165,10 @@ export function useLiveChatSession(options: UseLiveChatSessionOptions) {
     peerReachabilityHandlerRef.current = options.onPeerReachabilityChange;
   }, [options.onPeerReachabilityChange]);
 
+  useEffect(() => {
+    remoteProfileHandlerRef.current = options.onRemoteProfile;
+  }, [options.onRemoteProfile]);
+
   const deliveryStatusHandlerRef = useRef(options.onDeliveryStatus);
   useEffect(() => {
     deliveryStatusHandlerRef.current = options.onDeliveryStatus;
@@ -169,6 +177,16 @@ export function useLiveChatSession(options: UseLiveChatSessionOptions) {
   useEffect(() => {
     dialLogHandlerRef.current = options.onDialLog;
   }, [options.onDialLog]);
+
+  const localPreKeyBundleRef = useRef(options.getLocalPreKeyBundle);
+  useEffect(() => {
+    localPreKeyBundleRef.current = options.getLocalPreKeyBundle;
+  }, [options.getLocalPreKeyBundle]);
+
+  const localProfileMetadataRef = useRef(options.getLocalProfileMetadata);
+  useEffect(() => {
+    localProfileMetadataRef.current = options.getLocalProfileMetadata;
+  }, [options.getLocalProfileMetadata]);
 
   const syncRequestHandlerRef = useRef(options.onSyncRequest);
   useEffect(() => {
@@ -194,7 +212,8 @@ export function useLiveChatSession(options: UseLiveChatSessionOptions) {
           })()
         } : {}),
       },
-      getLocalPreKeyBundle: options.getLocalPreKeyBundle,
+      getLocalPreKeyBundle: () => localPreKeyBundleRef.current?.(),
+      getLocalProfileMetadata: () => localProfileMetadataRef.current?.(),
     });
     sessionRef.current = session;
 
@@ -237,6 +256,10 @@ export function useLiveChatSession(options: UseLiveChatSessionOptions) {
       deliveryStatusHandlerRef.current?.(payload);
     });
 
+    const unsubscribeRemoteProfile = session.subscribe('remoteProfile', (payload) => {
+      remoteProfileHandlerRef.current?.(payload);
+    });
+
     const unsubscribeDialLog = session.subscribe('dialLog', (payload) => {
       dialLogHandlerRef.current?.(payload);
     });
@@ -250,6 +273,7 @@ export function useLiveChatSession(options: UseLiveChatSessionOptions) {
       unsubscribeAudioCallSignal();
       unsubscribeAudioCallChunk();
       unsubscribeDeliveryStatus();
+      unsubscribeRemoteProfile();
       unsubscribeDialLog();
       void session.stop();
       sessionRef.current = null;
@@ -321,6 +345,16 @@ export function useLiveChatSession(options: UseLiveChatSessionOptions) {
     const success = await sessionRef.current.sendChatMessageToPeer(message, targetPeerId);
     setState(sessionRef.current.getState());
     return success;
+  }, []);
+
+  const requestPeerProfile = useCallback(async (targetPeerId: string): Promise<SharedPeerProfileMetadata | null> => {
+    if (!sessionRef.current) {
+      return null;
+    }
+
+    const profile = await sessionRef.current.requestPeerProfile(targetPeerId);
+    setState(sessionRef.current.getState());
+    return profile;
   }, []);
 
   const retryMessage = useCallback(async (messageId: string) => {
@@ -406,6 +440,7 @@ export function useLiveChatSession(options: UseLiveChatSessionOptions) {
     dialPeerById,
     broadcastChatMessage,
     sendChatMessageToPeer,
+    requestPeerProfile,
     sendAudioCallSignal,
     sendAudioCallChunk,
     retryMessage,

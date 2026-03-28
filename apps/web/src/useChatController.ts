@@ -13,6 +13,7 @@ import {
   type DevicePreKeyBundle,
   type LinkedEthAddress,
   type MediaAttachment,
+  type SharedPeerProfileMetadata,
 } from '@skypier/protocol';
 import {
   createChatRepository,
@@ -84,7 +85,18 @@ async function decryptIncomingPayload(
   payload: ReturnType<typeof parseE2EEWirePayload>,
   snap: PersistedChatState,
 ): Promise<string | null> {
-  if (!payload?.keyWraps || !snap.account.deviceCryptoState) {
+  if (!payload) {
+    return null;
+  }
+
+  // Legacy/plain transport compatibility:
+  // some peers still send E2EE wire payloads without recipient key wraps,
+  // where `ciphertext` is simply base64-encoded UTF-8 text.
+  if (!payload.keyWraps || payload.keyWraps.length === 0) {
+    return decodeBase64Utf8(payload.ciphertext);
+  }
+
+  if (!snap.account.deviceCryptoState) {
     return null;
   }
 
@@ -561,6 +573,79 @@ export function useChatController() {
     });
   }, [persistState]);
 
+  const applyRemotePeerProfile = useCallback(async (profile: SharedPeerProfileMetadata) => {
+    if (!profile.peerId.trim() || !profile.displayName.trim()) {
+      return;
+    }
+
+    const snap = stateRef.current;
+    let changed = false;
+    const now = new Date().toISOString();
+
+    const nextConversations = snap.conversations.map((conversation) => {
+      const hasPeer = conversation.participants.some((participant) => participant.peerId === profile.peerId);
+      if (!hasPeer) {
+        return conversation;
+      }
+
+      changed = true;
+      const nextParticipants = conversation.participants.map((participant) =>
+        participant.peerId === profile.peerId
+          ? { ...participant, displayName: profile.displayName }
+          : participant,
+      );
+
+      return {
+        ...conversation,
+        title: profile.displayName,
+        participants: nextParticipants,
+        updatedAt: now,
+      };
+    });
+
+    const existingContact = (snap.contacts ?? []).find((entry) => entry.peerId === profile.peerId);
+    const nextContacts = existingContact
+      ? (snap.contacts ?? []).map((entry) =>
+          entry.peerId === profile.peerId
+            ? {
+                ...entry,
+                displayName: profile.displayName,
+                avatarUrl: profile.avatarUrl ?? entry.avatarUrl,
+                bio: profile.bio ?? entry.bio,
+                ensName: profile.ensName ?? entry.ensName,
+                ethAddress: profile.ethAddress ?? entry.ethAddress,
+              }
+            : entry,
+        )
+      : [
+          ...(snap.contacts ?? []),
+          {
+            id: profile.peerId,
+            peerId: profile.peerId,
+            displayName: profile.displayName,
+            avatarUrl: profile.avatarUrl,
+            bio: profile.bio,
+            ensName: profile.ensName,
+            ethAddress: profile.ethAddress,
+            addedAt: now,
+          },
+        ];
+
+    if (!changed && existingContact == null) {
+      changed = true;
+    }
+
+    if (!changed) {
+      return;
+    }
+
+    await persistState({
+      ...snap,
+      conversations: nextConversations,
+      contacts: nextContacts,
+    });
+  }, [persistState]);
+
   const sendMessage = useCallback(async (): Promise<ChatMessage | undefined> => {
     if (!selectedConversation || !composerValue.trim()) {
       return undefined;
@@ -589,10 +674,22 @@ export function useChatController() {
     const snap = stateRef.current;
     const currentMessages = snap.messagesByConversation[selectedConversation.id] ?? [];
     const nextMessages = capConversationMessages([...currentMessages, nextMessage]);
+    const remotePeer = selectedConversation.participants.find((participant) => participant.peerId !== resolveLocalPeerId(snap));
+    const remoteContact = remotePeer
+      ? (snap.contacts ?? []).find((entry) => entry.peerId === remotePeer.peerId)
+      : undefined;
     const nextState: PersistedChatState = {
       account: snap.account,
       conversations: snap.conversations.map((conversation) => conversation.id === selectedConversation.id ? {
         ...conversation,
+        title: remoteContact?.displayName ?? conversation.title,
+        participants: remoteContact
+          ? conversation.participants.map((participant) =>
+              participant.peerId === remoteContact.peerId
+                ? { ...participant, displayName: remoteContact.displayName }
+                : participant,
+            )
+          : conversation.participants,
         lastMessagePreview: nextMessage.previewText,
         updatedAt: nextMessage.createdAt,
       } : conversation),
@@ -600,6 +697,7 @@ export function useChatController() {
         ...snap.messagesByConversation,
         [selectedConversation.id]: nextMessages,
       },
+      contacts: snap.contacts,
     };
 
     await persistState(nextState);
@@ -773,6 +871,10 @@ export function useChatController() {
 
   const updateAccount = useCallback(async (updates: {
     displayName?: string;
+    profileAvatarUrl?: string;
+    profileBio?: string;
+    shareEnsDisplayName?: boolean;
+    preferEnsAvatar?: boolean;
     identityProtobuf?: string;
     localPeerId?: string;
     deviceCryptoState?: PersistedChatState['account']['deviceCryptoState'];
@@ -785,13 +887,17 @@ export function useChatController() {
       ...snap,
       account: {
         ...snap.account,
-        displayName: updates.displayName ?? snap.account.displayName,
-        identityProtobuf: updates.identityProtobuf ?? snap.account.identityProtobuf,
-        localPeerId: updates.localPeerId ?? snap.account.localPeerId,
-        deviceCryptoState: updates.deviceCryptoState ?? snap.account.deviceCryptoState,
-        themePreference: updates.themePreference ?? snap.account.themePreference,
-        biometricUnlockEnabled: updates.biometricUnlockEnabled ?? snap.account.biometricUnlockEnabled,
-        biometricCredentialId: updates.biometricCredentialId ?? snap.account.biometricCredentialId,
+        displayName: 'displayName' in updates ? (updates.displayName ?? '') : snap.account.displayName,
+        profileAvatarUrl: 'profileAvatarUrl' in updates ? updates.profileAvatarUrl : snap.account.profileAvatarUrl,
+        profileBio: 'profileBio' in updates ? updates.profileBio : snap.account.profileBio,
+        shareEnsDisplayName: 'shareEnsDisplayName' in updates ? updates.shareEnsDisplayName : snap.account.shareEnsDisplayName,
+        preferEnsAvatar: 'preferEnsAvatar' in updates ? updates.preferEnsAvatar : snap.account.preferEnsAvatar,
+        identityProtobuf: 'identityProtobuf' in updates ? updates.identityProtobuf : snap.account.identityProtobuf,
+        localPeerId: 'localPeerId' in updates ? updates.localPeerId : snap.account.localPeerId,
+        deviceCryptoState: 'deviceCryptoState' in updates ? updates.deviceCryptoState : snap.account.deviceCryptoState,
+        themePreference: 'themePreference' in updates ? updates.themePreference : snap.account.themePreference,
+        biometricUnlockEnabled: 'biometricUnlockEnabled' in updates ? updates.biometricUnlockEnabled : snap.account.biometricUnlockEnabled,
+        biometricCredentialId: 'biometricCredentialId' in updates ? updates.biometricCredentialId : snap.account.biometricCredentialId,
       },
     };
     await persistState(nextState);
@@ -969,15 +1075,17 @@ export function useChatController() {
             const existingConversation =
               snap.conversations.find((c) => c.id === entry.conversationId) ??
               snap.conversations.find((c) => c.participants.some((p) => p.peerId === entry.senderPeerId));
+            const remoteContact = (snap.contacts ?? []).find((entryContact) => entryContact.peerId === entry.senderPeerId);
+            const remoteDisplayName = remoteContact?.displayName ?? `Peer ${entry.senderPeerId.slice(0, 10)}…`;
 
             const conversation = existingConversation ?? {
               id: entry.conversationId,
-              title: `Peer ${entry.senderPeerId.slice(0, 10)}…`,
+              title: remoteDisplayName,
               participants: [
                 { id: CURRENT_USER_ID, displayName: snap.account.displayName, peerId: resolveLocalPeerId(snap), devices: [buildCurrentDeviceIdentity(snap)] },
                 {
                   id: entry.senderPeerId,
-                  displayName: `Peer ${entry.senderPeerId.slice(0, 10)}…`,
+                  displayName: remoteDisplayName,
                   peerId: entry.senderPeerId,
                   devices: [{ id: `device-${entry.senderPeerId}`, label: 'Remote device', peerId: entry.senderPeerId, platform: 'web' as const, trustLevel: 'software' as const }],
                 },
@@ -988,11 +1096,16 @@ export function useChatController() {
               updatedAt: entry.sentAt,
             };
 
+            const senderDisplayName = existingConversation
+              ? (existingConversation.participants.find((participant) => participant.peerId === entry.senderPeerId)?.displayName
+                ?? existingConversation.title)
+              : remoteDisplayName;
+
             const incomingMessage: ChatMessage = {
               id: stableId,
               conversationId: conversation.id,
               senderId: entry.senderPeerId,
-              senderDisplayName: existingConversation?.title ?? conversation.title,
+              senderDisplayName,
               senderDeviceId: `device-${entry.senderPeerId}`,
               createdAt: entry.sentAt,
               previewText: payloadPreviewText,
@@ -1117,9 +1230,12 @@ export function useChatController() {
       );
     }
 
+    const remoteContact = (snap.contacts ?? []).find((entry) => entry.peerId === fromPeerId);
+    const remoteDisplayName = remoteContact?.displayName ?? `Peer ${fromPeerId.slice(0, 10)}…`;
+
     const conversation = existingConversation ?? {
       id: envelope.conversationId,
-      title: `Peer ${fromPeerId.slice(0, 10)}…`,
+      title: remoteDisplayName,
       participants: [
         {
           id: CURRENT_USER_ID,
@@ -1129,7 +1245,7 @@ export function useChatController() {
         },
         {
           id: fromPeerId,
-          displayName: `Peer ${fromPeerId.slice(0, 10)}…`,
+          displayName: remoteDisplayName,
           peerId: fromPeerId,
           devices: [
             {
@@ -1148,11 +1264,16 @@ export function useChatController() {
       updatedAt: envelope.sentAt,
     };
 
+    const senderDisplayName = existingConversation
+      ? (existingConversation.participants.find((participant) => participant.peerId === fromPeerId)?.displayName
+        ?? existingConversation.title)
+      : remoteDisplayName;
+
     const incomingMessage: ChatMessage = {
       id: envelope.messageId ? `net-${envelope.messageId}` : `net-${Math.random().toString(36).slice(2, 10)}`,
       conversationId: conversation.id,
       senderId: fromPeerId,
-      senderDisplayName: conversation.title,
+      senderDisplayName,
       senderDeviceId: `device-${fromPeerId}`,
       createdAt: envelope.sentAt,
       previewText: payloadPreviewText,
@@ -1201,6 +1322,7 @@ export function useChatController() {
         ...snap.messagesByConversation,
         [conversation.id]: nextMessages,
       },
+      contacts: snap.contacts,
     };
 
     console.log('[skypier:controller] ingested message from', fromPeerId,
@@ -1290,7 +1412,13 @@ export function useChatController() {
     await persistState({ ...snap, messagesByConversation: nextMessages });
   }, [persistState]);
 
-  const saveContact = useCallback(async (contactId: string, peerId: string, displayName: string, avatarUrl?: string) => {
+  const saveContact = useCallback(async (
+    contactId: string,
+    peerId: string,
+    displayName: string,
+    avatarUrl?: string,
+    extras?: { bio?: string; ensName?: string; ethAddress?: string },
+  ) => {
     const snap = stateRef.current;
     const existing = (snap.contacts || []).filter(c => c.id !== contactId);
     
@@ -1301,6 +1429,9 @@ export function useChatController() {
         peerId,
         displayName,
         avatarUrl,
+        bio: extras?.bio,
+        ensName: extras?.ensName,
+        ethAddress: extras?.ethAddress,
         addedAt: new Date().toISOString()
       }]
     };
@@ -1396,6 +1527,7 @@ export function useChatController() {
     deleteContact,
     contacts: state.contacts ?? [],
     appendCallHistoryEntry,
+    applyRemotePeerProfile,
     ingestIncomingEnvelope,
     updateMessageCiphertext,
     updateMessageDeliveryStatus,
