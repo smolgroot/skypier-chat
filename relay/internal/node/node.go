@@ -17,11 +17,11 @@ import (
 	"github.com/libp2p/go-libp2p/core/crypto"
 	"github.com/libp2p/go-libp2p/core/host"
 	"github.com/libp2p/go-libp2p/core/network"
-	"github.com/libp2p/go-msgio"
 	pbv2 "github.com/libp2p/go-libp2p/p2p/protocol/circuitv2/pb"
 	relayv2 "github.com/libp2p/go-libp2p/p2p/protocol/circuitv2/relay"
 	ws "github.com/libp2p/go-libp2p/p2p/transport/websocket"
 	wt "github.com/libp2p/go-libp2p/p2p/transport/webtransport"
+	"github.com/libp2p/go-msgio"
 	ma "github.com/multiformats/go-multiaddr"
 
 	"github.com/skypier/relay/internal/config"

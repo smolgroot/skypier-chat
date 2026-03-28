@@ -14,24 +14,24 @@ type RecipientKeyWrap struct {
 }
 
 type EncryptedMessageEnvelope struct {
-	V         int                `json:"v"`
-	Algorithm string             `json:"algorithm"`
-	Ciphertext string            `json:"ciphertext"`
-	Nonce     string             `json:"nonce"`
-	SenderKeyID string           `json:"senderKeyId"`
-	AAD       string             `json:"aad,omitempty"`
-	KeyWraps  []RecipientKeyWrap `json:"keyWraps"`
+	V           int                `json:"v"`
+	Algorithm   string             `json:"algorithm"`
+	Ciphertext  string             `json:"ciphertext"`
+	Nonce       string             `json:"nonce"`
+	SenderKeyID string             `json:"senderKeyId"`
+	AAD         string             `json:"aad,omitempty"`
+	KeyWraps    []RecipientKeyWrap `json:"keyWraps"`
 }
 
 type RelayMailboxEnvelope struct {
-	EnvelopeID        string                  `json:"envelopeId"`
-	MessageID         string                  `json:"messageId"`
-	ConversationID    string                  `json:"conversationId"`
-	SenderPeerID      string                  `json:"senderPeerId"`
-	RecipientPeerID   string                  `json:"recipientPeerId"`
-	SentAt            string                  `json:"sentAt"`
-	ExpiresAt         string                  `json:"expiresAt"`
-	ContentType       string                  `json:"contentType"`
+	EnvelopeID        string                   `json:"envelopeId"`
+	MessageID         string                   `json:"messageId"`
+	ConversationID    string                   `json:"conversationId"`
+	SenderPeerID      string                   `json:"senderPeerId"`
+	RecipientPeerID   string                   `json:"recipientPeerId"`
+	SentAt            string                   `json:"sentAt"`
+	ExpiresAt         string                   `json:"expiresAt"`
+	ContentType       string                   `json:"contentType"`
 	EncryptedEnvelope EncryptedMessageEnvelope `json:"encryptedEnvelope"`
 }
 
@@ -40,10 +40,10 @@ type EnqueueRequest struct {
 }
 
 type EnqueueResponse struct {
-	Accepted  bool   `json:"accepted"`
-	Reason    string `json:"reason,omitempty"`
-	ExpiresAt string `json:"expiresAt,omitempty"`
-	QueueDepth int   `json:"queueDepth,omitempty"`
+	Accepted   bool   `json:"accepted"`
+	Reason     string `json:"reason,omitempty"`
+	ExpiresAt  string `json:"expiresAt,omitempty"`
+	QueueDepth int    `json:"queueDepth,omitempty"`
 }
 
 type PullRequest struct {
@@ -68,11 +68,11 @@ type AckResponse struct {
 }
 
 type Store struct {
-	mu                sync.Mutex
-	maxPerRecipient   int
-	defaultTTL        time.Duration
-	byRecipient       map[string][]RelayMailboxEnvelope
-	byRecipientByID   map[string]map[string]RelayMailboxEnvelope
+	mu              sync.Mutex
+	maxPerRecipient int
+	defaultTTL      time.Duration
+	byRecipient     map[string][]RelayMailboxEnvelope
+	byRecipientByID map[string]map[string]RelayMailboxEnvelope
 }
 
 func NewStore(maxPerRecipient int, defaultTTL time.Duration) *Store {
