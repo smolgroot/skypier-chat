@@ -5,6 +5,9 @@ export const SKYPIER_CHAT_PROTOCOLS = {
   sync: '/skypier/chat/1.0.0/sync',
   callControl: '/skypier/chat/1.0.0/call-control',
   callAudio: '/skypier/chat/1.0.0/call-audio',
+  mailboxEnqueue: '/skypier/chat/1.1.0/mailbox/enqueue',
+  mailboxPull: '/skypier/chat/1.1.0/mailbox/pull',
+  mailboxAck: '/skypier/chat/1.1.0/mailbox/ack',
 } as const;
 
 export type SkypierChatProtocol = typeof SKYPIER_CHAT_PROTOCOLS[keyof typeof SKYPIER_CHAT_PROTOCOLS];

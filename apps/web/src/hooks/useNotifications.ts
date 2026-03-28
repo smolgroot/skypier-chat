@@ -57,6 +57,42 @@ async function requestNotificationPermission(): Promise<NotificationPermission> 
   return await Notification.requestPermission();
 }
 
+function decodeBase64Url(input: string): Uint8Array {
+  const normalized = input.replace(/-/g, '+').replace(/_/g, '/');
+  const padded = normalized + '='.repeat((4 - normalized.length % 4) % 4);
+  const binary = atob(padded);
+  const output = new Uint8Array(binary.length);
+  for (let index = 0; index < binary.length; index += 1) {
+    output[index] = binary.charCodeAt(index);
+  }
+  return output;
+}
+
+async function ensurePushSubscriptionIfConfigured(): Promise<void> {
+  if (typeof window === 'undefined' || !('serviceWorker' in navigator) || !('PushManager' in window)) {
+    return;
+  }
+
+  const vapidPublicKey = String(import.meta.env.VITE_WEB_PUSH_VAPID_PUBLIC_KEY ?? '').trim();
+  if (!vapidPublicKey) {
+    return;
+  }
+
+  const registration = await navigator.serviceWorker.ready;
+  const existing = await registration.pushManager.getSubscription();
+  const subscription = existing ?? await registration.pushManager.subscribe({
+    userVisibleOnly: true,
+    applicationServerKey: decodeBase64Url(vapidPublicKey) as BufferSource,
+  });
+
+  window.dispatchEvent(new CustomEvent('skypier:push-subscription-ready', {
+    detail: {
+      endpoint: subscription.endpoint,
+      keys: subscription.toJSON().keys ?? {},
+    },
+  }));
+}
+
 function showOsNotification(title: string, body: string, tag = 'skypier-message'): void {
   if (!('Notification' in window) || Notification.permission !== 'granted') {
     return;
@@ -118,6 +154,9 @@ export function useNotifications() {
   useEffect(() => {
     void requestNotificationPermission().then((perm) => {
       permissionRef.current = perm;
+      if (perm === 'granted') {
+        void ensurePushSubscriptionIfConfigured();
+      }
     });
   }, []);
 

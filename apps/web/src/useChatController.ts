@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createEncryptedBackupBundle, createPinataUploadRequest } from '@skypier/backup';
-import { SKYPIER_MEDIA_PREFIX, type SyncMessageEntry } from '@skypier/network';
+import { decryptMessageEnvelope, exportDevicePreKeyBundle } from '@skypier/crypto';
+import { parseE2EEWirePayload, serializeE2EEWirePayload, SKYPIER_MEDIA_PREFIX, type SyncMessageEntry } from '@skypier/network';
 import type { WireEnvelope } from '@skypier/network';
 import {
   parseChatReactionEventPayload,
@@ -9,6 +10,7 @@ import {
   type ChatMessage,
   type ChatReactionEvent,
   type ChatSystemEvent,
+  type DevicePreKeyBundle,
   type LinkedEthAddress,
   type MediaAttachment,
 } from '@skypier/protocol';
@@ -17,12 +19,26 @@ import {
   createLocalMessage,
   createInitialChatState,
   getCurrentDevice,
+  saveAttachmentBlob,
   updateMessageDelivery,
   type PersistedChatState,
 } from '@skypier/storage';
 
 const CURRENT_USER_ID = 'user-1';
 const PLACEHOLDER_LOCAL_PEER_ID = '12D3KooWLocalPeer';
+
+function decodeBase64Utf8(value: string): string | null {
+  try {
+    const binary = atob(value);
+    const bytes = new Uint8Array(binary.length);
+    for (let index = 0; index < binary.length; index += 1) {
+      bytes[index] = binary.charCodeAt(index);
+    }
+    return new TextDecoder().decode(bytes);
+  } catch {
+    return null;
+  }
+}
 
 function isPlaceholderLocalPeerId(peerId: string | undefined): boolean {
   if (!peerId) return true;
@@ -49,6 +65,45 @@ function resolveLocalPeerId(snap: PersistedChatState): string {
   }
 
   return accountPeerId ?? devicePeerId ?? PLACEHOLDER_LOCAL_PEER_ID;
+}
+
+function buildCurrentDeviceIdentity(snap: PersistedChatState) {
+  const currentDevice = getCurrentDevice();
+  const localPeerId = resolveLocalPeerId(snap);
+
+  return {
+    ...currentDevice,
+    peerId: localPeerId,
+    ...(snap.account.deviceCryptoState ? {
+      preKeyBundle: exportDevicePreKeyBundle(snap.account.deviceCryptoState),
+    } : {}),
+  };
+}
+
+async function decryptIncomingPayload(
+  payload: ReturnType<typeof parseE2EEWirePayload>,
+  snap: PersistedChatState,
+): Promise<string | null> {
+  if (!payload?.keyWraps || !snap.account.deviceCryptoState) {
+    return null;
+  }
+
+  try {
+    return await decryptMessageEnvelope({
+      deviceCryptoState: snap.account.deviceCryptoState,
+      envelope: {
+        v: 1,
+        algorithm: payload.algorithm,
+        ciphertext: payload.ciphertext,
+        nonce: payload.nonce,
+        senderKeyId: payload.senderKeyId ?? payload.senderDeviceId,
+        aad: payload.aad,
+        keyWraps: payload.keyWraps,
+      },
+    });
+  } catch {
+    return null;
+  }
 }
 
 function normalizeNetworkMessageId(messageId: string): string {
@@ -128,11 +183,116 @@ function applyReactionEventToConversationMessages(
   return { nextMessages, applied };
 }
 
+function isDevicePreKeyBundle(value: unknown): value is DevicePreKeyBundle {
+  if (value == null || typeof value !== 'object') {
+    return false;
+  }
+
+  const bundle = value as Partial<DevicePreKeyBundle>;
+  return bundle.version === 1
+    && bundle.algorithm === 'x25519'
+    && typeof bundle.deviceId === 'string'
+    && typeof bundle.peerId === 'string'
+    && typeof bundle.identityPublicKey === 'string'
+    && typeof bundle.preKeyId === 'string'
+    && typeof bundle.preKeyPublicKey === 'string'
+    && typeof bundle.createdAt === 'string';
+}
+
+/** Stores a received remote prekey bundle on matching participant devices. */
+function applyReceivedPreKeyBundle(
+  snap: PersistedChatState,
+  fromPeerId: string,
+  bundle: DevicePreKeyBundle,
+): PersistedChatState {
+  let changed = false;
+
+  const nextConversations = snap.conversations.map((conversation) => {
+    const hasSender = conversation.participants.some((participant) => participant.peerId === fromPeerId);
+    if (!hasSender) {
+      return conversation;
+    }
+
+    const nextParticipants = conversation.participants.map((participant) => {
+      if (participant.peerId !== fromPeerId) {
+        return participant;
+      }
+
+      const deviceIndex = participant.devices.findIndex((device) => device.peerId === fromPeerId);
+      if (deviceIndex < 0) {
+        changed = true;
+        return {
+          ...participant,
+          devices: [
+            ...participant.devices,
+            {
+              id: bundle.deviceId,
+              label: 'Remote device',
+              peerId: fromPeerId,
+              platform: 'web' as const,
+              trustLevel: 'software' as const,
+              preKeyBundle: bundle,
+            },
+          ],
+        };
+      }
+
+      const existing = participant.devices[deviceIndex];
+      if (
+        existing.preKeyBundle?.deviceId === bundle.deviceId
+        && existing.preKeyBundle?.preKeyId === bundle.preKeyId
+      ) {
+        return participant;
+      }
+
+      changed = true;
+      return {
+        ...participant,
+        devices: participant.devices.map((device, idx) =>
+          idx === deviceIndex
+            ? {
+                ...device,
+                id: bundle.deviceId,
+                preKeyBundle: bundle,
+              }
+            : device,
+        ),
+      };
+    });
+
+    return {
+      ...conversation,
+      participants: nextParticipants,
+    };
+  });
+
+  return changed
+    ? {
+        ...snap,
+        conversations: nextConversations,
+      }
+    : snap;
+}
+
 // ─── Image compression ────────────────────────────────────────────────────────
 const MAX_IMAGE_BYTES = 2 * 1024 * 1024; // 2 MB hard cap post-compression
+const MAX_MESSAGES_PER_CONVERSATION = (() => {
+  const raw = Number(import.meta.env.VITE_MAX_MESSAGES_PER_CONVERSATION ?? '300');
+  if (!Number.isFinite(raw)) return 300;
+  return Math.max(100, Math.min(1000, Math.floor(raw)));
+})();
+
+function capConversationMessages(messages: ChatMessage[]): ChatMessage[] {
+  if (messages.length <= MAX_MESSAGES_PER_CONVERSATION) {
+    return messages;
+  }
+  return messages.slice(messages.length - MAX_MESSAGES_PER_CONVERSATION);
+}
 
 async function compressImage(file: File): Promise<{
   dataUri: string;
+  blob: Blob;
+  previewDataUri: string;
   width: number;
   height: number;
   size: number;
@@ -143,7 +303,7 @@ async function compressImage(file: File): Promise<{
     const url = URL.createObjectURL(file);
     img.onload = () => {
       URL.revokeObjectURL(url);
-      const MAX_EDGE = 1280;
+      const MAX_EDGE = 960;
       let { naturalWidth: width, naturalHeight: height } = img;
       if (width > MAX_EDGE || height > MAX_EDGE) {
         const ratio = Math.min(MAX_EDGE / width, MAX_EDGE / height);
@@ -154,7 +314,20 @@ async function compressImage(file: File): Promise<{
       canvas.width = width;
       canvas.height = height;
       canvas.getContext('2d')!.drawImage(img, 0, 0, width, height);
-      const dataUri = canvas.toDataURL('image/jpeg', 0.75);
+      const dataUri = canvas.toDataURL('image/jpeg', 0.65);
+      const previewScale = Math.min(1, 320 / Math.max(width, height));
+      const previewWidth = Math.max(1, Math.round(width * previewScale));
+      const previewHeight = Math.max(1, Math.round(height * previewScale));
+      const previewCanvas = document.createElement('canvas');
+      previewCanvas.width = previewWidth;
+      previewCanvas.height = previewHeight;
+      previewCanvas.getContext('2d')!.drawImage(img, 0, 0, previewWidth, previewHeight);
+      const previewDataUri = previewCanvas.toDataURL('image/jpeg', 0.5);
+      previewCanvas.width = 0;
+      previewCanvas.height = 0;
+      // Release GPU/canvas backing store memory as soon as we're done encoding.
+      canvas.width = 0;
+      canvas.height = 0;
       const base64 = dataUri.split(',')[1] ?? '';
       const approxBytes = Math.ceil(base64.length * 0.75);
       if (approxBytes > MAX_IMAGE_BYTES) {
@@ -163,7 +336,13 @@ async function compressImage(file: File): Promise<{
         ));
         return;
       }
-      resolve({ dataUri, width, height, size: approxBytes, mimeType: 'image/jpeg' });
+      const binary = atob(base64);
+      const bytes = new Uint8Array(binary.length);
+      for (let i = 0; i < binary.length; i += 1) {
+        bytes[i] = binary.charCodeAt(i);
+      }
+      const blob = new Blob([bytes], { type: 'image/jpeg' });
+      resolve({ dataUri, blob, previewDataUri, width, height, size: approxBytes, mimeType: 'image/jpeg' });
     };
     img.onerror = () => {
       URL.revokeObjectURL(url);
@@ -267,7 +446,7 @@ export function useChatController() {
       return existing.id;
     }
 
-    const currentDevice = getCurrentDevice();
+    const currentDevice = buildCurrentDeviceIdentity(stateRef.current);
     const localPeerId = resolveLocalPeerId(stateRef.current);
     const conversationId = `conv-${normalizedPeerId.slice(-8)}-${Math.random().toString(36).slice(2, 6)}`;
     const title = (displayName?.trim() || `Peer ${normalizedPeerId.slice(0, 10)}…`);
@@ -407,8 +586,9 @@ export function useChatController() {
       } : undefined,
     });
 
-    const nextMessages = [...messages, nextMessage];
     const snap = stateRef.current;
+    const currentMessages = snap.messagesByConversation[selectedConversation.id] ?? [];
+    const nextMessages = capConversationMessages([...currentMessages, nextMessage]);
     const nextState: PersistedChatState = {
       account: snap.account,
       conversations: snap.conversations.map((conversation) => conversation.id === selectedConversation.id ? {
@@ -426,7 +606,7 @@ export function useChatController() {
     setComposerValue('');
     setReplyTargetId(undefined);
     return nextMessage;
-  }, [composerValue, messages, persistState, replyTarget, selectedConversation]);
+  }, [composerValue, persistState, replyTarget, selectedConversation]);
 
   const toggleReaction = useCallback(async (messageId: string, emoji: string): Promise<ChatReactionEvent | undefined> => {
     if (!selectedConversation || !messageId) {
@@ -496,8 +676,11 @@ export function useChatController() {
   const sendImageMessage = useCallback(async (file: File): Promise<ChatMessage | undefined> => {
     if (!selectedConversation) return undefined;
 
-    const { dataUri, width, height, size, mimeType } = await compressImage(file);
+    const { blob, previewDataUri, width, height, size, mimeType } = await compressImage(file);
     const attachmentId = `att-${Math.random().toString(36).slice(2, 10)}`;
+    const attachmentStorageKey = `blob-${attachmentId}`;
+
+    await saveAttachmentBlob(attachmentStorageKey, blob).catch(() => {});
 
     const currentDevice = getCurrentDevice();
     const recipientDeviceIds = selectedConversation.participants
@@ -516,14 +699,14 @@ export function useChatController() {
 
     const messageWithAttachment: ChatMessage = {
       ...baseMessage,
-      attachments: [{ id: attachmentId, mimeType, dataUri, width, height, size }],
+      attachments: [{ id: attachmentId, mimeType, dataUri: previewDataUri, storageKey: attachmentStorageKey, width, height, size }],
     };
 
     const snap = stateRef.current;
-    const nextMessages = [
+    const nextMessages = capConversationMessages([
       ...(snap.messagesByConversation[selectedConversation.id] ?? []),
       messageWithAttachment,
-    ];
+    ]);
     const nextState: PersistedChatState = {
       ...snap,
       conversations: snap.conversations.map((c) =>
@@ -592,6 +775,7 @@ export function useChatController() {
     displayName?: string;
     identityProtobuf?: string;
     localPeerId?: string;
+    deviceCryptoState?: PersistedChatState['account']['deviceCryptoState'];
     themePreference?: 'light' | 'dark';
     biometricUnlockEnabled?: boolean;
     biometricCredentialId?: string;
@@ -604,6 +788,7 @@ export function useChatController() {
         displayName: updates.displayName ?? snap.account.displayName,
         identityProtobuf: updates.identityProtobuf ?? snap.account.identityProtobuf,
         localPeerId: updates.localPeerId ?? snap.account.localPeerId,
+        deviceCryptoState: updates.deviceCryptoState ?? snap.account.deviceCryptoState,
         themePreference: updates.themePreference ?? snap.account.themePreference,
         biometricUnlockEnabled: updates.biometricUnlockEnabled ?? snap.account.biometricUnlockEnabled,
         biometricCredentialId: updates.biometricCredentialId ?? snap.account.biometricCredentialId,
@@ -671,9 +856,9 @@ export function useChatController() {
       },
     };
 
-    const nextMessages = [...currentMessages, systemMessage].sort(
+    const nextMessages = capConversationMessages([...currentMessages, systemMessage].sort(
       (left, right) => new Date(left.createdAt).getTime() - new Date(right.createdAt).getTime(),
-    );
+    ));
 
     const nextState: PersistedChatState = {
       ...snap,
@@ -699,10 +884,25 @@ export function useChatController() {
     if (envelope.kind === 'sync') {
       console.log('[skypier:controller] sync envelope received from', fromPeerId);
       try {
-        const syncData = JSON.parse(envelope.payload) as { type?: string; messages?: SyncMessageEntry[] };
-        if (syncData.type === 'state' && Array.isArray(syncData.messages) && syncData.messages.length > 0) {
+        const syncData = JSON.parse(envelope.payload) as {
+          type?: string;
+          messages?: SyncMessageEntry[];
+          preKeyBundle?: unknown;
+        };
+        if (syncData.type === 'state') {
           // Build a dedup set of all known message IDs across all conversations
           let snap = stateRef.current;
+          if (isDevicePreKeyBundle(syncData.preKeyBundle) && syncData.preKeyBundle.peerId === fromPeerId) {
+            snap = applyReceivedPreKeyBundle(snap, fromPeerId, syncData.preKeyBundle);
+          }
+
+          if (!Array.isArray(syncData.messages) || syncData.messages.length === 0) {
+            if (snap !== stateRef.current) {
+              await persistState(snap);
+            }
+            return;
+          }
+
           const knownIds = new Set<string>(
             Object.values(snap.messagesByConversation).flatMap((msgs) => msgs.map((m) => m.id)),
           );
@@ -750,7 +950,13 @@ export function useChatController() {
             }
 
             const isImagePayload = entry.payload.startsWith(SKYPIER_MEDIA_PREFIX);
-            const payloadPreviewText = isImagePayload ? '📷 Photo' : entry.payload;
+            const parsedE2EEPayload = isImagePayload ? null : parseE2EEWirePayload(entry.payload);
+            const decryptedPayload = parsedE2EEPayload ? await decryptIncomingPayload(parsedE2EEPayload, snap) : null;
+            const payloadPreviewText = isImagePayload
+              ? '📷 Photo'
+              : parsedE2EEPayload
+                ? decryptedPayload ?? '🔐 Encrypted message'
+                : entry.payload;
             let incomingAttachments: MediaAttachment[] | undefined;
             if (isImagePayload) {
               try {
@@ -768,7 +974,7 @@ export function useChatController() {
               id: entry.conversationId,
               title: `Peer ${entry.senderPeerId.slice(0, 10)}…`,
               participants: [
-                { id: CURRENT_USER_ID, displayName: snap.account.displayName, peerId: resolveLocalPeerId(snap), devices: [getCurrentDevice()] },
+                { id: CURRENT_USER_ID, displayName: snap.account.displayName, peerId: resolveLocalPeerId(snap), devices: [buildCurrentDeviceIdentity(snap)] },
                 {
                   id: entry.senderPeerId,
                   displayName: `Peer ${entry.senderPeerId.slice(0, 10)}…`,
@@ -791,10 +997,16 @@ export function useChatController() {
               createdAt: entry.sentAt,
               previewText: payloadPreviewText,
               ciphertext: {
-                algorithm: 'xchacha20poly1305',
-                ciphertext: isImagePayload ? '' : (() => { try { return btoa(entry.payload); } catch { return ''; } })(),
-                nonce: 'sync-replay',
-                recipientDeviceIds: [getCurrentDevice().id],
+                algorithm: parsedE2EEPayload?.algorithm ?? 'xchacha20poly1305',
+                ciphertext: isImagePayload
+                  ? ''
+                  : parsedE2EEPayload?.ciphertext
+                    ?? (() => { try { return btoa(payloadPreviewText); } catch { return ''; } })(),
+                nonce: parsedE2EEPayload?.nonce ?? 'sync-replay',
+                recipientDeviceIds: parsedE2EEPayload?.recipientDeviceIds ?? [getCurrentDevice().id],
+                senderKeyId: parsedE2EEPayload?.senderKeyId,
+                aad: parsedE2EEPayload?.aad,
+                keyWraps: parsedE2EEPayload?.keyWraps,
               },
               delivery: 'delivered',
               reactions: [],
@@ -802,7 +1014,7 @@ export function useChatController() {
             };
 
             const currentMessages = snap.messagesByConversation[conversation.id] ?? [];
-            const nextMessages = [...currentMessages, incomingMessage];
+            const nextMessages = capConversationMessages([...currentMessages, incomingMessage]);
             const nextConversations = existingConversation
               ? snap.conversations.map((c) =>
                   c.id === conversation.id
@@ -874,9 +1086,16 @@ export function useChatController() {
       return;
     }
 
+    const snap = stateRef.current;
     // Detect media attachment via wire prefix
     const isImagePayload = envelope.payload.startsWith(SKYPIER_MEDIA_PREFIX);
-    const payloadPreviewText = isImagePayload ? '📷 Photo' : envelope.payload;
+    const parsedE2EEPayload = isImagePayload ? null : parseE2EEWirePayload(envelope.payload);
+    const decryptedPayload = parsedE2EEPayload ? await decryptIncomingPayload(parsedE2EEPayload, snap) : null;
+    const payloadPreviewText = isImagePayload
+      ? '📷 Photo'
+      : parsedE2EEPayload
+        ? decryptedPayload ?? '🔐 Encrypted message'
+        : envelope.payload;
     let incomingAttachments: MediaAttachment[] | undefined;
     if (isImagePayload) {
       try {
@@ -887,7 +1106,6 @@ export function useChatController() {
       }
     }
 
-    const snap = stateRef.current;
     const localPeerId = resolveLocalPeerId(snap);
     const currentSelectedId = selectedConversationIdRef.current;
     let existingConversation = snap.conversations.find((conversation) => conversation.id === envelope.conversationId);
@@ -907,7 +1125,7 @@ export function useChatController() {
           id: CURRENT_USER_ID,
           displayName: snap.account.displayName,
           peerId: localPeerId,
-          devices: [getCurrentDevice()],
+          devices: [buildCurrentDeviceIdentity(snap)],
         },
         {
           id: fromPeerId,
@@ -939,11 +1157,16 @@ export function useChatController() {
       createdAt: envelope.sentAt,
       previewText: payloadPreviewText,
       ciphertext: {
-        algorithm: 'xchacha20poly1305',
-        // transport encryption is handled by libp2p Noise; store a safe placeholder
-        ciphertext: isImagePayload ? '' : (() => { try { return btoa(envelope.payload); } catch { return ''; } })(),
-        nonce: 'network-stream',
-        recipientDeviceIds: [getCurrentDevice().id],
+        algorithm: parsedE2EEPayload?.algorithm ?? 'xchacha20poly1305',
+        ciphertext: isImagePayload
+          ? ''
+          : parsedE2EEPayload?.ciphertext
+            ?? (() => { try { return btoa(payloadPreviewText); } catch { return ''; } })(),
+        nonce: parsedE2EEPayload?.nonce ?? 'network-stream',
+        recipientDeviceIds: parsedE2EEPayload?.recipientDeviceIds ?? [getCurrentDevice().id],
+        senderKeyId: parsedE2EEPayload?.senderKeyId,
+        aad: parsedE2EEPayload?.aad,
+        keyWraps: parsedE2EEPayload?.keyWraps,
       },
       delivery: 'delivered',
       reactions: [],
@@ -960,7 +1183,7 @@ export function useChatController() {
       return;
     }
 
-    const nextMessages = [...currentMessages, incomingMessage];
+    const nextMessages = capConversationMessages([...currentMessages, incomingMessage]);
 
     const nextConversations = existingConversation
       ? snap.conversations.map((candidate) => candidate.id === conversation.id ? {
@@ -997,6 +1220,41 @@ export function useChatController() {
     if (nextState !== snap) {
       await persistState(nextState);
     }
+  }, [persistState]);
+
+  const updateMessageCiphertext = useCallback(async (
+    messageId: string,
+    ciphertext: ChatMessage['ciphertext'],
+  ) => {
+    const snap = stateRef.current;
+    const nextMessagesByConversation = { ...snap.messagesByConversation };
+    let changed = false;
+
+    for (const conversationId of Object.keys(nextMessagesByConversation)) {
+      const currentMessages = nextMessagesByConversation[conversationId] ?? [];
+      const targetIndex = currentMessages.findIndex((message) => message.id === messageId);
+      if (targetIndex === -1) {
+        continue;
+      }
+
+      const nextMessages = [...currentMessages];
+      nextMessages[targetIndex] = {
+        ...nextMessages[targetIndex],
+        ciphertext,
+      };
+      nextMessagesByConversation[conversationId] = nextMessages;
+      changed = true;
+      break;
+    }
+
+    if (!changed) {
+      return;
+    }
+
+    await persistState({
+      ...snap,
+      messagesByConversation: nextMessagesByConversation,
+    });
   }, [persistState]);
 
   const deleteConversation = useCallback(async (conversationId: string) => {
@@ -1084,7 +1342,21 @@ export function useChatController() {
         if (new Date(msg.createdAt).getTime() < sinceTime) continue;
         const payload = msg.attachments?.length
           ? `${SKYPIER_MEDIA_PREFIX}${JSON.stringify(msg.attachments[0])}`
-          : msg.previewText;
+          : parseChatReactionEventPayload(msg.previewText)
+            ? msg.previewText
+            : msg.ciphertext.ciphertext.length > 0
+              ? serializeE2EEWirePayload({
+                  v: 1,
+                  algorithm: msg.ciphertext.algorithm,
+                  ciphertext: msg.ciphertext.ciphertext,
+                  nonce: msg.ciphertext.nonce,
+                  senderDeviceId: msg.senderDeviceId,
+                  recipientDeviceIds: msg.ciphertext.recipientDeviceIds,
+                  senderKeyId: msg.ciphertext.senderKeyId,
+                  aad: msg.ciphertext.aad,
+                  keyWraps: msg.ciphertext.keyWraps,
+                })
+              : msg.previewText;
         results.push({
           messageId: msg.id,
           conversationId: msg.conversationId,
@@ -1125,6 +1397,7 @@ export function useChatController() {
     contacts: state.contacts ?? [],
     appendCallHistoryEntry,
     ingestIncomingEnvelope,
+    updateMessageCiphertext,
     updateMessageDeliveryStatus,
     getRecentMessagesForPeer,
     linkEthAddress,

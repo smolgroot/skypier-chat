@@ -14,6 +14,8 @@ if ('serviceWorker' in navigator) {
       const data = event.data ?? {};
       if (data.type === 'SKYPIER_RECOVER_CONNECTIVITY') {
         emitConnectivityRecoveryRequest(data.source ?? 'service-worker');
+      } else if (data.type === 'SKYPIER_PUSH_SUBSCRIPTION_CHANGED') {
+        window.dispatchEvent(new CustomEvent('skypier:push-subscription-changed'));
       }
     });
 

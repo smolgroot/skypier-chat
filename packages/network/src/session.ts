@@ -1,7 +1,18 @@
 import { multiaddr } from '@multiformats/multiaddr';
 import { peerIdFromString } from '@libp2p/peer-id';
 import * as lp from 'it-length-prefixed';
-import type { AudioCallChunk, AudioCallSignal, ChatMessage } from '@skypier/protocol';
+import type {
+  AudioCallChunk,
+  AudioCallSignal,
+  ChatMessage,
+  DevicePreKeyBundle,
+  MailboxAckRequest,
+  MailboxAckResponse,
+  MailboxEnqueueRequest,
+  MailboxEnqueueResponse,
+  MailboxPullRequest,
+  MailboxPullResponse,
+} from '@skypier/protocol';
 import {
   loadPendingQueue,
   savePendingQueue,
@@ -91,6 +102,9 @@ export interface BrowserLiveSession {
   sendEnvelopeToConnected(envelope: WireEnvelope): Promise<number>;
   sendChatMessageToConnected(message: ChatMessage): Promise<number>;
   sendChatMessageToPeer(message: ChatMessage, targetPeerId: string): Promise<boolean>;
+  enqueueMailboxForPeer(message: ChatMessage, targetPeerId: string): Promise<boolean>;
+  pullMailboxFromPeer(targetPeerId: string, limit?: number): Promise<MailboxPullResponse | null>;
+  ackMailboxFromPeer(targetPeerId: string, envelopeIds: string[]): Promise<MailboxAckResponse | null>;
   sendAudioCallSignal(signal: AudioCallSignal, targetPeerId: string): Promise<boolean>;
   sendAudioCallChunk(chunk: AudioCallChunk, targetPeerId: string): Promise<boolean>;
   retryMessage(messageId: string): Promise<boolean>;
@@ -129,6 +143,8 @@ interface SyncPayload {
   hasPreferredRelayReservation?: boolean;
   /** Phase 2.1: outbox messages the responder is replaying for the requester */
   messages?: SyncMessageEntry[];
+  /** Phase 2.2: sender’s public prekey bundle — used to enable E2EE for first contact */
+  preKeyBundle?: DevicePreKeyBundle;
 }
 
 // ─── Retry constants ─────────────────────────────────────────────────────
@@ -148,18 +164,76 @@ function computeNextRetryDelay(retryCount: number): number {
 
 export interface CreateBrowserLiveSessionOptions {
   nodeOptions?: CreateBrowserSkypierNodeOptions;
+  /** Called each time a sync message is sent to include the local public prekey bundle. */
+  getLocalPreKeyBundle?: () => DevicePreKeyBundle | undefined;
 }
 
 // ─── Media prefix ─────────────────────────────────────────────────────────────
 /** Prefix placed in WireEnvelope.payload for image messages. */
 export const SKYPIER_MEDIA_PREFIX = 'skypier:img:';
+export const SKYPIER_E2EE_PREFIX = 'skypier:e2ee:1:';
+
+export interface E2EEWirePayload {
+  v: 1;
+  algorithm: 'xchacha20poly1305' | 'aes-gcm';
+  ciphertext: string;
+  nonce: string;
+  senderDeviceId: string;
+  recipientDeviceIds: string[];
+  senderKeyId?: string;
+  aad?: string;
+  keyWraps?: NonNullable<ChatMessage['ciphertext']['keyWraps']>;
+}
+
+export function serializeE2EEWirePayload(payload: E2EEWirePayload): string {
+  return `${SKYPIER_E2EE_PREFIX}${JSON.stringify(payload)}`;
+}
+
+export function parseE2EEWirePayload(payload: string): E2EEWirePayload | null {
+  if (!payload.startsWith(SKYPIER_E2EE_PREFIX)) {
+    return null;
+  }
+
+  try {
+    const parsed = JSON.parse(payload.slice(SKYPIER_E2EE_PREFIX.length)) as Partial<E2EEWirePayload>;
+    if (parsed.v !== 1) return null;
+    if (parsed.algorithm !== 'xchacha20poly1305' && parsed.algorithm !== 'aes-gcm') return null;
+    if (typeof parsed.ciphertext !== 'string' || typeof parsed.nonce !== 'string' || typeof parsed.senderDeviceId !== 'string') {
+      return null;
+    }
+    if (!Array.isArray(parsed.recipientDeviceIds) || parsed.recipientDeviceIds.some((entry) => typeof entry !== 'string')) {
+      return null;
+    }
+    if (parsed.keyWraps != null && (!Array.isArray(parsed.keyWraps) || parsed.keyWraps.some((entry) => typeof entry !== 'object' || entry == null))) {
+      return null;
+    }
+    return parsed as E2EEWirePayload;
+  } catch {
+    return null;
+  }
+}
 
 /** Serialise a ChatMessage into a wire payload string. */
 function buildEnvelopePayload(message: ChatMessage): string {
   if (message.attachments?.length) {
     return SKYPIER_MEDIA_PREFIX + JSON.stringify(message.attachments[0]);
   }
-  return message.previewText;
+
+  if (message.previewText.startsWith('skypier:react:') || message.ciphertext.ciphertext.length === 0) {
+    return message.previewText;
+  }
+
+  return serializeE2EEWirePayload({
+    v: 1,
+    algorithm: message.ciphertext.algorithm,
+    ciphertext: message.ciphertext.ciphertext,
+    nonce: message.ciphertext.nonce,
+    senderDeviceId: message.senderDeviceId,
+    recipientDeviceIds: message.ciphertext.recipientDeviceIds,
+    senderKeyId: message.ciphertext.senderKeyId,
+    aad: message.ciphertext.aad,
+    keyWraps: message.ciphertext.keyWraps,
+  });
 }
 
 function tryParseSyncPayload(payload: string): SyncPayload | null {
@@ -181,6 +255,7 @@ export function createBrowserLiveSession(options: CreateBrowserLiveSessionOption
   let node: SkypierBrowserNode | undefined;
   let retryTimer: ReturnType<typeof setInterval> | undefined;
   let relayKeepaliveTimer: ReturnType<typeof setInterval> | undefined;
+  let relayCheckInterval: ReturnType<typeof setInterval> | undefined;
   let hadRelayReservation = false;
   let relayReservationKey = '';
 
@@ -209,6 +284,13 @@ export function createBrowserLiveSession(options: CreateBrowserLiveSessionOption
     deliveryStatus: new Set<(payload: DeliveryStatusEvent) => void>(),
     dialLog: new Set<(payload: DialLogEntry) => void>(),
   };
+
+  const redialInFlight = new Map<string, Promise<Awaited<ReturnType<SkypierBrowserNode['dial']>> | undefined>>();
+  const redialCooldownUntil = new Map<string, number>();
+  const ensureConnectionLogAt = new Map<string, number>();
+
+  const REDIAL_COOLDOWN_MS = 2_500;
+  const ENSURE_LOG_THROTTLE_MS = 2_000;
 
   const configuredRelayBootstrapCandidates = Array.from(new Set(
     (options.nodeOptions?.bootstrapMultiaddrs ?? [])
@@ -259,6 +341,8 @@ export function createBrowserLiveSession(options: CreateBrowserLiveSessionOption
       .map((addr) => extractPeerIdFromMultiaddr(addr))
       .filter((peerId): peerId is string => peerId != null),
   ));
+
+  const hardConnectionLimit = Math.max(2, options.nodeOptions?.maxConnections ?? 4);
 
   // ─── Helpers ───────────────────────────────────────────────────────────
 
@@ -371,6 +455,32 @@ export function createBrowserLiveSession(options: CreateBrowserLiveSessionOption
         return `${normalizedRelayAddr}/p2p-circuit/p2p/${targetPeerId}`;
       }),
     ));
+  }
+
+  async function trimExcessConnections() {
+    if (!node) return;
+
+    const current = node.getConnections();
+    if (current.length <= hardConnectionLimit) {
+      return;
+    }
+
+    const relaySet = new Set(configuredRelayPeerIds);
+    const candidates = current.filter((conn) => !relaySet.has(conn.remotePeer.toString()));
+    const overflow = current.length - hardConnectionLimit;
+
+    for (let i = 0; i < Math.min(overflow, candidates.length); i += 1) {
+      const conn = candidates[i];
+      try {
+        const pid = conn.remotePeer.toString();
+        await (conn as unknown as { close: () => Promise<void> }).close();
+        console.log('[skypier:session] closed excess peer connection', pid, `(${i + 1}/${overflow})`);
+      } catch {
+        // ignore close failures
+      }
+    }
+
+    emitState();
   }
 
   async function waitForPreferredRelayReservation(timeoutMs = RELAY_RESERVATION_WAIT_TIMEOUT_MS): Promise<boolean> {
@@ -497,6 +607,26 @@ export function createBrowserLiveSession(options: CreateBrowserLiveSessionOption
     emitState();
   }
 
+  function logEnsureConnection(
+    peerId: string,
+    bucket: 'dialing' | 'success' | 'failed' | 'cooldown' | 'node-not-ready',
+    ...args: unknown[]
+  ) {
+    const key = `${bucket}:${peerId}`;
+    const now = Date.now();
+    const previous = ensureConnectionLogAt.get(key) ?? 0;
+    if (now - previous < ENSURE_LOG_THROTTLE_MS) {
+      return;
+    }
+    ensureConnectionLogAt.set(key, now);
+
+    if (bucket === 'failed' || bucket === 'node-not-ready') {
+      console.warn(...args);
+    } else {
+      console.log(...args);
+    }
+  }
+
   // ─── Send one envelope via length-prefixed stream ──────────────────────
 
   async function ensureConnectionToPeer(peerId: string) {
@@ -506,7 +636,7 @@ export function createBrowserLiveSession(options: CreateBrowserLiveSessionOption
     }
 
     if (!node) {
-      console.warn('[skypier:session] ensureConnectionToPeer: node not ready for', peerId);
+      logEnsureConnection(peerId, 'node-not-ready', '[skypier:session] ensureConnectionToPeer: node not ready for', peerId);
       return undefined;
     }
 
@@ -514,16 +644,45 @@ export function createBrowserLiveSession(options: CreateBrowserLiveSessionOption
 
     // No live connection — try to re-dial via the peer store / known addresses
     if (!connection) {
-      try {
-        const targetPeerId = peerIdFromString(peerId);
-        console.log('[skypier:session] ensureConnectionToPeer: no connection to', peerId, '— attempting re-dial…');
-        connection = await node.dial(targetPeerId);
-        console.log('[skypier:session] ensureConnectionToPeer: re-dial ✓ connected to', peerId);
-        emitState();
-      } catch (dialErr) {
-        console.warn('[skypier:session] ensureConnectionToPeer: re-dial failed for', peerId, dialErr instanceof Error ? dialErr.message : dialErr);
+      const now = Date.now();
+      const cooldownUntil = redialCooldownUntil.get(peerId) ?? 0;
+      if (cooldownUntil > now) {
+        logEnsureConnection(peerId, 'cooldown', '[skypier:session] ensureConnectionToPeer: skipping re-dial (cooldown) for', peerId);
         return undefined;
       }
+
+      const existingDial = redialInFlight.get(peerId);
+      if (existingDial) {
+        connection = await existingDial;
+        return connection;
+      }
+
+      const dialPromise = (async () => {
+        try {
+          const targetPeerId = peerIdFromString(peerId);
+          logEnsureConnection(peerId, 'dialing', '[skypier:session] ensureConnectionToPeer: no connection to', peerId, '— attempting re-dial…');
+          const dialed = await node!.dial(targetPeerId);
+          redialCooldownUntil.delete(peerId);
+          logEnsureConnection(peerId, 'success', '[skypier:session] ensureConnectionToPeer: re-dial ✓ connected to', peerId);
+          emitState();
+          return dialed;
+        } catch (dialErr) {
+          redialCooldownUntil.set(peerId, Date.now() + REDIAL_COOLDOWN_MS);
+          logEnsureConnection(
+            peerId,
+            'failed',
+            '[skypier:session] ensureConnectionToPeer: re-dial failed for',
+            peerId,
+            dialErr instanceof Error ? dialErr.message : dialErr,
+          );
+          return undefined;
+        } finally {
+          redialInFlight.delete(peerId);
+        }
+      })();
+
+      redialInFlight.set(peerId, dialPromise);
+      connection = await dialPromise;
     }
 
     return connection;
@@ -611,6 +770,7 @@ export function createBrowserLiveSession(options: CreateBrowserLiveSessionOption
         queuedOutgoing: queue.length,
         hasPreferredRelayReservation: getPreferredRelayReservationAddresses().length > 0,
         messages: messages.length > 0 ? messages : undefined,
+        preKeyBundle: options.getLocalPreKeyBundle?.(),
       } satisfies SyncPayload),
     };
 
@@ -649,6 +809,42 @@ export function createBrowserLiveSession(options: CreateBrowserLiveSessionOption
 
   async function readAudioCallChunkFromStream(source: AsyncIterable<any>): Promise<AudioCallChunk> {
     return JSON.parse(new TextDecoder().decode(await readBytesFromStream(source))) as AudioCallChunk;
+  }
+
+  async function requestMailboxProtocol<TResponse>(
+    peerId: string,
+    protocol: string,
+    payload: unknown,
+  ): Promise<TResponse | null> {
+    const connection = await ensureConnectionToPeer(peerId);
+    if (connection == null) {
+      return null;
+    }
+
+    let stream: Awaited<ReturnType<typeof connection.newStream>> | undefined;
+    try {
+      stream = await connection.newStream(protocol);
+      const encoded = new TextEncoder().encode(JSON.stringify(payload));
+      for await (const chunk of lp.encode([encoded])) {
+        stream.send(normalizeChunk(chunk));
+      }
+      await (stream as { closeWrite?: () => Promise<void> }).closeWrite?.();
+
+      const responseBytes = await readBytesFromStream(stream);
+      if (responseBytes.byteLength === 0) {
+        return null;
+      }
+
+      return JSON.parse(new TextDecoder().decode(responseBytes)) as TResponse;
+    } catch (error) {
+      const errName = (error as { name?: string })?.name ?? '';
+      if (errName !== 'UnsupportedProtocolError') {
+        console.warn('[skypier:session] mailbox request failed for', protocol, 'peer', peerId, error);
+      }
+      return null;
+    } finally {
+      await stream?.close().catch(() => {});
+    }
   }
 
   // ─── Background retry loop with exponential back-off ───────────────────
@@ -861,6 +1057,7 @@ export function createBrowserLiveSession(options: CreateBrowserLiveSessionOption
               listeners.peerReachability.forEach((h) => h({ peerId: pid, reachability }));
             }
           }
+          void trimExcessConnections();
           emitState();
         });
 
@@ -912,9 +1109,10 @@ export function createBrowserLiveSession(options: CreateBrowserLiveSessionOption
         // Log relay discovery progress every 5 s until a reservation is acquired;
         // the relay keepalive loop then maintains it indefinitely after that.
         let relayProbeCount = 0;
-        const relayCheckInterval = setInterval(() => {
+        relayCheckInterval = setInterval(() => {
           if (!node) {
             clearInterval(relayCheckInterval);
+            relayCheckInterval = undefined;
             return;
           }
           const addrs = node.getMultiaddrs().map((ma) => ma.toString());
@@ -936,6 +1134,7 @@ export function createBrowserLiveSession(options: CreateBrowserLiveSessionOption
             console.log('[skypier:session] ✓ relay reservation acquired:', relayAddrs[0]);
             emitState(); // update UI with new listen addresses
             clearInterval(relayCheckInterval);
+            relayCheckInterval = undefined;
           }
         }, 5_000);
 
@@ -956,6 +1155,10 @@ export function createBrowserLiveSession(options: CreateBrowserLiveSessionOption
     async stop() {
       stopRetryLoop();
       stopRelayKeepalive();
+      if (relayCheckInterval != null) {
+        clearInterval(relayCheckInterval);
+        relayCheckInterval = undefined;
+      }
 
       if (!node) {
         state = { ...state, status: 'stopped' };
@@ -1026,6 +1229,7 @@ export function createBrowserLiveSession(options: CreateBrowserLiveSessionOption
             type: 'request',
             generatedAt: new Date().toISOString(),
             requestedSince,
+            preKeyBundle: options.getLocalPreKeyBundle?.(),
           } satisfies SyncPayload),
         };
 
@@ -1253,6 +1457,73 @@ export function createBrowserLiveSession(options: CreateBrowserLiveSessionOption
         enqueue(targetPeerId, envelope);
       }
       return result === true;
+    },
+
+    async enqueueMailboxForPeer(message: ChatMessage, targetPeerId: string) {
+      if (!message.ciphertext.keyWraps || message.ciphertext.keyWraps.length === 0) {
+        return false;
+      }
+
+      const now = Date.now();
+      const sentAt = new Date(now).toISOString();
+      const expiresAt = new Date(now + 7 * 24 * 60 * 60 * 1000).toISOString();
+      const request: MailboxEnqueueRequest = {
+        envelope: {
+          envelopeId: `mbx-${message.id}`,
+          messageId: message.id,
+          conversationId: message.conversationId,
+          senderPeerId: state.localPeerId ?? 'unknown',
+          recipientPeerId: targetPeerId,
+          sentAt,
+          expiresAt,
+          contentType: 'chat-envelope',
+          encryptedEnvelope: {
+            v: 1,
+            algorithm: message.ciphertext.algorithm,
+            ciphertext: message.ciphertext.ciphertext,
+            nonce: message.ciphertext.nonce,
+            senderKeyId: message.ciphertext.senderKeyId ?? message.senderDeviceId,
+            aad: message.ciphertext.aad,
+            keyWraps: message.ciphertext.keyWraps,
+          },
+        },
+      };
+
+      const response = await requestMailboxProtocol<MailboxEnqueueResponse>(
+        targetPeerId,
+        SKYPIER_CHAT_PROTOCOLS.mailboxEnqueue,
+        request,
+      );
+
+      return response?.accepted === true;
+    },
+
+    async pullMailboxFromPeer(targetPeerId: string, limit = 50) {
+      const request: MailboxPullRequest = {
+        recipientPeerId: state.localPeerId ?? '',
+        limit,
+      };
+      return await requestMailboxProtocol<MailboxPullResponse>(
+        targetPeerId,
+        SKYPIER_CHAT_PROTOCOLS.mailboxPull,
+        request,
+      );
+    },
+
+    async ackMailboxFromPeer(targetPeerId: string, envelopeIds: string[]) {
+      if (envelopeIds.length === 0) {
+        return { acked: [], missing: [] } satisfies MailboxAckResponse;
+      }
+
+      const request: MailboxAckRequest = {
+        recipientPeerId: state.localPeerId ?? '',
+        envelopeIds,
+      };
+      return await requestMailboxProtocol<MailboxAckResponse>(
+        targetPeerId,
+        SKYPIER_CHAT_PROTOCOLS.mailboxAck,
+        request,
+      );
     },
 
     async sendAudioCallSignal(signal: AudioCallSignal, targetPeerId: string) {

@@ -26,6 +26,16 @@ const participants: Participant[] = [
         peerId: '12D3KooWRemotePeerAri',
         platform: 'ios',
         trustLevel: 'hardware-backed',
+        preKeyBundle: {
+          version: 1,
+          algorithm: 'x25519',
+          deviceId: 'device-ari-iphone',
+          peerId: '12D3KooWRemotePeerAri',
+          identityPublicKey: 'AmxcUzBkZgqC95fnEwf/h0kVAl5BQXEToH357AogmVE=',
+          preKeyId: 'seeded-prekey-ari-v1',
+          preKeyPublicKey: 'AmxcUzBkZgqC95fnEwf/h0kVAl5BQXEToH357AogmVE=',
+          createdAt: '2026-03-16T08:20:00.000Z',
+        },
       },
     ],
   },
@@ -40,6 +50,16 @@ const participants: Participant[] = [
         peerId: '12D3KooWRemotePeerNoah',
         platform: 'android',
         trustLevel: 'hardware-backed',
+        preKeyBundle: {
+          version: 1,
+          algorithm: 'x25519',
+          deviceId: 'device-noah-android',
+          peerId: '12D3KooWRemotePeerNoah',
+          identityPublicKey: 'XpBx9KUI1Dpx78FepkL9xJr8i/XYaq1l6KvWuVamaEI=',
+          preKeyId: 'seeded-prekey-noah-v1',
+          preKeyPublicKey: 'XpBx9KUI1Dpx78FepkL9xJr8i/XYaq1l6KvWuVamaEI=',
+          createdAt: '2026-03-16T07:11:00.000Z',
+        },
       },
     ],
   },
@@ -182,11 +202,13 @@ export interface ChatRepository {
 
 const DATABASE_NAME = 'skypier-chat';
 const OBJECT_STORE_NAME = 'vaults';
+const ATTACHMENTS_OBJECT_STORE_NAME = 'attachments';
 const PRIMARY_KEY = 'primary';
 const LOCAL_STORAGE_KEY = 'skypier-chat:vault';
 const LOCAL_STORAGE_AES_KEY = 'skypier-chat:vault-key';
 
 let memoryFallbackPayload: string | null = null;
+const memoryAttachmentFallback = new Map<string, Blob>();
 let cachedVaultKey: CryptoKey | null = null;
 
 export function createInitialChatState(): PersistedChatState {
@@ -356,18 +378,68 @@ async function writePersistedPayload(mode: 'indexeddb' | 'localstorage' | 'memor
 
 async function openDatabase(): Promise<IDBDatabase> {
   return await new Promise<IDBDatabase>((resolve, reject) => {
-    const request = indexedDB.open(DATABASE_NAME, 1);
+    const request = indexedDB.open(DATABASE_NAME, 2);
 
     request.onupgradeneeded = () => {
       const database = request.result;
       if (!database.objectStoreNames.contains(OBJECT_STORE_NAME)) {
         database.createObjectStore(OBJECT_STORE_NAME);
       }
+      if (!database.objectStoreNames.contains(ATTACHMENTS_OBJECT_STORE_NAME)) {
+        database.createObjectStore(ATTACHMENTS_OBJECT_STORE_NAME);
+      }
     };
 
     request.onsuccess = () => resolve(request.result);
     request.onerror = () => reject(request.error);
   });
+}
+
+export async function saveAttachmentBlob(key: string, blob: Blob): Promise<void> {
+  if (!key) {
+    return;
+  }
+
+  const mode = resolveStorageMode();
+  if (mode === 'indexeddb') {
+    try {
+      const database = await openDatabase();
+      await new Promise<void>((resolve, reject) => {
+        const tx = database.transaction(ATTACHMENTS_OBJECT_STORE_NAME, 'readwrite');
+        tx.objectStore(ATTACHMENTS_OBJECT_STORE_NAME).put(blob, key);
+        tx.oncomplete = () => resolve();
+        tx.onerror = () => reject(tx.error);
+      });
+      return;
+    } catch {
+      // fall through to in-memory fallback
+    }
+  }
+
+  memoryAttachmentFallback.set(key, blob);
+}
+
+export async function loadAttachmentBlob(key: string): Promise<Blob | null> {
+  if (!key) {
+    return null;
+  }
+
+  const mode = resolveStorageMode();
+  if (mode === 'indexeddb') {
+    try {
+      const database = await openDatabase();
+      return await new Promise<Blob | null>((resolve, reject) => {
+        const tx = database.transaction(ATTACHMENTS_OBJECT_STORE_NAME, 'readonly');
+        const request = tx.objectStore(ATTACHMENTS_OBJECT_STORE_NAME).get(key);
+        request.onsuccess = () => resolve((request.result as Blob | undefined) ?? null);
+        request.onerror = () => reject(request.error);
+      });
+    } catch {
+      // fall through to in-memory fallback
+    }
+  }
+
+  return memoryAttachmentFallback.get(key) ?? null;
 }
 
 async function encryptPayload(state: PersistedChatState): Promise<string> {
@@ -412,6 +484,7 @@ function normalizePersistedState(raw: PersistedChatState): PersistedChatState {
       biometricCredentialId: account.biometricCredentialId,
       localPeerId: account.localPeerId,
       identityProtobuf: account.identityProtobuf,
+      deviceCryptoState: account.deviceCryptoState,
     },
     conversations: raw.conversations ?? [],
     messagesByConversation: raw.messagesByConversation ?? {},

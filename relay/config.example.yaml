@@ -39,3 +39,12 @@ circuit_data_mb: 512
 
 # Path where the JSON status snapshot is written (read by 'status' subcommand).
 status_file: /run/skypier-relay/status.json
+
+# Enable encrypted mailbox buffering for offline peers.
+mailbox_enabled: true
+
+# Default TTL for buffered encrypted envelopes.
+mailbox_default_ttl: 168h
+
+# Maximum queued envelopes per recipient peer.
+mailbox_max_per_recipient: 1000

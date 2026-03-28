@@ -53,6 +53,18 @@ type Config struct {
 	// StatusFile is the path where the JSON status snapshot is written.
 	// Default: /run/skypier-relay/status.json
 	StatusFile string `yaml:"status_file"`
+
+	// MailboxEnabled enables relay-side encrypted mailbox storage.
+	// Default: true
+	MailboxEnabled bool `yaml:"mailbox_enabled"`
+
+	// MailboxDefaultTTL is the default expiration for stored mailbox envelopes.
+	// Default: 168h (7 days)
+	MailboxDefaultTTL Duration `yaml:"mailbox_default_ttl"`
+
+	// MailboxMaxPerRecipient is the maximum buffered envelopes for a recipient.
+	// Default: 1000
+	MailboxMaxPerRecipient int `yaml:"mailbox_max_per_recipient"`
 }
 
 // Duration is a time.Duration that marshals/unmarshals as a human-readable
@@ -83,6 +95,9 @@ func Defaults() Config {
 		CircuitDuration:        Duration{15 * time.Minute},
 		CircuitDataMB:          512,
 		StatusFile:             "/run/skypier-relay/status.json",
+		MailboxEnabled:         true,
+		MailboxDefaultTTL:      Duration{7 * 24 * time.Hour},
+		MailboxMaxPerRecipient: 1000,
 	}
 }
 

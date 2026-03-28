@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createBrowserLiveSession, type BrowserLiveSession, type BrowserLiveSessionState, type DeliveryStatusEvent, type NetworkDebugSnapshot, type PeerReachabilityEvent, type SyncMessageEntry } from '@skypier/network';
-import type { AudioCallChunk, AudioCallSignal, ChatMessage } from '@skypier/protocol';
+import type { AudioCallChunk, AudioCallSignal, ChatMessage, DevicePreKeyBundle, MailboxAckResponse, MailboxPullResponse } from '@skypier/protocol';
 
 interface UseLiveChatSessionOptions {
   onInboundMessage: (payload: { fromPeerId: string; envelope: { kind: 'message' | 'receipt' | 'presence' | 'sync'; conversationId: string; senderPeerId: string; sentAt: string; payload: string } }) => Promise<void> | void;
@@ -16,6 +16,8 @@ interface UseLiveChatSessionOptions {
    * The session will automatically send them back as a sync/state response.
    */
   onSyncRequest?: (fromPeerId: string, requestedSince: string | undefined) => SyncMessageEntry[];
+  /** Called to get the local public prekey bundle for inclusion in sync messages. */
+  getLocalPreKeyBundle?: () => DevicePreKeyBundle | undefined;
 }
 
 /**
@@ -43,6 +45,14 @@ const RELAY_BOOTSTRAP_MULTIADDRS = String(import.meta.env.VITE_RELAY_BOOTSTRAP_M
   .split(',')
   .map((value: string) => value.trim())
   .filter(Boolean);
+
+const ENABLE_PEER_DISCOVERY = String(import.meta.env.VITE_ENABLE_PEER_DISCOVERY ?? '')
+  .toLowerCase()
+  .trim() === 'true';
+
+const ENABLE_DHT = String(import.meta.env.VITE_ENABLE_DHT ?? '')
+  .toLowerCase()
+  .trim() === 'true';
 
 function stripRelayCircuitSuffix(value: string): string {
   return value.replace(/\/p2p-circuit$/, '');
@@ -76,11 +86,15 @@ const CAN_USE_WEBTRANSPORT = typeof window !== 'undefined' && 'WebTransport' in 
 
 const CONFIGURED_RELAY_LISTEN_MULTIADDRS = CONFIGURED_RELAY_DIRECT_MULTIADDRS.map(appendRelayCircuitSuffix);
 
+const ENABLE_PUBLIC_BOOTSTRAP = String(import.meta.env.VITE_ENABLE_PUBLIC_BOOTSTRAP ?? '')
+  .toLowerCase()
+  .trim() === 'true';
+
 const EFFECTIVE_BOOTSTRAP_MULTIADDRS = Array.from(
   new Set([
     ...CONFIGURED_RELAY_DIRECT_MULTIADDRS,
     ...(CAN_USE_WEBTRANSPORT ? CONFIGURED_RELAY_WEBTRANSPORT_MULTIADDRS : []),
-    ...DEFAULT_BOOTSTRAP_MULTIADDRS,
+    ...(ENABLE_PUBLIC_BOOTSTRAP ? DEFAULT_BOOTSTRAP_MULTIADDRS : []),
   ]),
 );
 
@@ -110,9 +124,9 @@ const EFFECTIVE_LISTEN_ADDRESSES = Array.from(
 );
 
 const MAX_BROWSER_CONNECTIONS = (() => {
-  const raw = Number(import.meta.env.VITE_LIBP2P_MAX_CONNECTIONS ?? '16');
-  if (!Number.isFinite(raw)) return 16;
-  return Math.max(4, Math.min(32, Math.floor(raw)));
+  const raw = Number(import.meta.env.VITE_LIBP2P_MAX_CONNECTIONS ?? '4');
+  if (!Number.isFinite(raw)) return 4;
+  return Math.max(2, Math.min(8, Math.floor(raw)));
 })();
 
 const INITIAL_STATE: BrowserLiveSessionState = {
@@ -165,6 +179,8 @@ export function useLiveChatSession(options: UseLiveChatSessionOptions) {
     const session = createBrowserLiveSession({
       nodeOptions: {
         bootstrapMultiaddrs: EFFECTIVE_BOOTSTRAP_MULTIADDRS,
+        enablePeerDiscovery: ENABLE_PEER_DISCOVERY,
+        enableDHT: ENABLE_DHT,
         listenAddresses: EFFECTIVE_LISTEN_ADDRESSES,
         maxConnections: MAX_BROWSER_CONNECTIONS,
         ...(options.identityProtobuf ? {
@@ -178,6 +194,7 @@ export function useLiveChatSession(options: UseLiveChatSessionOptions) {
           })()
         } : {}),
       },
+      getLocalPreKeyBundle: options.getLocalPreKeyBundle,
     });
     sessionRef.current = session;
 
@@ -346,6 +363,36 @@ export function useLiveChatSession(options: UseLiveChatSessionOptions) {
     return requested;
   }, []);
 
+  const enqueueMailboxForPeer = useCallback(async (message: ChatMessage, targetPeerId: string) => {
+    if (!sessionRef.current) {
+      return false;
+    }
+
+    const accepted = await sessionRef.current.enqueueMailboxForPeer(message, targetPeerId);
+    setState(sessionRef.current.getState());
+    return accepted;
+  }, []);
+
+  const pullMailboxFromPeer = useCallback(async (targetPeerId: string, limit?: number): Promise<MailboxPullResponse | null> => {
+    if (!sessionRef.current) {
+      return null;
+    }
+
+    const response = await sessionRef.current.pullMailboxFromPeer(targetPeerId, limit);
+    setState(sessionRef.current.getState());
+    return response;
+  }, []);
+
+  const ackMailboxFromPeer = useCallback(async (targetPeerId: string, envelopeIds: string[]): Promise<MailboxAckResponse | null> => {
+    if (!sessionRef.current) {
+      return null;
+    }
+
+    const response = await sessionRef.current.ackMailboxFromPeer(targetPeerId, envelopeIds);
+    setState(sessionRef.current.getState());
+    return response;
+  }, []);
+
   const getDebugInfo = useCallback((): NetworkDebugSnapshot | null => {
     return sessionRef.current?.getDebugInfo() ?? null;
   }, []);
@@ -363,6 +410,9 @@ export function useLiveChatSession(options: UseLiveChatSessionOptions) {
     sendAudioCallChunk,
     retryMessage,
     requestSyncWithConnectedPeers,
+    enqueueMailboxForPeer,
+    pullMailboxFromPeer,
+    ackMailboxFromPeer,
     getDebugInfo,
     connectedPeers: useMemo(() => state.connectedPeers, [state.connectedPeers]),
   };

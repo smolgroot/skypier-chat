@@ -1,5 +1,5 @@
-import { createKeyCustodyPlan, createSecuritySummary } from '@skypier/crypto';
-import { createPresence, createRuntimePlan, SKYPIER_MEDIA_PREFIX, type DeliveryStatusEvent, type PeerReachabilityEvent, type DialLogEntry } from '@skypier/network';
+import { createKeyCustodyPlan, createSecuritySummary, encryptMessageEnvelope, exportDevicePreKeyBundle, generateDeviceCryptoState, toLegacyMessageCiphertext } from '@skypier/crypto';
+import { createPresence, createRuntimePlan, parseE2EEWirePayload, serializeE2EEWirePayload, SKYPIER_MEDIA_PREFIX, type DeliveryStatusEvent, type PeerReachabilityEvent, type DialLogEntry } from '@skypier/network';
 import { getCurrentDevice } from '@skypier/storage';
 import { useCallback, useState, useMemo, useEffect, useRef } from 'react';
 import { ThemeProvider, CssBaseline, Snackbar, Alert, Drawer, Box as MuiBox } from '@mui/material';
@@ -49,6 +49,32 @@ function findRemoteParticipant(
 }
 
 const OFFLINE_ALERT_MESSAGE = "You're offline. Couldn't connect to send new messages.";
+
+function decodeBase64ToUtf8(value: string): string | null {
+  try {
+    const binary = atob(value);
+    const bytes = new Uint8Array(binary.length);
+    for (let index = 0; index < binary.length; index += 1) {
+      bytes[index] = binary.charCodeAt(index);
+    }
+    return new TextDecoder().decode(bytes);
+  } catch {
+    return null;
+  }
+}
+
+function previewFromInboundPayload(payload: string): string {
+  if (payload.startsWith(SKYPIER_MEDIA_PREFIX)) {
+    return '📷 Photo';
+  }
+
+  const e2eePayload = parseE2EEWirePayload(payload);
+  if (!e2eePayload) {
+    return payload;
+  }
+
+  return e2eePayload.keyWraps?.length ? '🔐 Encrypted message' : decodeBase64ToUtf8(e2eePayload.ciphertext) ?? '🔐 Encrypted message';
+}
 
 function sanitizeReturnToPath(value: unknown): string {
   if (typeof value !== 'string') {
@@ -153,6 +179,7 @@ export function App() {
     selectReplyTarget,
     toggleReaction,
     ingestIncomingEnvelope,
+    updateMessageCiphertext,
     updateMessageDeliveryStatus,
     getRecentMessagesForPeer,
     linkEthAddress,
@@ -274,6 +301,47 @@ export function App() {
     setOfflineAlertOpen(true);
   }, []);
 
+  const sealOutgoingMessage = useCallback(async (
+    message: ChatMessage,
+    conversation: NonNullable<typeof selectedConversation>,
+  ): Promise<ChatMessage> => {
+    if (message.attachments?.length || !account.deviceCryptoState) {
+      return message;
+    }
+
+    const recipientBundles = conversation.participants
+      .flatMap((participant) => participant.devices)
+      .filter((device) => device.peerId !== (account.localPeerId ?? localPeerId ?? getCurrentDevice().peerId))
+      .flatMap((device) => device.preKeyBundle ? [device.preKeyBundle] : []);
+
+    if (recipientBundles.length === 0) {
+      return message;
+    }
+
+    const encryptedEnvelope = await encryptMessageEnvelope({
+      plaintext: message.previewText,
+      senderKeyId: account.deviceCryptoState.preKeyId,
+      recipientBundles,
+      aad: JSON.stringify({
+        messageId: message.id,
+        conversationId: message.conversationId,
+        senderDeviceId: message.senderDeviceId,
+      }),
+    });
+
+    const ciphertext = toLegacyMessageCiphertext(encryptedEnvelope, recipientBundles.map((bundle) => bundle.deviceId));
+    await updateMessageCiphertext(message.id, ciphertext);
+    return {
+      ...message,
+      ciphertext,
+    };
+  }, [account.deviceCryptoState, account.localPeerId, localPeerId, updateMessageCiphertext]);
+
+  const getLocalPreKeyBundle = useCallback(() => {
+    if (!account.deviceCryptoState) return undefined;
+    return exportDevicePreKeyBundle(account.deviceCryptoState);
+  }, [account.deviceCryptoState]);
+
   const handleInboundMessage = useCallback(async ({ fromPeerId, envelope }: { fromPeerId: string; envelope: { kind: 'message' | 'receipt' | 'presence' | 'sync'; conversationId: string; senderPeerId: string; sentAt: string; payload: string } }) => {
     console.log('[skypier:app] \u21d0 inbound message from', fromPeerId, '\u2014 kind:', envelope.kind, 'conv:', envelope.conversationId, 'payload:', envelope.payload.slice(0, 80));
     await ingestIncomingEnvelope(envelope, fromPeerId);
@@ -282,7 +350,7 @@ export function App() {
     if (envelope.kind === 'message' && !parseChatReactionEventPayload(envelope.payload)) {
       notifyIncomingMessage({
         senderName: `Peer ${fromPeerId.slice(0, 10)}…`,
-        messagePreview: envelope.payload.startsWith(SKYPIER_MEDIA_PREFIX) ? '📷 Photo' : envelope.payload,
+        messagePreview: previewFromInboundPayload(envelope.payload),
       });
     }
   }, [ingestIncomingEnvelope, notifyIncomingMessage]);
@@ -312,6 +380,9 @@ export function App() {
     dialPeerById,
     broadcastChatMessage,
     sendChatMessageToPeer,
+    enqueueMailboxForPeer,
+    pullMailboxFromPeer,
+    ackMailboxFromPeer,
     sendAudioCallSignal,
     sendAudioCallChunk,
     retryMessage,
@@ -326,8 +397,12 @@ export function App() {
     },
     onPeerReachabilityChange: handlePeerReachabilityChange,
     onDeliveryStatus: handleDeliveryStatus,
-    onDialLog: (log) => setDialLogs(prev => [...prev, log]),
+    onDialLog: (log) => setDialLogs(prev => {
+      const next = [...prev, log];
+      return next.length > 200 ? next.slice(-200) : next;
+    }),
     onSyncRequest: getRecentMessagesForPeer,
+    getLocalPreKeyBundle,
     identityProtobuf
   });
 
@@ -346,6 +421,77 @@ export function App() {
     if (account.localPeerId === liveState.localPeerId) return;
     void updateAccount({ localPeerId: liveState.localPeerId });
   }, [account.localPeerId, liveState.localPeerId, updateAccount]);
+
+  useEffect(() => {
+    if (!identityProtobuf || !account.localPeerId || account.deviceCryptoState) {
+      return;
+    }
+
+    void updateAccount({
+      deviceCryptoState: generateDeviceCryptoState({
+        deviceId: getCurrentDevice().id,
+        peerId: account.localPeerId,
+      }),
+    });
+  }, [account.deviceCryptoState, account.localPeerId, identityProtobuf, updateAccount]);
+
+  useEffect(() => {
+    if (liveState.status !== 'running' || connectedPeers.length === 0) {
+      return;
+    }
+
+    let cancelled = false;
+    void (async () => {
+      for (const peerId of connectedPeers) {
+        const pulled = await pullMailboxFromPeer(peerId, 50);
+        if (cancelled || !pulled || pulled.items.length === 0) {
+          continue;
+        }
+
+        const ackIds: string[] = [];
+        for (const item of pulled.items) {
+          await ingestIncomingEnvelope({
+            kind: 'message',
+            messageId: item.messageId,
+            conversationId: item.conversationId,
+            senderPeerId: item.senderPeerId,
+            sentAt: item.sentAt,
+            payload: serializeE2EEWirePayload({
+              v: 1,
+              algorithm: item.encryptedEnvelope.algorithm,
+              ciphertext: item.encryptedEnvelope.ciphertext,
+              nonce: item.encryptedEnvelope.nonce,
+              senderDeviceId: item.encryptedEnvelope.senderKeyId,
+              recipientDeviceIds: item.encryptedEnvelope.keyWraps.map((wrap) => wrap.recipientDeviceId),
+              senderKeyId: item.encryptedEnvelope.senderKeyId,
+              aad: item.encryptedEnvelope.aad,
+              keyWraps: item.encryptedEnvelope.keyWraps,
+            }),
+          }, item.senderPeerId);
+          notifyIncomingMessage({
+            senderName: `Peer ${item.senderPeerId.slice(0, 10)}…`,
+            messagePreview: '🔐 Encrypted message',
+          });
+          ackIds.push(item.envelopeId);
+        }
+
+        if (ackIds.length > 0) {
+          await ackMailboxFromPeer(peerId, ackIds);
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    ackMailboxFromPeer,
+    connectedPeers,
+    ingestIncomingEnvelope,
+    liveState.status,
+    notifyIncomingMessage,
+    pullMailboxFromPeer,
+  ]);
 
   useEffect(() => {
     audioCallSignalHandlerRef.current = ({ fromPeerId, signal }) => {
@@ -738,14 +884,23 @@ export function App() {
       }
     }
 
-    const sent = await sendChatMessageToPeer(message, remotePeer.peerId);
-    await updateMessageDeliveryStatus(message.id, sent ? 'sent' : 'queued');
-    return sent;
+    const sealedMessage = await sealOutgoingMessage(message, selectedConversation);
+    const sent = await sendChatMessageToPeer(sealedMessage, remotePeer.peerId);
+    if (sent) {
+      await updateMessageDeliveryStatus(message.id, 'sent');
+      return true;
+    }
+
+    const queuedOnRelay = await enqueueMailboxForPeer(sealedMessage, remotePeer.peerId);
+    await updateMessageDeliveryStatus(message.id, queuedOnRelay ? 'sent' : 'queued');
+    return queuedOnRelay;
   }, [
+    enqueueMailboxForPeer,
     isBrowserOffline,
     liveState.localPeerId,
     localPeerId,
     retryMessage,
+    sealOutgoingMessage,
     selectedConversation,
     sendChatMessageToPeer,
     showOfflineAlert,
@@ -1042,10 +1197,12 @@ export function App() {
                 );
                 if (remotePeer) {
                   console.log('[skypier:app] \u21d2 sending message to peer', remotePeer.peerId, 'conv:', message.conversationId);
-                  const sent = await sendChatMessageToPeer(message, remotePeer.peerId);
+                  const sealedMessage = await sealOutgoingMessage(message, selectedConversation);
+                  const sent = await sendChatMessageToPeer(sealedMessage, remotePeer.peerId);
                   if (!sent) {
+                    const queuedOnRelay = await enqueueMailboxForPeer(sealedMessage, remotePeer.peerId);
                     // Not sent immediately (likely dialing / transient network): keep queued.
-                    await updateMessageDeliveryStatus(message.id, 'queued');
+                    await updateMessageDeliveryStatus(message.id, queuedOnRelay ? 'sent' : 'queued');
                     if (!navigator.onLine) {
                       showOfflineAlert();
                     }
@@ -1082,7 +1239,8 @@ export function App() {
                   if (remotePeer) {
                     const sent = await sendChatMessageToPeer(message, remotePeer.peerId);
                     if (!sent) {
-                      await updateMessageDeliveryStatus(message.id, 'queued');
+                      const queuedOnRelay = await enqueueMailboxForPeer(message, remotePeer.peerId);
+                      await updateMessageDeliveryStatus(message.id, queuedOnRelay ? 'sent' : 'queued');
                       if (!navigator.onLine) {
                         showOfflineAlert();
                       }
@@ -1149,7 +1307,13 @@ export function App() {
           onComplete={(data) => {
             void (async () => {
               const { linkedWallet, ...accountData } = data;
-              await updateAccount(accountData);
+              await updateAccount({
+                ...accountData,
+                deviceCryptoState: generateDeviceCryptoState({
+                  deviceId: getCurrentDevice().id,
+                  peerId: accountData.localPeerId,
+                }),
+              });
               if (linkedWallet) {
                 await linkEthAddress(linkedWallet);
               }

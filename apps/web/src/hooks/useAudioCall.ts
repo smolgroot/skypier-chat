@@ -52,8 +52,11 @@ interface PlaybackPipeline {
   sourceBuffer?: SourceBuffer;
   objectUrl: string;
   queue: Uint8Array[];
+  queueBytes: number;
   ended: boolean;
 }
+
+const MAX_PLAYBACK_QUEUE_BYTES = 3 * 1024 * 1024; // 3 MB buffered inbound audio
 
 const PREFERRED_RECORDER_MIME_TYPES = [
   'audio/webm;codecs=opus',
@@ -118,6 +121,7 @@ export function useAudioCall(options: UseAudioCallOptions) {
 
     const nextChunk = pipeline.queue.shift();
     if (nextChunk) {
+      pipeline.queueBytes = Math.max(0, pipeline.queueBytes - nextChunk.byteLength);
       pipeline.sourceBuffer.appendBuffer(Uint8Array.from(nextChunk));
       return;
     }
@@ -138,6 +142,7 @@ export function useAudioCall(options: UseAudioCallOptions) {
     }
 
     pipeline.queue.length = 0;
+    pipeline.queueBytes = 0;
     pipeline.audio.pause();
     pipeline.audio.src = '';
     URL.revokeObjectURL(pipeline.objectUrl);
@@ -171,6 +176,7 @@ export function useAudioCall(options: UseAudioCallOptions) {
       mediaSource,
       objectUrl,
       queue: [],
+      queueBytes: 0,
       ended: false,
     };
 
@@ -619,7 +625,19 @@ export function useAudioCall(options: UseAudioCallOptions) {
       return;
     }
 
-    pipeline.queue.push(decodeBase64(chunk.data));
+    const decoded = decodeBase64(chunk.data);
+    pipeline.queue.push(decoded);
+    pipeline.queueBytes += decoded.byteLength;
+
+    // Drop oldest queued audio chunks if buffering grows too large.
+    while (pipeline.queueBytes > MAX_PLAYBACK_QUEUE_BYTES && pipeline.queue.length > 1) {
+      const dropped = pipeline.queue.shift();
+      if (!dropped) {
+        break;
+      }
+      pipeline.queueBytes = Math.max(0, pipeline.queueBytes - dropped.byteLength);
+    }
+
     void pipeline.audio.play().catch(() => {
       // Playback may be delayed until the user interacts with the page.
     });

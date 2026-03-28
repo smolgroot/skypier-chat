@@ -1,8 +1,9 @@
-import { useRef, useState, type PointerEvent } from 'react';
+import { useEffect, useRef, useState, type PointerEvent } from 'react';
 import { Box, Paper, Typography, Badge, IconButton, Modal, Fade, CircularProgress } from '@mui/material';
 import { styled } from '@mui/material/styles';
 import { reachabilityLabel } from '@skypier/network';
 import type { ChatMessage } from '@skypier/protocol';
+import { loadAttachmentBlob } from '@skypier/storage';
 import { useDrag } from '@use-gesture/react';
 import { animated, useSpring } from '@react-spring/web';
 import ReplyIcon from '@mui/icons-material/Reply';
@@ -11,6 +12,92 @@ import SaveAltIcon from '@mui/icons-material/SaveAlt';
 import EmojiEmotionsIcon from '@mui/icons-material/EmojiEmotions';
 import { LinkPreviewCard } from './LinkPreviewCard';
 import { extractFirstUrl } from '../hooks/useLinkPreview';
+
+const TRANSPARENT_PIXEL_DATA_URI = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==';
+
+function LazyAttachmentImage(props: {
+  dataUri: string;
+  width?: number;
+  height?: number;
+  onOpen: () => void;
+}) {
+  const { dataUri, width, height, onOpen } = props;
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const [isNearViewport, setIsNearViewport] = useState(false);
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || typeof IntersectionObserver === 'undefined') {
+      setIsNearViewport(true);
+      return;
+    }
+
+    const node = containerRef.current;
+    if (!node) {
+      return;
+    }
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const first = entries[0];
+        setIsNearViewport(first?.isIntersecting ?? false);
+      },
+      {
+        root: null,
+        rootMargin: '300px 0px',
+        threshold: 0.01,
+      },
+    );
+
+    observer.observe(node);
+
+    return () => {
+      observer.disconnect();
+    };
+  }, []);
+
+  const ratioPadding = width && height ? `${Math.max(8, (height / width) * 100)}%` : '72%';
+  const src = isNearViewport ? dataUri : TRANSPARENT_PIXEL_DATA_URI;
+
+  return (
+    <Box
+      ref={containerRef}
+      sx={{
+        width: '100%',
+        maxWidth: 280,
+        position: 'relative',
+        borderRadius: 1.5,
+        overflow: 'hidden',
+        mb: 0.5,
+        bgcolor: 'rgba(0,0,0,0.12)',
+      }}
+    >
+      <Box sx={{ width: '100%', pt: ratioPadding }} />
+      <Box
+        component="img"
+        src={src}
+        alt="Photo"
+        loading="lazy"
+        decoding="async"
+        fetchPriority="low"
+        onClick={() => {
+          if (isNearViewport) {
+            onOpen();
+          }
+        }}
+        sx={{
+          position: 'absolute',
+          inset: 0,
+          width: '100%',
+          height: '100%',
+          objectFit: 'cover',
+          cursor: isNearViewport ? 'zoom-in' : 'default',
+          opacity: isNearViewport ? 1 : 0.2,
+          transition: 'opacity 0.2s ease',
+        }}
+      />
+    </Box>
+  );
+}
 
 const BubbleContainer = styled(Box, {
   shouldForwardProp: (prop) => prop !== 'isSelf',
@@ -135,8 +222,55 @@ function isEmojiOnly(text: string): boolean {
 export function ChatBubble({ message, isSelf, onReplySelect, onToggleReaction, onRetryMessage }: ChatBubbleProps) {
   const [{ x }, api] = useSpring(() => ({ x: 0 }));
   const [lightboxSrc, setLightboxSrc] = useState<string | null>(null);
+  const [lightboxLoading, setLightboxLoading] = useState(false);
+  const lightboxObjectUrlRef = useRef<string | null>(null);
   const [showReactionPicker, setShowReactionPicker] = useState(false);
   const lastTapAtRef = useRef(0);
+
+  useEffect(() => {
+    return () => {
+      if (lightboxObjectUrlRef.current) {
+        URL.revokeObjectURL(lightboxObjectUrlRef.current);
+        lightboxObjectUrlRef.current = null;
+      }
+    };
+  }, []);
+
+  const closeLightbox = () => {
+    setLightboxSrc(null);
+    setLightboxLoading(false);
+    if (lightboxObjectUrlRef.current) {
+      URL.revokeObjectURL(lightboxObjectUrlRef.current);
+      lightboxObjectUrlRef.current = null;
+    }
+  };
+
+  const openLightbox = async () => {
+    const attachment = message.attachments?.[0];
+    if (!attachment) {
+      return;
+    }
+
+    setLightboxLoading(true);
+    try {
+      if (attachment.storageKey) {
+        const blob = await loadAttachmentBlob(attachment.storageKey);
+        if (blob) {
+          const objectUrl = URL.createObjectURL(blob);
+          if (lightboxObjectUrlRef.current) {
+            URL.revokeObjectURL(lightboxObjectUrlRef.current);
+          }
+          lightboxObjectUrlRef.current = objectUrl;
+          setLightboxSrc(objectUrl);
+          return;
+        }
+      }
+
+      setLightboxSrc(attachment.dataUri);
+    } finally {
+      setLightboxLoading(false);
+    }
+  };
 
   const handleBubblePointerUp = (event: PointerEvent<HTMLElement>) => {
     if (!onToggleReaction || event.button !== 0) {
@@ -294,18 +428,12 @@ export function ChatBubble({ message, isSelf, onReplySelect, onToggleReaction, o
             )}
 
             {message.attachments?.[0] && (
-              <Box
-                component="img"
-                src={message.attachments[0].dataUri}
-                alt="Photo"
-                onClick={() => setLightboxSrc(message.attachments![0].dataUri)}
-                sx={{
-                  display: 'block',
-                  width: '100%',
-                  maxWidth: 280,
-                  borderRadius: 1.5,
-                  mb: message.previewText !== '📷 Photo' ? 1 : 0.5,
-                  cursor: 'zoom-in',
+              <LazyAttachmentImage
+                dataUri={message.attachments[0].dataUri}
+                width={message.attachments[0].width}
+                height={message.attachments[0].height}
+                onOpen={() => {
+                  void openLightbox();
                 }}
               />
             )}
@@ -414,13 +542,13 @@ export function ChatBubble({ message, isSelf, onReplySelect, onToggleReaction, o
 
       {/* ── Fullscreen image lightbox ─────────────────────────────── */}
       <Modal
-        open={lightboxSrc !== null}
-        onClose={() => setLightboxSrc(null)}
+        open={lightboxSrc !== null || lightboxLoading}
+        onClose={closeLightbox}
         closeAfterTransition
         slotProps={{ backdrop: { sx: { bgcolor: 'rgba(0,0,0,0.88)' } } }}
         sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}
       >
-        <Fade in={lightboxSrc !== null}>
+        <Fade in={lightboxSrc !== null || lightboxLoading}>
           <Box
             sx={{
               position: 'relative',
@@ -433,7 +561,7 @@ export function ChatBubble({ message, isSelf, onReplySelect, onToggleReaction, o
           >
             {/* Close button */}
             <IconButton
-              onClick={() => setLightboxSrc(null)}
+              onClick={closeLightbox}
               size="large"
               sx={{
                 position: 'absolute',
@@ -449,6 +577,9 @@ export function ChatBubble({ message, isSelf, onReplySelect, onToggleReaction, o
             </IconButton>
 
             {/* Full-size image */}
+            {lightboxLoading && (
+              <CircularProgress size={28} sx={{ color: 'white' }} />
+            )}
             {lightboxSrc && <Box
               component="img"
               src={lightboxSrc}
@@ -466,11 +597,15 @@ export function ChatBubble({ message, isSelf, onReplySelect, onToggleReaction, o
             {/* Save button */}
             <IconButton
               onClick={() => {
+                if (!lightboxSrc) {
+                  return;
+                }
                 const a = document.createElement('a');
-                a.href = lightboxSrc!;
+                a.href = lightboxSrc;
                 a.download = 'skypier-photo.jpg';
                 a.click();
               }}
+              disabled={!lightboxSrc}
               sx={{
                 color: 'white',
                 bgcolor: 'rgba(255,255,255,0.12)',

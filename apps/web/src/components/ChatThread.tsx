@@ -228,7 +228,13 @@ export function ChatThread(props: ChatThreadProps) {
             new Date(msg.createdAt).toDateString() !== new Date(messages[index - 1].createdAt).toDateString();
 
           return (
-            <Box key={msg.id}>
+            <Box
+              key={msg.id}
+              sx={{
+                contentVisibility: 'auto',
+                containIntrinsicSize: '220px 120px',
+              }}
+            >
               {showDate && (
                 <Box sx={{ display: 'flex', justifyContent: 'center', my: 2 }}>
                   <Paper sx={{ px: 2, py: 0.5, borderRadius: 4, bgcolor: 'rgba(0,0,0,0.2)', color: 'white' }}>

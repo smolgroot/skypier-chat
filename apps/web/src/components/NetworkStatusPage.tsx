@@ -52,6 +52,7 @@ export function NetworkStatusPage({ sessionState, networkLog = [], getDebugInfo 
   const logContainerRef = React.useRef<HTMLDivElement>(null);
   const [debugSnapshot, setDebugSnapshot] = React.useState<NetworkDebugSnapshot | null>(null);
   const [copied, setCopied] = React.useState(false);
+  const plan = React.useMemo(() => createRuntimePlan('browser-pwa'), []);
 
   React.useEffect(() => {
     const container = logContainerRef.current;
@@ -65,7 +66,6 @@ export function NetworkStatusPage({ sessionState, networkLog = [], getDebugInfo 
       container.scrollTop = container.scrollHeight;
     }
   }, [networkLog.length]);
-  const plan = createRuntimePlan('browser-pwa');
 
   const getStatusColor = (status: string) => {
     switch (status) {
@@ -472,6 +472,7 @@ export function NetworkStatusPage({ sessionState, networkLog = [], getDebugInfo 
                     </Box>
                     <Box component="span" sx={{ wordBreak: 'break-all' }}>
                       {entry.message}
+                      {(entry.repeatCount ?? 1) > 1 ? ` ×${entry.repeatCount}` : ''}
                     </Box>
                   </Box>
                 ))

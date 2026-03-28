@@ -11,6 +11,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
+    "@noble/curves": "^2.0.1",
     "@skypier/protocol": "workspace:*"
   },
   "devDependencies": {

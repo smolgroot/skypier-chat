@@ -112,6 +112,9 @@ importers:
 
   packages/crypto:
     dependencies:
+      '@noble/curves':
+        specifier: ^2.0.1
+        version: 2.0.1
       '@skypier/protocol':
         specifier: workspace:*
         version: link:../protocol

@@ -15,6 +15,10 @@ import { createLibp2p, type Libp2p } from 'libp2p';
 
 export interface CreateBrowserSkypierNodeOptions {
   bootstrapMultiaddrs?: string[];
+  /** Enables peer discovery via bootstrap service. Default false to avoid swarm churn in chat mode. */
+  enablePeerDiscovery?: boolean;
+  /** Enables DHT service (can increase memory/network churn). Default false for chat-first mode. */
+  enableDHT?: boolean;
   identityProtobuf?: Uint8Array;
   listenAddresses?: string[];
   /** Upper cap on active libp2p connections (defaults to a mobile-friendly value). */
@@ -52,7 +56,7 @@ export async function createBrowserSkypierNode(options: CreateBrowserSkypierNode
   const normalizedBootstrapMultiaddrs = dedupe((options.bootstrapMultiaddrs ?? []).map(stripRelayCircuitSuffix));
   const normalizedListenAddresses = dedupe(options.listenAddresses ?? ['/webrtc', '/p2p-circuit']);
 
-  const peerDiscovery = normalizedBootstrapMultiaddrs.length > 0
+  const peerDiscovery = options.enablePeerDiscovery && normalizedBootstrapMultiaddrs.length > 0
     ? [bootstrap({ list: normalizedBootstrapMultiaddrs })]
     : [];
 
@@ -73,10 +77,12 @@ export async function createBrowserSkypierNode(options: CreateBrowserSkypierNode
     identify: safelyCreate(() => identify()),
     ping: safelyCreate(() => ping()),
     dcutr: safelyCreate(() => dcutr()),
-    dht: safelyCreate(() => kadDHT({
-      clientMode: true,
-      peerInfoMapper: removePrivateAddressesMapper,
-    })),
+    ...(options.enableDHT ? {
+      dht: safelyCreate(() => kadDHT({
+        clientMode: true,
+        peerInfoMapper: removePrivateAddressesMapper,
+      })),
+    } : {}),
   };
 
   return await createLibp2p({
@@ -87,9 +93,9 @@ export async function createBrowserSkypierNode(options: CreateBrowserSkypierNode
     },
     connectionManager: {
       maxConnections: options.maxConnections ?? 16,
-      maxParallelDials: 8,
+      maxParallelDials: 2,
       dialTimeout: 30_000,
-      maxPeerAddrsToDial: 10,
+      maxPeerAddrsToDial: 4,
     },
     transportManager: {
       // FaultTolerance.NO_FATAL = 1 — allow individual listen address failures
@@ -139,7 +145,7 @@ export async function createBrowserSkypierNode(options: CreateBrowserSkypierNode
       yamux({
         enableKeepAlive: true,
         streamOptions: {
-          maxStreamWindowSize: 16 * 1024 * 1024,
+          maxStreamWindowSize: 1 * 1024 * 1024,
         },
       }),
     ],

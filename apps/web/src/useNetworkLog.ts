@@ -5,10 +5,16 @@ export interface NetworkLogEntry {
   timestamp: string;
   level: 'log' | 'warn' | 'error';
   message: string;
+  repeatCount?: number;
 }
 
-const MAX_ENTRIES = 200;
+const MAX_ENTRIES = 120;
 const SKYPIER_PREFIX = /^\[skypier:/;
+const NOISY_INFO_PATTERNS = [
+  /ensureConnectionToPeer: no connection/i,
+  /ensureConnectionToPeer: re-dial ✓ connected/i,
+  /ensureConnectionToPeer: skipping re-dial \(cooldown\)/i,
+];
 
 /**
  * Intercepts console.log / warn / error calls that start with `[skypier:`
@@ -33,14 +39,30 @@ export function useNetworkLog() {
         .map((a) => (typeof a === 'string' ? a : JSON.stringify(a, null, 0)))
         .join(' ');
 
+      if (level === 'log' && NOISY_INFO_PATTERNS.some((pattern) => pattern.test(message))) {
+        return;
+      }
+
       const entry: NetworkLogEntry = {
         id: ++idRef.current,
         timestamp: new Date().toISOString(),
         level,
         message,
+        repeatCount: 1,
       };
 
       setEntries((prev) => {
+        const last = prev[prev.length - 1];
+        if (last && last.level === entry.level && last.message === entry.message) {
+          const next = [...prev];
+          next[next.length - 1] = {
+            ...last,
+            timestamp: entry.timestamp,
+            repeatCount: (last.repeatCount ?? 1) + 1,
+          };
+          return next;
+        }
+
         const next = [...prev, entry];
         return next.length > MAX_ENTRIES ? next.slice(next.length - MAX_ENTRIES) : next;
       });

@@ -3,7 +3,9 @@ package node
 import (
 	"context"
 	"crypto/tls"
+	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"net"
 	"time"
@@ -15,6 +17,7 @@ import (
 	"github.com/libp2p/go-libp2p/core/crypto"
 	"github.com/libp2p/go-libp2p/core/host"
 	"github.com/libp2p/go-libp2p/core/network"
+	"github.com/libp2p/go-msgio"
 	pbv2 "github.com/libp2p/go-libp2p/p2p/protocol/circuitv2/pb"
 	relayv2 "github.com/libp2p/go-libp2p/p2p/protocol/circuitv2/relay"
 	ws "github.com/libp2p/go-libp2p/p2p/transport/websocket"
@@ -22,6 +25,7 @@ import (
 	ma "github.com/multiformats/go-multiaddr"
 
 	"github.com/skypier/relay/internal/config"
+	"github.com/skypier/relay/internal/mailbox"
 	"github.com/skypier/relay/internal/metrics"
 )
 
@@ -31,7 +35,15 @@ type Relay struct {
 	Metrics *metrics.Metrics
 	dht     *dht.IpfsDHT
 	relay   *relayv2.Relay
+	mailbox *mailbox.Store
 }
+
+const (
+	mailboxEnqueueProtocol = "/skypier/chat/1.1.0/mailbox/enqueue"
+	mailboxPullProtocol    = "/skypier/chat/1.1.0/mailbox/pull"
+	mailboxAckProtocol     = "/skypier/chat/1.1.0/mailbox/ack"
+	maxMailboxPayloadBytes = 2 * 1024 * 1024
+)
 
 type relayMetricsTracer struct {
 	m *metrics.Metrics
@@ -213,7 +225,14 @@ func New(ctx context.Context, cfg *config.Config, priv crypto.PrivKey, m *metric
 		return nil, fmt.Errorf("relay service: %w", err)
 	}
 
-	r := &Relay{Host: h, Metrics: m, dht: kadDHT, relay: rv2}
+	var mailboxStore *mailbox.Store
+	if cfg.MailboxEnabled {
+		mailboxStore = mailbox.NewStore(cfg.MailboxMaxPerRecipient, cfg.MailboxDefaultTTL.Duration)
+		registerMailboxHandlers(h, mailboxStore)
+		log.Printf("[relay] mailbox enabled (max_per_recipient=%d ttl=%s)", cfg.MailboxMaxPerRecipient, cfg.MailboxDefaultTTL.Duration)
+	}
+
+	r := &Relay{Host: h, Metrics: m, dht: kadDHT, relay: rv2, mailbox: mailboxStore}
 
 	// ── Peer connect / disconnect notifications ───────────────────────────────
 	h.Network().Notify(&network.NotifyBundle{
@@ -278,4 +297,115 @@ func (r *Relay) Close() error {
 		log.Printf("[relay] DHT close: %v", err)
 	}
 	return r.Host.Close()
+}
+
+func registerMailboxHandlers(h host.Host, store *mailbox.Store) {
+	h.SetStreamHandler(mailboxEnqueueProtocol, func(stream network.Stream) {
+		defer stream.Close()
+
+		var req mailbox.EnqueueRequest
+		if err := readJSONFromStream(stream, &req); err != nil {
+			log.Printf("[relay] mailbox enqueue decode error: %v", err)
+			_ = writeJSONToStream(stream, mailbox.EnqueueResponse{Accepted: false, Reason: "invalid request"})
+			return
+		}
+
+		requestingPeer := stream.Conn().RemotePeer().String()
+		if req.Envelope.SenderPeerID == "" {
+			req.Envelope.SenderPeerID = requestingPeer
+		}
+		if req.Envelope.SenderPeerID != requestingPeer {
+			_ = writeJSONToStream(stream, mailbox.EnqueueResponse{Accepted: false, Reason: "sender peer mismatch"})
+			return
+		}
+
+		now := time.Now().UTC()
+		accepted, reason, queueDepth, expiresAt := store.Enqueue(req.Envelope, now)
+		_ = writeJSONToStream(stream, mailbox.EnqueueResponse{
+			Accepted:   accepted,
+			Reason:     reason,
+			QueueDepth: queueDepth,
+			ExpiresAt:  expiresAt,
+		})
+	})
+
+	h.SetStreamHandler(mailboxPullProtocol, func(stream network.Stream) {
+		defer stream.Close()
+
+		var req mailbox.PullRequest
+		if err := readJSONFromStream(stream, &req); err != nil {
+			log.Printf("[relay] mailbox pull decode error: %v", err)
+			_ = writeJSONToStream(stream, mailbox.PullResponse{Items: []mailbox.RelayMailboxEnvelope{}})
+			return
+		}
+
+		requestingPeer := stream.Conn().RemotePeer().String()
+		if req.RecipientPeerID == "" || req.RecipientPeerID != requestingPeer {
+			_ = writeJSONToStream(stream, mailbox.PullResponse{Items: []mailbox.RelayMailboxEnvelope{}})
+			return
+		}
+
+		items, nextCursor := store.Pull(req.RecipientPeerID, req.Limit, req.AfterCursor, time.Now().UTC())
+		_ = writeJSONToStream(stream, mailbox.PullResponse{Items: items, NextCursor: nextCursor})
+	})
+
+	h.SetStreamHandler(mailboxAckProtocol, func(stream network.Stream) {
+		defer stream.Close()
+
+		var req mailbox.AckRequest
+		if err := readJSONFromStream(stream, &req); err != nil {
+			log.Printf("[relay] mailbox ack decode error: %v", err)
+			_ = writeJSONToStream(stream, mailbox.AckResponse{Acked: []string{}, Missing: []string{}})
+			return
+		}
+
+		requestingPeer := stream.Conn().RemotePeer().String()
+		if req.RecipientPeerID == "" || req.RecipientPeerID != requestingPeer {
+			_ = writeJSONToStream(stream, mailbox.AckResponse{Acked: []string{}, Missing: req.EnvelopeIDs})
+			return
+		}
+
+		acked, missing := store.Ack(req.RecipientPeerID, req.EnvelopeIDs, time.Now().UTC())
+		_ = writeJSONToStream(stream, mailbox.AckResponse{Acked: acked, Missing: missing})
+	})
+}
+
+func readJSONFromStream(stream network.Stream, target any) error {
+	reader := msgio.NewVarintReaderSize(stream, maxMailboxPayloadBytes)
+
+	msg, err := reader.ReadMsg()
+	if err != nil {
+		if err == io.EOF {
+			return fmt.Errorf("empty request")
+		}
+		return err
+	}
+
+	if len(msg) == 0 {
+		reader.ReleaseMsg(msg)
+		return fmt.Errorf("empty request")
+	}
+
+	if err := json.Unmarshal(msg, target); err != nil {
+		reader.ReleaseMsg(msg)
+		return err
+	}
+
+	reader.ReleaseMsg(msg)
+
+	return nil
+}
+
+func writeJSONToStream(stream network.Stream, payload any) error {
+	encoded, err := json.Marshal(payload)
+	if err != nil {
+		return err
+	}
+
+	writer := msgio.NewVarintWriter(stream)
+	if err := writer.WriteMsg(encoded); err != nil {
+		return err
+	}
+
+	return nil
 }

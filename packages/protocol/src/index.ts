@@ -40,12 +40,38 @@ export interface AudioCallChunk {
   data?: string;
 }
 
+export interface DevicePreKeyBundle {
+  version: 1;
+  algorithm: 'x25519';
+  deviceId: string;
+  peerId: string;
+  identityPublicKey: string;
+  preKeyId: string;
+  preKeyPublicKey: string;
+  createdAt: string;
+  expiresAt?: string;
+}
+
+export interface LocalDeviceCryptoState {
+  version: 1;
+  algorithm: 'x25519';
+  deviceId: string;
+  peerId: string;
+  identityPrivateKey: string;
+  identityPublicKey: string;
+  preKeyId: string;
+  preKeyPrivateKey: string;
+  preKeyPublicKey: string;
+  createdAt: string;
+}
+
 export interface DeviceIdentity {
   id: string;
   label: string;
   peerId: string;
   platform: 'web' | 'ios' | 'android' | 'desktop';
   trustLevel: DeviceTrustLevel;
+  preKeyBundle?: DevicePreKeyBundle;
 }
 
 export interface Participant {
@@ -115,13 +141,83 @@ export interface MessageCiphertext {
   ciphertext: string;
   nonce: string;
   recipientDeviceIds: string[];
+  senderKeyId?: string;
+  aad?: string;
+  keyWraps?: RecipientKeyWrap[];
+}
+
+export interface RecipientKeyWrap {
+  recipientPeerId: string;
+  recipientDeviceId: string;
+  keyWrapAlgorithm: 'x25519-hkdf-sha256';
+  preKeyId: string;
+  ephemeralPublicKey: string;
+  salt: string;
+  nonce: string;
+  wrappedKey: string;
+}
+
+export interface EncryptedMessageEnvelope {
+  v: 1;
+  algorithm: 'xchacha20poly1305' | 'aes-gcm';
+  ciphertext: string;
+  nonce: string;
+  senderKeyId: string;
+  keyWraps: RecipientKeyWrap[];
+  aad?: string;
+}
+
+export interface RelayMailboxEnvelope {
+  envelopeId: string;
+  messageId: string;
+  conversationId: string;
+  senderPeerId: string;
+  recipientPeerId: string;
+  sentAt: string;
+  expiresAt: string;
+  contentType: 'chat-envelope';
+  encryptedEnvelope: EncryptedMessageEnvelope;
+}
+
+export interface MailboxEnqueueRequest {
+  envelope: RelayMailboxEnvelope;
+}
+
+export interface MailboxEnqueueResponse {
+  accepted: boolean;
+  reason?: string;
+  expiresAt?: string;
+  queueDepth?: number;
+}
+
+export interface MailboxPullRequest {
+  recipientPeerId: string;
+  limit?: number;
+  afterCursor?: string;
+}
+
+export interface MailboxPullResponse {
+  items: RelayMailboxEnvelope[];
+  nextCursor?: string;
+}
+
+export interface MailboxAckRequest {
+  recipientPeerId: string;
+  envelopeIds: string[];
+}
+
+export interface MailboxAckResponse {
+  acked: string[];
+  missing: string[];
 }
 
 export interface MediaAttachment {
   id: string;
   mimeType: string;
-  /** data:<mimeType>;base64,<data> — already base64-encoded */
+  /** Usually a small inline preview image: data:<mimeType>;base64,<data> */
   dataUri: string;
+  /** Optional key for retrieving the full-size blob from local attachment storage. */
+  storageKey?: string;
   width?: number;
   height?: number;
   /** Approximate decoded byte size after compression */
@@ -200,6 +296,7 @@ export interface AccountProfile {
   displayName: string;
   localPeerId?: string;
   identityProtobuf?: string; // Base64 encoded PeerID protobuf (includes private key)
+  deviceCryptoState?: LocalDeviceCryptoState;
   linkedEthAddresses: LinkedEthAddress[];
   themePreference?: 'light' | 'dark';
   biometricUnlockEnabled?: boolean;
