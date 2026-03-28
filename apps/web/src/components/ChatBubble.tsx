@@ -63,7 +63,7 @@ function LazyAttachmentImage(props: {
       ref={containerRef}
       sx={{
         width: '100%',
-        maxWidth: 280,
+        maxWidth: { xs: 320, sm: 380 },
         position: 'relative',
         borderRadius: 1.5,
         overflow: 'hidden',
@@ -324,7 +324,15 @@ export function ChatBubble({ message, isSelf, onReplySelect, onToggleReaction, o
           <ReplyIcon sx={{ opacity: 0.5 }} />
         </ReplyIndicator>
       )}
-      <animated.div {...(isSelf ? {} : bind())} style={{ x, touchAction: 'pan-y', display: 'flex', maxWidth: '60%' }}>
+      <animated.div
+        {...(isSelf ? {} : bind())}
+        style={{
+          x,
+          touchAction: 'pan-y',
+          display: 'flex',
+          maxWidth: message.attachments?.length ? '72%' : '60%',
+        }}
+      >
         <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: isSelf ? 'flex-end' : 'flex-start' }}>
         {showReactionPicker && onToggleReaction && (
           <Paper
