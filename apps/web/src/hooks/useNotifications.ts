@@ -93,7 +93,52 @@ async function ensurePushSubscriptionIfConfigured(): Promise<void> {
   }));
 }
 
-function showOsNotification(title: string, body: string, tag = 'skypier-message'): void {
+function isLikelyMobileDevice(): boolean {
+  if (typeof navigator === 'undefined') {
+    return false;
+  }
+
+  const navWithUaData = navigator as Navigator & {
+    userAgentData?: {
+      mobile?: boolean;
+    };
+  };
+
+  if (typeof navWithUaData.userAgentData?.mobile === 'boolean') {
+    return navWithUaData.userAgentData.mobile;
+  }
+
+  return /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent);
+}
+
+function isAppInForeground(): boolean {
+  if (typeof document === 'undefined') {
+    return false;
+  }
+
+  return document.visibilityState === 'visible' && document.hasFocus();
+}
+
+function normalizeVibrationPattern(pattern?: number | number[]): number[] | undefined {
+  if (typeof pattern === 'number') {
+    return [pattern];
+  }
+
+  if (Array.isArray(pattern) && pattern.length > 0) {
+    return pattern;
+  }
+
+  return undefined;
+}
+
+function showNativeOsNotification(
+  title: string,
+  body: string,
+  tag = 'skypier-message',
+  options?: {
+    vibratePattern?: number | number[];
+  },
+): void {
   if (!('Notification' in window) || Notification.permission !== 'granted') {
     return;
   }
@@ -109,6 +154,7 @@ function showOsNotification(title: string, body: string, tag = 'skypier-message'
       icon: '/icons/icon-192x192.png',
       badge: '/icons/icon-72x72.png',
       tag,
+      vibrate: normalizeVibrationPattern(options?.vibratePattern),
     } as NotificationOptions);
 
     // Auto-close after 5 seconds
@@ -149,6 +195,7 @@ function triggerMobileVibration(pattern: number | number[] = [200, 100, 200]): v
 export function useNotifications() {
   const permissionRef = useRef<NotificationPermission>('default');
   const { patterns } = useVibration();
+  const isMobileRef = useRef(isLikelyMobileDevice());
 
   // Request permission on mount
   useEffect(() => {
@@ -186,26 +233,50 @@ export function useNotifications() {
   }, []);
 
   const notifyIncomingMessage = useCallback(({ senderName, messagePreview }: NotifyMessageOptions) => {
-    // 1) Play chat earcon (always, even if tab is focused)
-    void playIncomingMessageSound();
+    const isForeground = isAppInForeground();
+    const isMobile = isMobileRef.current;
 
-    // 2) Trigger mobile vibration if available
-    triggerMobileVibration(patterns.messageReceived.pattern);
+    // On mobile background notifications, avoid WebAudio earcons and let OS channels handle alerts.
+    if (!isMobile || isForeground) {
+      void playIncomingMessageSound();
+    }
 
-    // 3) Show OS notification (only if tab is not focused)
-    showOsNotification(
+    if (isMobile) {
+      triggerMobileVibration(patterns.messageReceived.pattern);
+    }
+
+    showNativeOsNotification(
       `💬 ${senderName}`,
       messagePreview.length > 100
         ? messagePreview.slice(0, 100) + '…'
         : messagePreview,
       'skypier-message',
+      {
+        vibratePattern: isMobile ? patterns.messageReceived.pattern : undefined,
+      },
     );
   }, [patterns]);
 
   const notifyIncomingCall = useCallback(({ callerName }: NotifyIncomingCallOptions) => {
-    void playIncomingMessageSound();
-    triggerMobileVibration(patterns.retry.pattern);
-    showOsNotification('📞 Incoming Skypier call', `${callerName} is calling you.`, 'skypier-audio-call');
+    const isForeground = isAppInForeground();
+    const isMobile = isMobileRef.current;
+
+    if (!isMobile || isForeground) {
+      void playIncomingMessageSound();
+    }
+
+    if (isMobile) {
+      triggerMobileVibration(patterns.retry.pattern);
+    }
+
+    showNativeOsNotification(
+      '📞 Incoming Skypier call',
+      `${callerName} is calling you.`,
+      'skypier-audio-call',
+      {
+        vibratePattern: isMobile ? patterns.retry.pattern : undefined,
+      },
+    );
   }, [patterns]);
 
   return { notifyIncomingMessage, notifyIncomingCall };
