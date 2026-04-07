@@ -522,52 +522,65 @@ export function App() {
     });
   }, [account.deviceCryptoState, account.localPeerId, identityProtobuf, updateAccount]);
 
+  // Pull pending mailbox messages from every configured relay that is currently
+  // connected. Runs once per relay-peer-connected event.  Paginates until the
+  // relay reports no more messages, then acks each batch immediately so
+  // the relay can discard delivered envelopes.
   useEffect(() => {
-    if (liveState.status !== 'running' || connectedPeers.length === 0) {
+    const connectedRelayPeers = liveState.relayPeerIds.filter((id) => connectedPeers.includes(id));
+    if (liveState.status !== 'running' || connectedRelayPeers.length === 0) {
       return;
     }
 
     let cancelled = false;
     void (async () => {
-      for (const peerId of connectedPeers) {
-        const pulled = await pullMailboxFromPeer(peerId, 50);
-        const items = Array.isArray(pulled?.items) ? pulled.items : [];
-        if (cancelled || items.length === 0) {
-          continue;
-        }
+      for (const relayPeerId of connectedRelayPeers) {
+        let cursor: string | undefined;
 
-        const ackIds: string[] = [];
-        for (const item of items) {
-          const keyWraps = Array.isArray(item.encryptedEnvelope.keyWraps) ? item.encryptedEnvelope.keyWraps : [];
-          await ingestIncomingEnvelope({
-            kind: 'message',
-            messageId: item.messageId,
-            conversationId: item.conversationId,
-            senderPeerId: item.senderPeerId,
-            sentAt: item.sentAt,
-            payload: serializeE2EEWirePayload({
-              v: 1,
-              algorithm: item.encryptedEnvelope.algorithm,
-              ciphertext: item.encryptedEnvelope.ciphertext,
-              nonce: item.encryptedEnvelope.nonce,
-              senderDeviceId: item.encryptedEnvelope.senderKeyId,
-              recipientDeviceIds: keyWraps.map((wrap) => wrap.recipientDeviceId),
-              senderKeyId: item.encryptedEnvelope.senderKeyId,
-              aad: item.encryptedEnvelope.aad,
-              keyWraps,
-            }),
-          }, item.senderPeerId);
-          maybeFetchRemoteProfile(item.senderPeerId);
-          notifyIncomingMessage({
-            senderName: `Peer ${item.senderPeerId.slice(0, 10)}…`,
-            messagePreview: '🔐 Encrypted message',
-          });
-          ackIds.push(item.envelopeId);
-        }
+        // Paginate until the relay has no more envelopes for us.
+        do {
+          if (cancelled) return;
 
-        if (ackIds.length > 0) {
-          await ackMailboxFromPeer(peerId, ackIds);
-        }
+          const pulled = await pullMailboxFromPeer(relayPeerId, 50, cursor);
+          const items = Array.isArray(pulled?.items) ? pulled.items : [];
+          cursor = pulled?.nextCursor;
+
+          if (items.length === 0) break;
+
+          const ackIds: string[] = [];
+          for (const item of items) {
+            if (cancelled) return;
+            const keyWraps = Array.isArray(item.encryptedEnvelope.keyWraps) ? item.encryptedEnvelope.keyWraps : [];
+            await ingestIncomingEnvelope({
+              kind: 'message',
+              messageId: item.messageId,
+              conversationId: item.conversationId,
+              senderPeerId: item.senderPeerId,
+              sentAt: item.sentAt,
+              payload: serializeE2EEWirePayload({
+                v: 1,
+                algorithm: item.encryptedEnvelope.algorithm,
+                ciphertext: item.encryptedEnvelope.ciphertext,
+                nonce: item.encryptedEnvelope.nonce,
+                senderDeviceId: item.encryptedEnvelope.senderKeyId,
+                recipientDeviceIds: keyWraps.map((wrap) => wrap.recipientDeviceId),
+                senderKeyId: item.encryptedEnvelope.senderKeyId,
+                aad: item.encryptedEnvelope.aad,
+                keyWraps,
+              }),
+            }, item.senderPeerId);
+            maybeFetchRemoteProfile(item.senderPeerId);
+            notifyIncomingMessage({
+              senderName: `Peer ${item.senderPeerId.slice(0, 10)}…`,
+              messagePreview: '🔐 Encrypted message',
+            });
+            ackIds.push(item.envelopeId);
+          }
+
+          if (ackIds.length > 0) {
+            await ackMailboxFromPeer(relayPeerId, ackIds);
+          }
+        } while (cursor);
       }
     })();
 
@@ -578,6 +591,7 @@ export function App() {
     ackMailboxFromPeer,
     connectedPeers,
     ingestIncomingEnvelope,
+    liveState.relayPeerIds,
     liveState.status,
     maybeFetchRemoteProfile,
     notifyIncomingMessage,

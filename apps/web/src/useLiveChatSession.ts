@@ -138,6 +138,7 @@ const INITIAL_STATE: BrowserLiveSessionState = {
   listenAddresses: [],
   protocols: [],
   queuedOutgoing: 0,
+  relayPeerIds: [],
 };
 
 export function useLiveChatSession(options: UseLiveChatSessionOptions) {
@@ -407,12 +408,12 @@ export function useLiveChatSession(options: UseLiveChatSessionOptions) {
     return accepted;
   }, []);
 
-  const pullMailboxFromPeer = useCallback(async (targetPeerId: string, limit?: number): Promise<MailboxPullResponse | null> => {
+  const pullMailboxFromPeer = useCallback(async (targetPeerId: string, limit?: number, afterCursor?: string): Promise<MailboxPullResponse | null> => {
     if (!sessionRef.current) {
       return null;
     }
 
-    const response = await sessionRef.current.pullMailboxFromPeer(targetPeerId, limit);
+    const response = await sessionRef.current.pullMailboxFromPeer(targetPeerId, limit, afterCursor);
     setState(sessionRef.current.getState());
     return response;
   }, []);

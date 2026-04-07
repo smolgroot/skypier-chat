@@ -44,6 +44,8 @@ export interface BrowserLiveSessionState {
   protocols: string[];
   queuedOutgoing: number;
   lastError?: string;
+  /** Peer IDs of configured relay nodes (used for mailbox pull/enqueue). */
+  relayPeerIds: string[];
 }
 
 export interface BrowserLiveSessionEventMap {
@@ -111,7 +113,7 @@ export interface BrowserLiveSession {
   sendChatMessageToPeer(message: ChatMessage, targetPeerId: string): Promise<boolean>;
   requestPeerProfile(targetPeerId: string): Promise<SharedPeerProfileMetadata | null>;
   enqueueMailboxForPeer(message: ChatMessage, targetPeerId: string): Promise<boolean>;
-  pullMailboxFromPeer(targetPeerId: string, limit?: number): Promise<MailboxPullResponse | null>;
+  pullMailboxFromPeer(targetPeerId: string, limit?: number, afterCursor?: string): Promise<MailboxPullResponse | null>;
   ackMailboxFromPeer(targetPeerId: string, envelopeIds: string[]): Promise<MailboxAckResponse | null>;
   sendAudioCallSignal(signal: AudioCallSignal, targetPeerId: string): Promise<boolean>;
   sendAudioCallChunk(chunk: AudioCallChunk, targetPeerId: string): Promise<boolean>;
@@ -349,6 +351,7 @@ export function createBrowserLiveSession(options: CreateBrowserLiveSessionOption
     listenAddresses: [],
     protocols: [],
     queuedOutgoing: 0,
+    relayPeerIds: [],
   };
 
   // Rehydrate persisted pending queue
@@ -466,6 +469,7 @@ export function createBrowserLiveSession(options: CreateBrowserLiveSessionOption
       listenAddresses: node?.getMultiaddrs().map((ma) => ma.toString()) ?? [],
       protocols: node?.getProtocols() ?? [],
       queuedOutgoing: queue.length,
+      relayPeerIds: configuredRelayPeerIds,
     };
 
     listeners.state.forEach((handler) => handler(state));
@@ -1672,6 +1676,11 @@ export function createBrowserLiveSession(options: CreateBrowserLiveSessionOption
         return false;
       }
 
+      if (configuredRelayPeerIds.length === 0) {
+        console.warn('[skypier:session] enqueueMailboxForPeer: no relay peer configured — cannot store message for', targetPeerId);
+        return false;
+      }
+
       const now = Date.now();
       const sentAt = new Date(now).toISOString();
       const expiresAt = new Date(now + 7 * 24 * 60 * 60 * 1000).toISOString();
@@ -1697,19 +1706,30 @@ export function createBrowserLiveSession(options: CreateBrowserLiveSessionOption
         },
       };
 
-      const response = await requestMailboxProtocol<MailboxEnqueueResponse>(
-        targetPeerId,
-        SKYPIER_CHAT_PROTOCOLS.mailboxEnqueue,
-        request,
-      );
+      // Connect to each configured relay (NOT the offline recipient) and ask it
+      // to store the message. The relay validates sender == connecting peer and
+      // indexes the envelope under recipientPeerId.
+      for (const relayPeerId of configuredRelayPeerIds) {
+        const response = await requestMailboxProtocol<MailboxEnqueueResponse>(
+          relayPeerId,
+          SKYPIER_CHAT_PROTOCOLS.mailboxEnqueue,
+          request,
+        );
+        if (response?.accepted === true) {
+          console.log('[skypier:session] ✓ mailbox enqueue accepted by relay', relayPeerId, 'for recipient', targetPeerId);
+          return true;
+        }
+      }
 
-      return response?.accepted === true;
+      console.warn('[skypier:session] mailbox enqueue rejected by all configured relays for recipient', targetPeerId);
+      return false;
     },
 
-    async pullMailboxFromPeer(targetPeerId: string, limit = 50) {
+    async pullMailboxFromPeer(targetPeerId: string, limit = 50, afterCursor?: string) {
       const request: MailboxPullRequest = {
         recipientPeerId: state.localPeerId ?? '',
         limit,
+        ...(afterCursor ? { afterCursor } : {}),
       };
       return await requestMailboxProtocol<MailboxPullResponse>(
         targetPeerId,
