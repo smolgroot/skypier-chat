@@ -10,6 +10,10 @@ type RecipientKeyWrap struct {
 	RecipientPeerID   string `json:"recipientPeerId"`
 	RecipientDeviceID string `json:"recipientDeviceId"`
 	KeyWrapAlgorithm  string `json:"keyWrapAlgorithm"`
+	PreKeyID          string `json:"preKeyId,omitempty"`
+	EphemeralPublicKey string `json:"ephemeralPublicKey,omitempty"`
+	Salt              string `json:"salt,omitempty"`
+	Nonce             string `json:"nonce,omitempty"`
 	WrappedKey        string `json:"wrappedKey"`
 }
 
@@ -245,4 +249,21 @@ func (s *Store) cleanupLocked(now time.Time) {
 		}
 		s.byRecipient[recipient] = append([]RelayMailboxEnvelope(nil), filtered...)
 	}
+}
+
+// Stats returns mailbox queue statistics after pruning expired entries.
+func (s *Store) Stats(now time.Time) (pendingMessages int64, recipientsWithUnread int64) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.cleanupLocked(now)
+
+	for _, queue := range s.byRecipient {
+		if len(queue) == 0 {
+			continue
+		}
+		recipientsWithUnread++
+		pendingMessages += int64(len(queue))
+	}
+
+	return pendingMessages, recipientsWithUnread
 }

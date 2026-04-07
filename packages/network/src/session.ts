@@ -229,7 +229,26 @@ export function parseE2EEWirePayload(payload: string): E2EEWirePayload | null {
 /** Serialise a ChatMessage into a wire payload string. */
 function buildEnvelopePayload(message: ChatMessage): string {
   if (message.attachments?.length) {
-    return SKYPIER_MEDIA_PREFIX + JSON.stringify(message.attachments[0]);
+    const attachment = message.attachments[0];
+    const { storageKey: _storageKey, ...wireAttachment } = attachment;
+
+    // Attachments use E2EE when ciphertext key-wraps are present. Keep a
+    // plaintext fallback for legacy peers/messages that were never sealed.
+    if (message.ciphertext.keyWraps?.length && message.ciphertext.ciphertext.length > 0) {
+      return serializeE2EEWirePayload({
+        v: 1,
+        algorithm: message.ciphertext.algorithm,
+        ciphertext: message.ciphertext.ciphertext,
+        nonce: message.ciphertext.nonce,
+        senderDeviceId: message.senderDeviceId,
+        recipientDeviceIds: message.ciphertext.recipientDeviceIds,
+        senderKeyId: message.ciphertext.senderKeyId,
+        aad: message.ciphertext.aad,
+        keyWraps: message.ciphertext.keyWraps,
+      });
+    }
+
+    return SKYPIER_MEDIA_PREFIX + JSON.stringify(wireAttachment);
   }
 
   if (message.previewText.startsWith('skypier:react:') || message.ciphertext.ciphertext.length === 0) {

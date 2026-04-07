@@ -141,6 +141,8 @@ func statusCmd() *cobra.Command {
 			fmt.Fprintf(w, "Connected peers\t%d\n", snap.ConnectedPeers)
 			fmt.Fprintf(w, "Total connections\t%d\n", snap.TotalConnections)
 			fmt.Fprintf(w, "Active reservations\t%d\n", snap.Reservations)
+			fmt.Fprintf(w, "Mailbox messages (in transit)\t%d\n", snap.MailboxMessages)
+			fmt.Fprintf(w, "Recipients with unread mailbox\t%d\n", snap.MailboxRecipients)
 			fmt.Fprintln(w, "\nListen addresses:")
 			for _, addr := range snap.ListenAddrs {
 				fmt.Fprintf(w, "  %s\n", addr)

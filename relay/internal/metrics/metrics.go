@@ -71,6 +71,8 @@ type Snapshot struct {
 	ConnectedPeers   int64     `json:"connected_peers"`
 	TotalConnections int64     `json:"total_connections"`
 	Reservations     int64     `json:"reservations"`
+	MailboxMessages  int64     `json:"mailbox_messages"`
+	MailboxRecipients int64    `json:"mailbox_recipients"`
 	UptimeSeconds    int64     `json:"uptime_seconds"`
 	StartedAt        time.Time `json:"started_at"`
 }

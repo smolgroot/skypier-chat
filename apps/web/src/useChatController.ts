@@ -1055,18 +1055,17 @@ export function useChatController() {
               continue;
             }
 
-            const isImagePayload = entry.payload.startsWith(SKYPIER_MEDIA_PREFIX);
-            const parsedE2EEPayload = isImagePayload ? null : parseE2EEWirePayload(entry.payload);
+            const parsedE2EEPayload = parseE2EEWirePayload(entry.payload);
             const decryptedPayload = parsedE2EEPayload ? await decryptIncomingPayload(parsedE2EEPayload, snap) : null;
-            const payloadPreviewText = isImagePayload
-              ? '📷 Photo'
-              : parsedE2EEPayload
-                ? decryptedPayload ?? '🔐 Encrypted message'
-                : entry.payload;
+            const resolvedPayload = parsedE2EEPayload
+              ? (decryptedPayload ?? '🔐 Encrypted message')
+              : entry.payload;
+            const isImagePayload = resolvedPayload.startsWith(SKYPIER_MEDIA_PREFIX);
+            const payloadPreviewText = isImagePayload ? '📷 Photo' : resolvedPayload;
             let incomingAttachments: MediaAttachment[] | undefined;
             if (isImagePayload) {
               try {
-                const att = JSON.parse(entry.payload.slice(SKYPIER_MEDIA_PREFIX.length)) as MediaAttachment;
+                const att = JSON.parse(resolvedPayload.slice(SKYPIER_MEDIA_PREFIX.length)) as MediaAttachment;
                 incomingAttachments = [att];
               } catch { /* ignore malformed */ }
             }
@@ -1111,10 +1110,8 @@ export function useChatController() {
               previewText: payloadPreviewText,
               ciphertext: {
                 algorithm: parsedE2EEPayload?.algorithm ?? 'xchacha20poly1305',
-                ciphertext: isImagePayload
-                  ? ''
-                  : parsedE2EEPayload?.ciphertext
-                    ?? (() => { try { return btoa(payloadPreviewText); } catch { return ''; } })(),
+                ciphertext: parsedE2EEPayload?.ciphertext
+                  ?? (() => { try { return btoa(payloadPreviewText); } catch { return ''; } })(),
                 nonce: parsedE2EEPayload?.nonce ?? 'sync-replay',
                 recipientDeviceIds: parsedE2EEPayload?.recipientDeviceIds ?? [getCurrentDevice().id],
                 senderKeyId: parsedE2EEPayload?.senderKeyId,
@@ -1200,19 +1197,17 @@ export function useChatController() {
     }
 
     const snap = stateRef.current;
-    // Detect media attachment via wire prefix
-    const isImagePayload = envelope.payload.startsWith(SKYPIER_MEDIA_PREFIX);
-    const parsedE2EEPayload = isImagePayload ? null : parseE2EEWirePayload(envelope.payload);
+    const parsedE2EEPayload = parseE2EEWirePayload(envelope.payload);
     const decryptedPayload = parsedE2EEPayload ? await decryptIncomingPayload(parsedE2EEPayload, snap) : null;
-    const payloadPreviewText = isImagePayload
-      ? '📷 Photo'
-      : parsedE2EEPayload
-        ? decryptedPayload ?? '🔐 Encrypted message'
-        : envelope.payload;
+    const resolvedPayload = parsedE2EEPayload
+      ? (decryptedPayload ?? '🔐 Encrypted message')
+      : envelope.payload;
+    const isImagePayload = resolvedPayload.startsWith(SKYPIER_MEDIA_PREFIX);
+    const payloadPreviewText = isImagePayload ? '📷 Photo' : resolvedPayload;
     let incomingAttachments: MediaAttachment[] | undefined;
     if (isImagePayload) {
       try {
-        const att = JSON.parse(envelope.payload.slice(SKYPIER_MEDIA_PREFIX.length)) as MediaAttachment;
+        const att = JSON.parse(resolvedPayload.slice(SKYPIER_MEDIA_PREFIX.length)) as MediaAttachment;
         incomingAttachments = [att];
       } catch {
         // malformed payload — fall back to text display
@@ -1279,10 +1274,8 @@ export function useChatController() {
       previewText: payloadPreviewText,
       ciphertext: {
         algorithm: parsedE2EEPayload?.algorithm ?? 'xchacha20poly1305',
-        ciphertext: isImagePayload
-          ? ''
-          : parsedE2EEPayload?.ciphertext
-            ?? (() => { try { return btoa(payloadPreviewText); } catch { return ''; } })(),
+        ciphertext: parsedE2EEPayload?.ciphertext
+          ?? (() => { try { return btoa(payloadPreviewText); } catch { return ''; } })(),
         nonce: parsedE2EEPayload?.nonce ?? 'network-stream',
         recipientDeviceIds: parsedE2EEPayload?.recipientDeviceIds ?? [getCurrentDevice().id],
         senderKeyId: parsedE2EEPayload?.senderKeyId,
@@ -1471,23 +1464,39 @@ export function useChatController() {
         if (msg.senderId !== CURRENT_USER_ID) continue;
         // Only messages after the requested window
         if (new Date(msg.createdAt).getTime() < sinceTime) continue;
-        const payload = msg.attachments?.length
-          ? `${SKYPIER_MEDIA_PREFIX}${JSON.stringify(msg.attachments[0])}`
-          : parseChatReactionEventPayload(msg.previewText)
-            ? msg.previewText
-            : msg.ciphertext.ciphertext.length > 0
-              ? serializeE2EEWirePayload({
-                  v: 1,
-                  algorithm: msg.ciphertext.algorithm,
-                  ciphertext: msg.ciphertext.ciphertext,
-                  nonce: msg.ciphertext.nonce,
-                  senderDeviceId: msg.senderDeviceId,
-                  recipientDeviceIds: msg.ciphertext.recipientDeviceIds,
-                  senderKeyId: msg.ciphertext.senderKeyId,
-                  aad: msg.ciphertext.aad,
-                  keyWraps: msg.ciphertext.keyWraps,
-                })
-              : msg.previewText;
+        const hasSealedCiphertext = msg.ciphertext.ciphertext.length > 0 && (msg.ciphertext.keyWraps?.length ?? 0) > 0;
+        const payload = parseChatReactionEventPayload(msg.previewText)
+          ? msg.previewText
+          : hasSealedCiphertext
+            ? serializeE2EEWirePayload({
+                v: 1,
+                algorithm: msg.ciphertext.algorithm,
+                ciphertext: msg.ciphertext.ciphertext,
+                nonce: msg.ciphertext.nonce,
+                senderDeviceId: msg.senderDeviceId,
+                recipientDeviceIds: msg.ciphertext.recipientDeviceIds,
+                senderKeyId: msg.ciphertext.senderKeyId,
+                aad: msg.ciphertext.aad,
+                keyWraps: msg.ciphertext.keyWraps,
+              })
+            : msg.attachments?.length
+              ? (() => {
+                  const { storageKey: _storageKey, ...wireAttachment } = msg.attachments[0];
+                  return `${SKYPIER_MEDIA_PREFIX}${JSON.stringify(wireAttachment)}`;
+                })()
+              : msg.ciphertext.ciphertext.length > 0
+                ? serializeE2EEWirePayload({
+                    v: 1,
+                    algorithm: msg.ciphertext.algorithm,
+                    ciphertext: msg.ciphertext.ciphertext,
+                    nonce: msg.ciphertext.nonce,
+                    senderDeviceId: msg.senderDeviceId,
+                    recipientDeviceIds: msg.ciphertext.recipientDeviceIds,
+                    senderKeyId: msg.ciphertext.senderKeyId,
+                    aad: msg.ciphertext.aad,
+                    keyWraps: msg.ciphertext.keyWraps,
+                  })
+                : msg.previewText;
         results.push({
           messageId: msg.id,
           conversationId: msg.conversationId,

@@ -340,7 +340,7 @@ export function App() {
     message: ChatMessage,
     conversation: NonNullable<typeof selectedConversation>,
   ): Promise<ChatMessage> => {
-    if (message.attachments?.length || !account.deviceCryptoState) {
+    if (!account.deviceCryptoState) {
       return message;
     }
 
@@ -353,8 +353,15 @@ export function App() {
       return message;
     }
 
+    const attachmentPayload = message.attachments?.[0]
+      ? (() => {
+          const { storageKey: _storageKey, ...wireAttachment } = message.attachments[0];
+          return `${SKYPIER_MEDIA_PREFIX}${JSON.stringify(wireAttachment)}`;
+        })()
+      : undefined;
+
     const encryptedEnvelope = await encryptMessageEnvelope({
-      plaintext: message.previewText,
+      plaintext: attachmentPayload ?? message.previewText,
       senderKeyId: account.deviceCryptoState.preKeyId,
       recipientBundles,
       aad: JSON.stringify({
@@ -1412,9 +1419,10 @@ export function App() {
                     liveState.localPeerId ?? localPeerId ?? getCurrentDevice().peerId,
                   );
                   if (remotePeer) {
-                    const sent = await sendChatMessageToPeer(message, remotePeer.peerId);
+                    const sealedMessage = await sealOutgoingMessage(message, selectedConversation);
+                    const sent = await sendChatMessageToPeer(sealedMessage, remotePeer.peerId);
                     if (!sent) {
-                      const queuedOnRelay = await enqueueMailboxForPeer(message, remotePeer.peerId);
+                      const queuedOnRelay = await enqueueMailboxForPeer(sealedMessage, remotePeer.peerId);
                       await updateMessageDeliveryStatus(message.id, queuedOnRelay ? 'sent' : 'queued');
                       if (!navigator.onLine) {
                         showOfflineAlert();

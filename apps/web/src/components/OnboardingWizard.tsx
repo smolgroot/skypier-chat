@@ -29,6 +29,59 @@ interface BeforeInstallPromptEvent extends Event {
   userChoice: Promise<{ outcome: 'accepted' | 'dismissed'; platform: string }>;
 }
 
+type BrowserProfile = {
+  label: string;
+  isChromium: boolean;
+  isIOS: boolean;
+  isSafari: boolean;
+  isFirefox: boolean;
+};
+
+function detectBrowserProfile(): BrowserProfile {
+  if (typeof navigator === 'undefined') {
+    return {
+      label: 'Unknown browser',
+      isChromium: false,
+      isIOS: false,
+      isSafari: false,
+      isFirefox: false,
+    };
+  }
+
+  const ua = navigator.userAgent;
+  const uaData = navigator as Navigator & {
+    userAgentData?: {
+      brands?: Array<{ brand: string; version: string }>;
+    };
+  };
+  const brandText = (uaData.userAgentData?.brands ?? [])
+    .map((entry) => entry.brand.toLowerCase())
+    .join(' ');
+
+  const isIOS = /iPad|iPhone|iPod/i.test(ua);
+  const isFirefox = /Firefox\//i.test(ua) || brandText.includes('firefox');
+  const isEdg = /Edg\//i.test(ua) || brandText.includes('microsoft edge');
+  const isOpera = /OPR\//i.test(ua) || brandText.includes('opera');
+  const isChrome = /Chrome\//i.test(ua) || brandText.includes('google chrome') || brandText.includes('chromium');
+  const isSafari = /Safari\//i.test(ua) && !isChrome && !isEdg && !isOpera && !isFirefox;
+  const isChromium = isChrome || isEdg || isOpera;
+
+  let label = 'Unknown browser';
+  if (isEdg) label = 'Microsoft Edge';
+  else if (isOpera) label = 'Opera';
+  else if (isChrome) label = 'Google Chrome';
+  else if (isFirefox) label = 'Firefox';
+  else if (isSafari) label = 'Safari';
+
+  return {
+    label,
+    isChromium,
+    isIOS,
+    isSafari,
+    isFirefox,
+  };
+}
+
 function isInstalledAsStandalone(): boolean {
   if (typeof window === 'undefined') {
     return false;
@@ -111,10 +164,11 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
   const [installStatus, setInstallStatus] = useState<'idle' | 'installed' | 'dismissed'>(
     isInstalledAsStandalone() ? 'installed' : 'idle',
   );
+  const browserProfile = detectBrowserProfile();
 
   const steps = ONBOARDING_STEPS.map((step) => step.label);
 
-  const canPromptInstall = deferredInstallPrompt != null && installStatus !== 'installed';
+  const canPromptInstall = browserProfile.isChromium && deferredInstallPrompt != null && installStatus !== 'installed';
 
   const CurrentStepIcon = ONBOARDING_STEPS[activeStep]?.Icon;
 
@@ -438,6 +492,10 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
                 Install Skypier as an app for a faster startup, offline shell, and a native-like experience.
               </Typography>
 
+              <Typography variant="caption" color="text.secondary">
+                Browser detected: {browserProfile.label}
+              </Typography>
+
               <Box sx={{ p: 2, bgcolor: 'rgba(255,255,255,0.05)', borderRadius: 2, border: '1px solid rgba(255,255,255,0.1)' }}>
                 {installStatus === 'installed' ? (
                   <Typography variant="body2" color="success.main">
@@ -445,11 +503,23 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
                   </Typography>
                 ) : canPromptInstall ? (
                   <Typography variant="body2" color="text.secondary">
-                    Installation is available for this browser.
+                    Installation is available. Tap Install App and accept the browser prompt.
+                  </Typography>
+                ) : browserProfile.isChromium ? (
+                  <Typography variant="body2" color="text.secondary">
+                    This Chromium browser did not expose the install prompt yet. Open the browser menu and choose Install app / Add to desktop.
+                  </Typography>
+                ) : browserProfile.isSafari || browserProfile.isIOS ? (
+                  <Typography variant="body2" color="text.secondary">
+                    Safari install steps: open Share, then choose Add to Home Screen.
+                  </Typography>
+                ) : browserProfile.isFirefox ? (
+                  <Typography variant="body2" color="text.secondary">
+                    Firefox has limited PWA install support. Use a Chromium browser (Chrome, Edge, Brave, Opera) for one-click install.
                   </Typography>
                 ) : (
                   <Typography variant="body2" color="text.secondary">
-                    Install option not exposed by this browser right now. You can still finish setup.
+                    This browser is not Chromium-based. Install support may be limited; use the browser menu or switch to a Chromium browser for full PWA install.
                   </Typography>
                 )}
               </Box>

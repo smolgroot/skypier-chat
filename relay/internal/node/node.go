@@ -274,17 +274,25 @@ func (r *Relay) PollMetrics(ctx context.Context, interval time.Duration, extraAd
 				}
 				addrs = append(addrs, extraAddrs...)
 
+				var mailboxMessages int64
+				var mailboxRecipients int64
+				if r.mailbox != nil {
+					mailboxMessages, mailboxRecipients = r.mailbox.Stats(time.Now().UTC())
+				}
+
 				// Reservation count is tracked from relay lifecycle callbacks via
 				// relayv2.WithMetricsTracer(newRelayMetricsTracer(...)).
 				if err := r.Metrics.WriteStatus(metrics.Snapshot{
-					PeerID:      peerID,
-					ListenAddrs: addrs,
+					PeerID:            peerID,
+					ListenAddrs:       addrs,
+					MailboxMessages:   mailboxMessages,
+					MailboxRecipients: mailboxRecipients,
 				}); err != nil {
 					log.Printf("[relay] write status: %v", err)
 				}
 
-				log.Printf("[relay] peers=%d reservations=%d",
-					r.Metrics.ConnectedPeers(), r.Metrics.Reservations())
+				log.Printf("[relay] peers=%d reservations=%d mailbox_messages=%d mailbox_recipients=%d",
+					r.Metrics.ConnectedPeers(), r.Metrics.Reservations(), mailboxMessages, mailboxRecipients)
 			}
 		}
 	}()
