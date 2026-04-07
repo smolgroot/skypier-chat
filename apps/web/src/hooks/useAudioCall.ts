@@ -53,10 +53,13 @@ interface PlaybackPipeline {
   objectUrl: string;
   queue: Uint8Array[];
   queueBytes: number;
+  expectedSequence: number;
+  pendingBySequence: Map<number, Uint8Array>;
   ended: boolean;
 }
 
 const MAX_PLAYBACK_QUEUE_BYTES = 3 * 1024 * 1024; // 3 MB buffered inbound audio
+const MAX_PENDING_AUDIO_CHUNKS = 64;
 
 const PREFERRED_RECORDER_MIME_TYPES = [
   'audio/webm;codecs=opus',
@@ -122,7 +125,14 @@ export function useAudioCall(options: UseAudioCallOptions) {
     const nextChunk = pipeline.queue.shift();
     if (nextChunk) {
       pipeline.queueBytes = Math.max(0, pipeline.queueBytes - nextChunk.byteLength);
-      pipeline.sourceBuffer.appendBuffer(Uint8Array.from(nextChunk));
+      try {
+        pipeline.sourceBuffer.appendBuffer(Uint8Array.from(nextChunk));
+      } catch (error) {
+        console.warn('[skypier:audio] Failed to append inbound audio chunk; dropping chunk.', error);
+        queueMicrotask(() => {
+          flushPlaybackQueue();
+        });
+      }
       return;
     }
 
@@ -143,10 +153,41 @@ export function useAudioCall(options: UseAudioCallOptions) {
 
     pipeline.queue.length = 0;
     pipeline.queueBytes = 0;
+    pipeline.pendingBySequence.clear();
     pipeline.audio.pause();
     pipeline.audio.src = '';
     URL.revokeObjectURL(pipeline.objectUrl);
     playbackPipelineRef.current = null;
+  }, []);
+
+  const drainPendingIntoPlaybackQueue = useCallback((pipeline: PlaybackPipeline, force = false) => {
+    while (true) {
+      const next = pipeline.pendingBySequence.get(pipeline.expectedSequence);
+      if (!next) {
+        break;
+      }
+
+      pipeline.pendingBySequence.delete(pipeline.expectedSequence);
+      pipeline.expectedSequence += 1;
+      pipeline.queue.push(next);
+      pipeline.queueBytes += next.byteLength;
+    }
+
+    if (!force) {
+      return;
+    }
+
+    const remainingSequences = Array.from(pipeline.pendingBySequence.keys()).sort((a, b) => a - b);
+    for (const sequence of remainingSequences) {
+      const chunk = pipeline.pendingBySequence.get(sequence);
+      if (!chunk) {
+        continue;
+      }
+      pipeline.pendingBySequence.delete(sequence);
+      pipeline.queue.push(chunk);
+      pipeline.queueBytes += chunk.byteLength;
+      pipeline.expectedSequence = Math.max(pipeline.expectedSequence, sequence + 1);
+    }
   }, []);
 
   const ensurePlaybackPipeline = useCallback((callId: string, mimeType: string) => {
@@ -177,6 +218,8 @@ export function useAudioCall(options: UseAudioCallOptions) {
       objectUrl,
       queue: [],
       queueBytes: 0,
+      expectedSequence: 0,
+      pendingBySequence: new Map(),
       ended: false,
     };
 
@@ -616,6 +659,7 @@ export function useAudioCall(options: UseAudioCallOptions) {
     }
 
     if (chunk.kind === 'end') {
+      drainPendingIntoPlaybackQueue(pipeline, true);
       pipeline.ended = true;
       flushPlaybackQueue();
       return;
@@ -626,8 +670,24 @@ export function useAudioCall(options: UseAudioCallOptions) {
     }
 
     const decoded = decodeBase64(chunk.data);
-    pipeline.queue.push(decoded);
-    pipeline.queueBytes += decoded.byteLength;
+    if (chunk.sequence < pipeline.expectedSequence) {
+      return;
+    }
+
+    if (pipeline.pendingBySequence.has(chunk.sequence)) {
+      return;
+    }
+
+    pipeline.pendingBySequence.set(chunk.sequence, decoded);
+
+    if (pipeline.pendingBySequence.size > MAX_PENDING_AUDIO_CHUNKS) {
+      const available = Array.from(pipeline.pendingBySequence.keys()).sort((a, b) => a - b);
+      if (available.length > 0) {
+        pipeline.expectedSequence = available[0];
+      }
+    }
+
+    drainPendingIntoPlaybackQueue(pipeline, false);
 
     // Drop oldest queued audio chunks if buffering grows too large.
     while (pipeline.queueBytes > MAX_PLAYBACK_QUEUE_BYTES && pipeline.queue.length > 1) {
@@ -642,7 +702,7 @@ export function useAudioCall(options: UseAudioCallOptions) {
       // Playback may be delayed until the user interacts with the page.
     });
     flushPlaybackQueue();
-  }, [ensurePlaybackPipeline, flushPlaybackQueue]);
+  }, [drainPendingIntoPlaybackQueue, ensurePlaybackPipeline, flushPlaybackQueue]);
 
   useEffect(() => {
     return () => {

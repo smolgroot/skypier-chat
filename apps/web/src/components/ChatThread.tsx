@@ -214,7 +214,7 @@ export function ChatThread(props: ChatThreadProps) {
           pt: isMobile ? 'calc(env(safe-area-inset-top) + 80px)' : 2,
           display: 'flex',
           flexDirection: 'column',
-          gap: 1,
+          gap: 0.25,
           bgcolor: (theme) => (theme.palette.mode === 'light' ? '#e2e2e2' : '#090611'),
           backgroundImage: (theme) =>
             theme.palette.mode === 'light' || theme.palette.mode === 'dark'

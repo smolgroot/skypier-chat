@@ -104,7 +104,7 @@ const BubbleContainer = styled(Box, {
 })<{ isSelf?: boolean }>(({ theme, isSelf }) => ({
   display: 'flex',
   justifyContent: isSelf ? 'flex-end' : 'flex-start',
-  padding: theme.spacing(0.5, 2),
+  padding: theme.spacing(0.25, 2),
   width: '100%',
   position: 'relative',
   alignItems: 'center',
