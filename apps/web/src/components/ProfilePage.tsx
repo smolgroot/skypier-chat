@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Alert, Box, Button, Chip, Dialog, DialogActions, DialogContent, DialogTitle, Divider, FormControlLabel, Paper, Snackbar, Stack, Switch, TextField, Typography } from '@mui/material';
+import { Alert, Box, Button, Chip, Dialog, DialogActions, DialogContent, DialogTitle, Divider, FormControlLabel, Paper, Snackbar, Stack, Switch, TextField, Typography, Tabs, Tab, IconButton } from '@mui/material';
+import QrCode2Icon from '@mui/icons-material/QrCode2';
+import AccountBalanceWalletIcon from '@mui/icons-material/AccountBalanceWallet';
 import { QRCodeSVG } from 'qrcode.react';
 import ContentCopyIcon from '@mui/icons-material/ContentCopy';
 import ShareIcon from '@mui/icons-material/Share';
@@ -126,6 +128,11 @@ export function ProfilePage({ peerId, displayName, avatarUrl, bio, shareEnsDispl
     preferEnsAvatar,
   });
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const [activeTab, setActiveTab] = useState(0);
+
+  const handleTabChange = (_event: React.SyntheticEvent, newValue: number) => {
+    setActiveTab(newValue);
+  };
   const appUrl = 'https://skypier.chat';
   const effectiveAvatarUrl = preferEnsAvatar && resolvedEnsAvatar ? resolvedEnsAvatar : avatarUrl;
 
@@ -231,156 +238,238 @@ export function ProfilePage({ peerId, displayName, avatarUrl, bio, shareEnsDispl
   };
 
   return (
-    <Box sx={{ p: 4, maxWidth: 600, mx: 'auto', height: '100%', overflowY: 'auto' }}>
-      <Typography variant="h1" gutterBottom align="center">
-        User Profile
-      </Typography>
-      
-      <Paper 
-        elevation={0}
-        sx={{ 
-          p: 4, 
-          display: 'flex', 
-          flexDirection: 'column', 
-          alignItems: 'center', 
-          gap: 3, 
-          mb: 4,
-          bgcolor: (theme) => 
-            theme.palette.mode === 'dark' 
-              ? 'rgba(14, 8, 28, 0.2)' 
-              : 'rgba(255, 255, 255, 0.2)',
-          backdropFilter: (theme) => `blur(15px) saturate(190%) url(#liquid-glass-refraction-${theme.palette.mode})`,
-          WebkitBackdropFilter: (theme) => `blur(15px) saturate(190%) url(#liquid-glass-refraction-${theme.palette.mode})`,
-          filter: (theme) => `url(#liquid-glass-gloss-${theme.palette.mode})`,
-          border: (theme) => 
-            theme.palette.mode === 'dark' 
-              ? '1px solid rgba(171, 110, 255, 0.25)' 
-              : '1px solid rgba(0, 0, 0, 0.08)',
-          borderRadius: 4,
-          backgroundImage: 'none',
-          boxShadow: (theme) => 
-            theme.palette.mode === 'dark'
-              ? '0 8px 32px 0 rgba(0, 0, 0, 0.4)'
-              : '0 8px 32px 0 rgba(31, 38, 135, 0.07)'
+    <Box sx={{ display: 'flex', height: '100%', flexDirection: { xs: 'column', md: 'row' }, overflow: 'hidden' }}>
+      {/* Left panel - Profile Basics */}
+      <Box
+        sx={{
+          width: { xs: '100%', md: '40%' },
+          maxWidth: { md: 480 },
+          minWidth: { md: 360 },
+          display: 'flex',
+          flexDirection: 'column',
+          borderRight: (theme) => theme.palette.mode === 'dark' ? '1px solid rgba(171, 110, 255, 0.1)' : '1px solid rgba(0, 0, 0, 0.08)',
+          borderBottom: { xs: (theme) => theme.palette.mode === 'dark' ? '1px solid rgba(171, 110, 255, 0.1)' : '1px solid rgba(0, 0, 0, 0.08)', md: 'none' },
+          bgcolor: (theme) => theme.palette.mode === 'dark' ? 'rgba(14, 8, 28, 0.2)' : 'rgba(255, 255, 255, 0.4)',
+          overflowY: 'auto',
+          zIndex: 2,
         }}
       >
-        <UserAvatar 
-          seed={peerId} 
-          size={120} 
-          src={effectiveAvatarUrl || undefined}
-          sx={{ boxShadow: '0 8px 32px rgba(142, 45, 226, 0.3)' }} 
+        <Box 
+          sx={{ 
+            height: 180, 
+            width: '100%', 
+            background: (theme) => theme.palette.mode === 'dark' 
+              ? 'linear-gradient(135deg, #1A0D35 0%, #351C61 50%, #1A0D35 100%)' 
+              : 'linear-gradient(135deg, #8E2DE2 0%, #4A00E0 100%)',
+            flexShrink: 0
+          }} 
         />
-
-        <Box sx={{ textAlign: 'center', width: '100%' }}>
-          <Typography variant="h2" gutterBottom>
-            {displayName}
-          </Typography>
-          {shareEnsDisplayName && resolvedEnsName ? (
-            <Typography variant="subtitle1" color="text.secondary" sx={{ mb: 1 }}>
-              {resolvedEnsName}
-            </Typography>
-          ) : null}
-          {bio ? (
-            <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
-              {bio}
-            </Typography>
-          ) : null}
-          <Stack direction="row" spacing={1} justifyContent="center" sx={{ mb: 1.5, flexWrap: 'wrap' }}>
-            {shareEnsDisplayName && resolvedEnsName ? <Chip size="small" label="Sharing ENS name" color="primary" variant="outlined" /> : null}
-            {preferEnsAvatar && resolvedEnsAvatar ? <Chip size="small" label="Using ENS avatar" color="primary" variant="outlined" /> : null}
-          </Stack>
-          <Typography variant="body2" color="text.secondary" sx={{ wordBreak: 'break-all', mb: 1 }}>
-            Peer ID: {peerId}
-          </Typography>
-          <Button 
-            size="small" 
-            startIcon={<ContentCopyIcon />} 
-            onClick={() => { void copyToClipboard(peerId, 'Peer ID copied.'); }}
-          >
-            Copy ID
-          </Button>
-        </Box>
-
-        <Divider sx={{ width: '100%' }} />
-
-        <Box sx={{ p: 2, bgcolor: '#fff', borderRadius: 2, boxShadow: '0 4px 12px rgba(0,0,0,0.2)' }}>
-          <QRCodeSVG value={peerId} size={200} includeMargin={true} />
-        </Box>
-        <Typography variant="caption" color="text.secondary">
-          Scan to connect with me
-        </Typography>
-
-        <Stack direction="row" spacing={2}>
-          <Button variant="outlined" startIcon={<EditIcon />} onClick={() => setEditOpen(true)}>
-            Edit Profile
-          </Button>
-          <Button variant="contained" startIcon={<ShareIcon />} onClick={() => { void handleShare(); }} disabled={shareBusy}>
-            {shareBusy ? 'Sharing…' : 'Share Invite'}
-          </Button>
-        </Stack>
-      </Paper>
-
-      <Typography variant="h3" gutterBottom>
-        Linked Wallets
-      </Typography>
-      {linkedWallets.length > 0 ? (
-        <Stack spacing={2}>
-          {linkedWallets.map((wallet) => {
-            const explorerUrl = getBlockscoutAddressUrl(wallet.chainId, wallet.address);
-            return (
-            <Paper 
-              key={wallet.address} 
-              elevation={0}
+        
+        <Box sx={{ px: { xs: 2, sm: 3 }, pb: 4, flexGrow: 1, display: 'flex', flexDirection: 'column' }}>
+          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mt: '-65px', mb: 2 }}>
+            <Box 
               sx={{ 
-                p: 2, 
-                display: 'flex', 
-                justifyContent: 'space-between', 
-                alignItems: 'center',
-                bgcolor: (theme) => 
-                  theme.palette.mode === 'dark' 
-                    ? 'rgba(14, 8, 28, 0.5)' 
-                    : 'rgba(255, 255, 255, 0.3)',
-                backdropFilter: 'blur(10px) saturate(180%)',
-                WebkitBackdropFilter: 'blur(10px) saturate(180%)',
-                border: (theme) => 
-                  theme.palette.mode === 'dark' 
-                    ? '1px solid rgba(171, 110, 255, 0.1)' 
-                    : '1px solid rgba(0, 0, 0, 0.05)',
-                backgroundImage: 'none'
+                borderRadius: '50%', 
+                padding: '5px', 
+                bgcolor: (theme) => theme.palette.mode === 'dark' ? '#0f0a1c' : '#fff',
+                position: 'relative'
               }}
             >
-              <Box>
-                <Typography variant="body1" sx={{ fontFamily: 'monospace' }}>
-                  {wallet.address.slice(0, 10)}...{wallet.address.slice(-8)}
-                </Typography>
-                <Typography variant="caption" color="text.secondary">
-                  Chain ID: {wallet.chainId}
-                </Typography>
+              <UserAvatar 
+                seed={peerId} 
+                size={120} 
+                src={effectiveAvatarUrl || undefined}
+                sx={{ 
+                  boxShadow: '0 4px 14px rgba(0,0,0,0.2)', 
+                  border: '2px solid transparent'
+                }} 
+              />
+            </Box>
+          </Box>
+
+          <Box sx={{ mb: 3 }}>
+            <Typography variant="h4" sx={{ fontWeight: 800, lineHeight: 1.2 }}>
+              {displayName}
+            </Typography>
+            <Stack direction="row" alignItems="center" spacing={1} sx={{ mt: 0.5 }}>
+              <Typography variant="body1" color="text.secondary">
+                {shareEnsDisplayName && resolvedEnsName ? resolvedEnsName : `@${peerId.slice(0, 8)}`}
+              </Typography>
+              <Chip 
+                size="small" 
+                label="Copy ID" 
+                icon={<ContentCopyIcon sx={{ fontSize: 12 }} />} 
+                onClick={() => { void copyToClipboard(peerId, 'Peer ID copied.'); }}
+                sx={{ height: 20, fontSize: '0.65rem', cursor: 'pointer', '.MuiChip-label': { px: 1 } }}
+              />
+            </Stack>
+
+            <Typography variant="body2" color="text.secondary" sx={{ wordBreak: 'break-all', mt: 1 }}>
+              Peer ID: {peerId}
+            </Typography>
+
+            {bio ? (
+              <Typography variant="body1" sx={{ mt: 2, whiteSpace: 'pre-wrap', lineHeight: 1.5 }}>
+                {bio}
+              </Typography>
+            ) : null}
+
+            <Stack direction="row" spacing={1} sx={{ mt: 2, flexWrap: 'wrap', gap: 1 }}>
+              {shareEnsDisplayName && resolvedEnsName ? <Chip size="small" label="ENS Linked" variant="outlined" /> : null}
+              {preferEnsAvatar && resolvedEnsAvatar ? <Chip size="small" label="ENS Avatar" variant="outlined" /> : null}
+            </Stack>
+          </Box>
+
+          <Stack direction="row" spacing={2} sx={{ mt: 'auto', pt: 2 }}>
+            <Button 
+              fullWidth
+              variant="outlined" 
+              size="large" 
+              sx={{ borderRadius: 3, textTransform: 'none', fontWeight: 'bold' }}
+              onClick={() => setEditOpen(true)}
+            >
+              Edit Profile
+            </Button>
+            <Button 
+              fullWidth
+              variant="contained" 
+              size="large" 
+              disableElevation
+              sx={{ 
+                borderRadius: 3, 
+                textTransform: 'none', 
+                fontWeight: 'bold',
+                background: (theme) => theme.palette.mode === 'dark' ? 'linear-gradient(135deg, #8e2de2, #4a00e0)' : 'linear-gradient(135deg, #1f7cff, #42c6ff)',
+              }}
+              onClick={() => { void handleShare(); }} 
+              disabled={shareBusy}
+            >
+              {shareBusy ? 'Sharing…' : 'Share Profile'}
+            </Button>
+          </Stack>
+        </Box>
+      </Box>
+
+      {/* Right panel - Extra details / Tabs */}
+      <Box
+        sx={{
+          flex: 1,
+          display: 'flex',
+          flexDirection: 'column',
+          overflow: 'hidden',
+          bgcolor: (theme) => theme.palette.mode === 'dark' ? 'transparent' : 'rgba(255, 255, 255, 0.2)',
+        }}
+      >
+        <Box sx={{ borderBottom: 1, borderColor: 'divider', px: { xs: 2, md: 4 }, pt: { xs: 2, md: 4 } }}>
+          <Tabs 
+            value={activeTab} 
+            onChange={handleTabChange} 
+            aria-label="profile tabs"
+            TabIndicatorProps={{ sx: { height: 3, borderRadius: '3px 3px 0 0' } }}
+          >
+            <Tab 
+              icon={<QrCode2Icon sx={{ mr: 1, mb: '0 !important' }} />} 
+              iconPosition="start"
+              label="QR Code" 
+              sx={{ textTransform: 'none', fontWeight: 600, minHeight: 48 }} 
+            />
+            <Tab 
+              icon={<AccountBalanceWalletIcon sx={{ mr: 1, mb: '0 !important' }} />} 
+              iconPosition="start"
+              label="Linked Wallets" 
+              sx={{ textTransform: 'none', fontWeight: 600, minHeight: 48 }} 
+            />
+          </Tabs>
+        </Box>
+
+        <Box sx={{ flexGrow: 1, p: { xs: 2, md: 4 }, overflowY: 'auto' }}>
+          {activeTab === 0 && (
+            <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', py: 4 }}>
+              <Box 
+                sx={{ 
+                  p: 4, 
+                  bgcolor: '#fff', 
+                  borderRadius: 4, 
+                  boxShadow: '0 8px 32px rgba(0,0,0,0.08)',
+                  border: '1px solid rgba(0,0,0,0.05)',
+                  mb: 3
+                }}
+              >
+                <QRCodeSVG value={peerId} size={280} includeMargin={true} />
               </Box>
-              <Stack direction="row" spacing={1}>
-                <Button
-                  size="small"
-                  component="a"
-                  href={explorerUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  endIcon={<OpenInNewIcon fontSize="small" />}
-                >
-                  Blockscout
-                </Button>
-                <Button size="small" onClick={() => { void copyToClipboard(wallet.address, 'Wallet address copied.'); }}>
-                  Copy
-                </Button>
-              </Stack>
-            </Paper>
-            );
-          })}
-        </Stack>
-      ) : (
-        <Typography variant="body2" color="text.secondary">
-          No wallets linked yet.
-        </Typography>
-      )}
+              <Typography variant="body1" color="text.secondary" fontWeight={500}>
+                Scan to connect with me
+              </Typography>
+            </Box>
+          )}
+
+          {activeTab === 1 && (
+            <Box sx={{ maxWidth: 800 }}>
+              {linkedWallets.length > 0 ? (
+                <Stack spacing={2}>
+                  {linkedWallets.map((wallet) => {
+                    const explorerUrl = getBlockscoutAddressUrl(wallet.chainId, wallet.address);
+                    return (
+                      <Paper 
+                        key={wallet.address} 
+                        elevation={0}
+                        sx={{ 
+                          p: 2.5, 
+                          display: 'flex', 
+                          justifyContent: 'space-between', 
+                          alignItems: 'center',
+                          bgcolor: (theme) => theme.palette.mode === 'dark' ? 'rgba(255, 255, 255, 0.03)' : '#fff',
+                          border: (theme) => theme.palette.mode === 'dark' ? '1px solid rgba(255, 255, 255, 0.1)' : '1px solid rgba(0, 0, 0, 0.08)',
+                          borderRadius: 3
+                        }}
+                      >
+                        <Box>
+                          <Typography variant="body1" sx={{ fontFamily: 'monospace', fontWeight: 500 }}>
+                            {wallet.address.slice(0, 10)}...{wallet.address.slice(-8)}
+                          </Typography>
+                          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
+                            Chain ID: {wallet.chainId}
+                          </Typography>
+                        </Box>
+                        <Stack direction="row" spacing={1}>
+                          <IconButton
+                            size="small"
+                            component="a"
+                            href={explorerUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            color="primary"
+                            sx={{ bgcolor: (theme) => theme.palette.mode === 'dark' ? 'rgba(142, 45, 226, 0.15)' : 'rgba(31, 124, 255, 0.1)' }}
+                          >
+                            <OpenInNewIcon fontSize="small" />
+                          </IconButton>
+                          <IconButton 
+                            size="small" 
+                            color="secondary"
+                            onClick={() => { void copyToClipboard(wallet.address, 'Wallet address copied.'); }}
+                            sx={{ bgcolor: (theme) => theme.palette.mode === 'dark' ? 'rgba(255,255,255, 0.1)' : 'rgba(0,0,0, 0.05)' }}
+                          >
+                            <ContentCopyIcon fontSize="small" />
+                          </IconButton>
+                        </Stack>
+                      </Paper>
+                    );
+                  })}
+                </Stack>
+              ) : (
+                <Box sx={{ py: 8, textAlign: 'center' }}>
+                  <Typography variant="h6" color="text.secondary" gutterBottom>
+                    No linked wallets
+                  </Typography>
+                  <Typography variant="body2" color="text.secondary">
+                    You can link Ethereum wallets in Settings to share your ENS details on your profile.
+                  </Typography>
+                </Box>
+              )}
+            </Box>
+          )}
+        </Box>
+      </Box>
 
       <Snackbar
         open={Boolean(shareSuccess)}

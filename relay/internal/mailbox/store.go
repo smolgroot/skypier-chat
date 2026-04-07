@@ -7,14 +7,14 @@ import (
 )
 
 type RecipientKeyWrap struct {
-	RecipientPeerID   string `json:"recipientPeerId"`
-	RecipientDeviceID string `json:"recipientDeviceId"`
-	KeyWrapAlgorithm  string `json:"keyWrapAlgorithm"`
-	PreKeyID          string `json:"preKeyId,omitempty"`
+	RecipientPeerID    string `json:"recipientPeerId"`
+	RecipientDeviceID  string `json:"recipientDeviceId"`
+	KeyWrapAlgorithm   string `json:"keyWrapAlgorithm"`
+	PreKeyID           string `json:"preKeyId,omitempty"`
 	EphemeralPublicKey string `json:"ephemeralPublicKey,omitempty"`
-	Salt              string `json:"salt,omitempty"`
-	Nonce             string `json:"nonce,omitempty"`
-	WrappedKey        string `json:"wrappedKey"`
+	Salt               string `json:"salt,omitempty"`
+	Nonce              string `json:"nonce,omitempty"`
+	WrappedKey         string `json:"wrappedKey"`
 }
 
 type EncryptedMessageEnvelope struct {
