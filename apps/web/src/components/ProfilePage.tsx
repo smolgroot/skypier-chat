@@ -238,7 +238,7 @@ export function ProfilePage({ peerId, displayName, avatarUrl, bio, shareEnsDispl
   };
 
   return (
-    <Box sx={{ display: 'flex', height: '100%', flexDirection: { xs: 'column', md: 'row' }, overflow: 'hidden' }}>
+    <Box sx={{ display: 'flex', height: '100%', flexDirection: { xs: 'column', md: 'row' }, overflowX: 'hidden', overflowY: { xs: 'auto', md: 'hidden' } }}>
       {/* Left panel - Profile Basics */}
       <Box
         sx={{
@@ -250,7 +250,8 @@ export function ProfilePage({ peerId, displayName, avatarUrl, bio, shareEnsDispl
           borderRight: (theme) => theme.palette.mode === 'dark' ? '1px solid rgba(171, 110, 255, 0.1)' : '1px solid rgba(0, 0, 0, 0.08)',
           borderBottom: { xs: (theme) => theme.palette.mode === 'dark' ? '1px solid rgba(171, 110, 255, 0.1)' : '1px solid rgba(0, 0, 0, 0.08)', md: 'none' },
           bgcolor: (theme) => theme.palette.mode === 'dark' ? 'rgba(14, 8, 28, 0.2)' : 'rgba(255, 255, 255, 0.4)',
-          overflowY: 'auto',
+          overflowY: { xs: 'visible', md: 'auto' },
+          flexShrink: 0,
           zIndex: 2,
         }}
       >
@@ -356,7 +357,7 @@ export function ProfilePage({ peerId, displayName, avatarUrl, bio, shareEnsDispl
           flex: 1,
           display: 'flex',
           flexDirection: 'column',
-          overflow: 'hidden',
+          overflowY: { xs: 'visible', md: 'hidden' },
           bgcolor: (theme) => theme.palette.mode === 'dark' ? 'transparent' : 'rgba(255, 255, 255, 0.2)',
         }}
       >
@@ -382,7 +383,7 @@ export function ProfilePage({ peerId, displayName, avatarUrl, bio, shareEnsDispl
           </Tabs>
         </Box>
 
-        <Box sx={{ flexGrow: 1, p: { xs: 2, md: 4 }, overflowY: 'auto' }}>
+        <Box sx={{ flexGrow: 1, p: { xs: 2, md: 4 }, overflowY: { xs: 'visible', md: 'auto' } }}>
           {activeTab === 0 && (
             <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', py: 4 }}>
               <Box 
