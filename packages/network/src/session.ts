@@ -168,6 +168,12 @@ const RETRY_TICK_INTERVAL_MS = 10_000;
 const RELAY_RESERVATION_WAIT_TIMEOUT_MS = 12_000;
 const RELAY_RESERVATION_POLL_INTERVAL_MS = 500;
 const REQUEST_RESPONSE_TIMEOUT_MS = 10_000;
+/** Max queue size to prevent memory exhaustion on prolonged offline */
+const MAX_QUEUE_SIZE = 200;
+/** Shorter cooldown for retries after limited connection errors */
+const LIMITED_CONNECTION_RETRY_DELAY_MS = 15_000;
+/** Time to wait for DCUtR upgrade attempt */
+const DCUTR_UPGRADE_TIMEOUT_MS = 5_000;
 
 function computeNextRetryDelay(retryCount: number): number {
   return Math.min(BASE_RETRY_DELAY_MS * Math.pow(2, retryCount), MAX_RETRY_DELAY_MS);
@@ -401,6 +407,8 @@ export function createBrowserLiveSession(options: CreateBrowserLiveSessionOption
 
   const REDIAL_COOLDOWN_MS = 2_500;
   const ENSURE_LOG_THROTTLE_MS = 2_000;
+  /** Track peers with limited connections to trigger upgrade attempts */
+  const limitedConnectionPeers = new Map<string, number>();
 
   const configuredRelayBootstrapCandidates = Array.from(new Set(
     (options.nodeOptions?.bootstrapMultiaddrs ?? [])
@@ -702,7 +710,7 @@ export function createBrowserLiveSession(options: CreateBrowserLiveSessionOption
     return activeRelayAddresses;
   }
 
-  function enqueue(peerId: string, envelope: WireEnvelope, retryCount = 0) {
+  function enqueue(peerId: string, envelope: WireEnvelope, retryCount = 0, isLimited = false) {
     // Skip self-targeted messages
     if (peerId === state.localPeerId) return;
 
@@ -711,7 +719,27 @@ export function createBrowserLiveSession(options: CreateBrowserLiveSessionOption
       return;
     }
 
-    const delay = computeNextRetryDelay(retryCount);
+    // Enforce queue size limit to prevent memory exhaustion
+    if (queue.length >= MAX_QUEUE_SIZE) {
+      // Remove oldest non-critical messages first
+      const oldestIdx = queue.findIndex((q) => q.envelope.kind === 'message');
+      if (oldestIdx >= 0) {
+        const removed = queue.splice(oldestIdx, 1)[0];
+        console.warn('[skypier:session] ⚠ queue full — dropping oldest message:', removed.envelope.messageId);
+        if (removed.envelope.messageId) {
+          emitDeliveryStatus({ messageId: removed.envelope.messageId, status: 'failed' });
+        }
+      } else {
+        // All are receipts/sync — drop oldest anyway
+        const removed = queue.shift();
+        if (removed) {
+          console.warn('[skypier:session] ⚠ queue full — dropping oldest item:', removed.envelope.messageId);
+        }
+      }
+    }
+
+    // Use shorter delay for limited connection retries (upgrade may happen sooner)
+    const delay = isLimited ? LIMITED_CONNECTION_RETRY_DELAY_MS : computeNextRetryDelay(retryCount);
     queue.push({
       peerId,
       envelope,
@@ -803,7 +831,68 @@ export function createBrowserLiveSession(options: CreateBrowserLiveSessionOption
     return connection;
   }
 
-  async function sendProtocolPayloadToPeer(peerId: string, protocol: string, payload: Uint8Array): Promise<true | false | 'unsupported'> {
+  /**
+   * Check if a connection is "limited" (relayed) which restricts stream creation.
+   */
+  function isConnectionLimited(connection: Awaited<ReturnType<SkypierBrowserNode['dial']>>): boolean {
+    // libp2p marks relayed connections as "limited" — check the limits property
+    const limits = (connection as { limits?: { bytes?: number; seconds?: number } }).limits;
+    return limits != null || connection.remoteAddr?.toString().includes('/p2p-circuit');
+  }
+
+  /**
+   * Attempt to upgrade a limited connection via DCUtR hole-punching.
+   * Returns true if upgrade succeeded, false otherwise.
+   */
+  async function tryUpgradeLimitedConnection(peerId: string): Promise<boolean> {
+    if (!node) return false;
+
+    const lastAttempt = limitedConnectionPeers.get(peerId) ?? 0;
+    const now = Date.now();
+
+    // Don't retry upgrade too frequently
+    if (now - lastAttempt < LIMITED_CONNECTION_RETRY_DELAY_MS) {
+      return false;
+    }
+
+    limitedConnectionPeers.set(peerId, now);
+    console.log('[skypier:session] 🔄 attempting DCUtR upgrade for', peerId);
+    emitDialLog(peerId, 'info', 'Attempting direct connection upgrade (DCUtR hole-punching)…');
+
+    try {
+      // Force close existing limited connections to trigger fresh dial
+      const connections = node.getConnections().filter((c) => c.remotePeer.toString() === peerId);
+      for (const conn of connections) {
+        if (isConnectionLimited(conn)) {
+          await conn.close();
+        }
+      }
+
+      // Wait briefly for DCUtR to upgrade, then re-dial
+      await new Promise((resolve) => setTimeout(resolve, 500));
+
+      // Try to establish a new direct connection
+      const targetPeerId = peerIdFromString(peerId);
+      const newConnection = await Promise.race([
+        node.dial(targetPeerId),
+        new Promise<null>((resolve) => setTimeout(() => resolve(null), DCUTR_UPGRADE_TIMEOUT_MS)),
+      ]);
+
+      if (newConnection && !isConnectionLimited(newConnection)) {
+        console.log('[skypier:session] ✓ DCUtR upgrade succeeded for', peerId);
+        emitDialLog(peerId, 'success', 'Direct connection established via hole-punching.');
+        limitedConnectionPeers.delete(peerId);
+        return true;
+      }
+    } catch (err) {
+      console.warn('[skypier:session] DCUtR upgrade failed for', peerId, err);
+    }
+
+    emitDialLog(peerId, 'warn', 'Direct connection upgrade failed; will retry via relay.');
+    return false;
+  }
+
+  async function sendProtocolPayloadToPeer(peerId: string, protocol: string, payload: Uint8Array): Promise<true | false | 'unsupported' | 'limited'> {
     if (peerId === state.localPeerId) {
       return true;
     }
@@ -812,6 +901,9 @@ export function createBrowserLiveSession(options: CreateBrowserLiveSessionOption
     if (connection == null) {
       return connection === null ? true : false;
     }
+
+    // Check if connection is limited — may need upgrade
+    const connectionIsLimited = isConnectionLimited(connection);
 
     try {
       const stream = await connection.newStream(protocol);
@@ -822,18 +914,37 @@ export function createBrowserLiveSession(options: CreateBrowserLiveSessionOption
 
       await stream.close();
       void markAsChatPeer(peerId);
+
+      // Connection worked — clear any limited status tracking
+      if (!connectionIsLimited) {
+        limitedConnectionPeers.delete(peerId);
+      }
+
       return true;
     } catch (error) {
       const errName = (error as { name?: string })?.name ?? '';
+      const errMsg = (error as { message?: string })?.message ?? '';
+
       if (errName === 'UnsupportedProtocolError') {
         return 'unsupported';
       }
+
+      // Handle LimitedConnectionError specifically
+      if (errName === 'LimitedConnectionError' || errMsg.includes('limited connection')) {
+        console.warn('[skypier:session] ⚠ limited connection to', peerId, '— cannot open stream, will attempt upgrade');
+        emitDialLog(peerId, 'warn', 'Connection is relay-limited; attempting direct connection upgrade.');
+
+        // Try to upgrade in background, return 'limited' to trigger special retry
+        void tryUpgradeLimitedConnection(peerId);
+        return 'limited';
+      }
+
       console.error('[skypier:session] ✗ failed to send protocol payload to', peerId, 'over', protocol, error);
       return false;
     }
   }
 
-  async function sendEnvelopeToPeer(peerId: string, envelope: WireEnvelope): Promise<true | false | 'unsupported'> {
+  async function sendEnvelopeToPeer(peerId: string, envelope: WireEnvelope): Promise<true | false | 'unsupported' | 'limited'> {
     const raw = serializeWireEnvelope(envelope);
     const result = await sendProtocolPayloadToPeer(peerId, SKYPIER_CHAT_PROTOCOLS.message, raw);
 
@@ -843,6 +954,8 @@ export function createBrowserLiveSession(options: CreateBrowserLiveSessionOption
       if (envelope.messageId) {
         emitDeliveryStatus({ messageId: envelope.messageId, status: 'sent' });
       }
+    } else if (result === 'limited') {
+      console.log('[skypier:session] ↻ limited connection to', peerId, '— queueing for retry after upgrade attempt');
     }
 
     return result;
@@ -1070,6 +1183,19 @@ export function createBrowserLiveSession(options: CreateBrowserLiveSessionOption
         const result = await sendEnvelopeToPeer(item.peerId, item.envelope);
         if (result === 'unsupported') {
           // Peer doesn't speak our protocol — drop permanently
+          continue;
+        }
+        if (result === 'limited') {
+          // Limited connection — use shorter retry delay, upgrade is being attempted
+          const nextRetryCount = item.retryCount + 1;
+          const delay = LIMITED_CONNECTION_RETRY_DELAY_MS;
+          queue.push({
+            peerId: item.peerId,
+            envelope: item.envelope,
+            retryCount: nextRetryCount,
+            nextRetryAt: new Date(Date.now() + delay).toISOString(),
+          });
+          console.log('[skypier:session] ↻ limited retry', nextRetryCount, '/', MAX_RETRIES, 'for', item.envelope.messageId, '— next in', Math.round(delay / 1000), 's (upgrade pending)');
           continue;
         }
         if (!result) {
@@ -1641,6 +1767,9 @@ export function createBrowserLiveSession(options: CreateBrowserLiveSessionOption
         const result = await sendEnvelopeToPeer(peerId, envelope);
         if (result === true) {
           sentCount++;
+        } else if (result === 'limited') {
+          // Limited connection — queue with shorter retry timing
+          enqueue(peerId, envelope, 0, true);
         } else if (result !== 'unsupported') {
           // Transient failure — queue for retry
           enqueue(peerId, envelope);
@@ -1678,6 +1807,9 @@ export function createBrowserLiveSession(options: CreateBrowserLiveSessionOption
       const result = await sendEnvelopeToPeer(targetPeerId, envelope);
       if (result === false) {
         enqueue(targetPeerId, envelope);
+      } else if (result === 'limited') {
+        // Queue with limited flag for shorter retry timing
+        enqueue(targetPeerId, envelope, 0, true);
       }
       return result === true;
     },
@@ -1815,6 +1947,9 @@ export function createBrowserLiveSession(options: CreateBrowserLiveSessionOption
       if (result === false) {
         // Re-enqueue with reset retryCount = 0 (user-triggered manual retry)
         enqueue(item.peerId, item.envelope, 0);
+      } else if (result === 'limited') {
+        // Limited connection — queue with shorter retry timing
+        enqueue(item.peerId, item.envelope, 0, true);
       }
       persistQueue();
       emitState();
@@ -1834,6 +1969,12 @@ export function createBrowserLiveSession(options: CreateBrowserLiveSessionOption
         const result = await sendEnvelopeToPeer(item.peerId, item.envelope);
         if (result === true) {
           sentCount += 1;
+        } else if (result === 'limited') {
+          // Limited connection — re-queue with shorter retry, don't count retry
+          queue.push({
+            ...item,
+            nextRetryAt: new Date(Date.now() + LIMITED_CONNECTION_RETRY_DELAY_MS).toISOString(),
+          });
         } else if (result === false) {
           queue.push(item);
         }
