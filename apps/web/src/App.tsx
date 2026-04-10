@@ -528,13 +528,24 @@ export function App() {
       return;
     }
 
-    window.dispatchEvent(new CustomEvent('skypier:sw-unread-config', {
-      detail: {
-        unreadEndpointUrl: RELAY_UNREAD_CHECK_URL,
-        unreadToken: RELAY_UNREAD_CHECK_TOKEN,
-        recipientPeerId,
-      },
-    }));
+    function dispatchUnreadConfig() {
+      window.dispatchEvent(new CustomEvent('skypier:sw-unread-config', {
+        detail: {
+          unreadEndpointUrl: RELAY_UNREAD_CHECK_URL,
+          unreadToken: RELAY_UNREAD_CHECK_TOKEN,
+          recipientPeerId,
+        },
+      }));
+    }
+
+    dispatchUnreadConfig();
+
+    // SW may wake up without in-memory config (killed by browser) and ask us
+    // to re-send it via SKYPIER_REQUEST_UNREAD_CONFIG → this event.
+    window.addEventListener('skypier:sw-unread-config-requested', dispatchUnreadConfig);
+    return () => {
+      window.removeEventListener('skypier:sw-unread-config-requested', dispatchUnreadConfig);
+    };
   }, [account.localPeerId, liveState.localPeerId]);
 
   useEffect(() => {

@@ -1,4 +1,6 @@
 const SKYPIER_CACHE = 'skypier-app-v1';
+const SKYPIER_CONFIG_CACHE = 'skypier-sw-config-v1';
+const SKYPIER_CONFIG_URL = '/__skypier_sw_config__';
 const SKYPIER_UNREAD_NOTIFICATION_TAG = 'skypier-unread-check';
 const SKYPIER_UNREAD_SYNC_TAG = 'skypier-unread-sync';
 const SKYPIER_UNREAD_PERIODIC_SYNC_TAG = 'skypier-unread-periodic';
@@ -15,6 +17,44 @@ let unreadToken = '';
 let unreadRecipientPeerId = '';
 let lastUnreadCount = 0;
 let lastUnreadNotificationAt = 0;
+
+// Persist config to CacheStorage so it survives SW restarts (required for
+// Periodic Background Sync, which wakes a fresh SW with no in-memory state).
+async function saveUnreadConfig() {
+  try {
+    const cache = await caches.open(SKYPIER_CONFIG_CACHE);
+    await cache.put(
+      SKYPIER_CONFIG_URL,
+      new Response(JSON.stringify({
+        unreadEndpointUrl,
+        unreadToken,
+        unreadRecipientPeerId,
+        lastUnreadCount,
+        lastUnreadNotificationAt,
+      }), { headers: { 'Content-Type': 'application/json' } }),
+    );
+  } catch {
+    // Best-effort.
+  }
+}
+
+async function loadUnreadConfig() {
+  try {
+    const cache = await caches.open(SKYPIER_CONFIG_CACHE);
+    const response = await cache.match(SKYPIER_CONFIG_URL);
+    if (!response) {
+      return;
+    }
+    const data = await response.json();
+    if (data.unreadEndpointUrl) { unreadEndpointUrl = data.unreadEndpointUrl; }
+    if (data.unreadToken) { unreadToken = data.unreadToken; }
+    if (data.unreadRecipientPeerId) { unreadRecipientPeerId = data.unreadRecipientPeerId; }
+    if (typeof data.lastUnreadCount === 'number') { lastUnreadCount = data.lastUnreadCount; }
+    if (typeof data.lastUnreadNotificationAt === 'number') { lastUnreadNotificationAt = data.lastUnreadNotificationAt; }
+  } catch {
+    // Best-effort.
+  }
+}
 
 function isCacheableGetRequest(request) {
   if (request.method !== 'GET') {
@@ -92,6 +132,12 @@ async function fetchUnreadCheckSummary() {
 }
 
 async function runUnreadCheck(source) {
+  // SW may have been killed and restarted (e.g. periodic background sync);
+  // reload persisted config before checking.
+  if (!canRunUnreadCheck()) {
+    await loadUnreadConfig();
+  }
+
   const summary = await fetchUnreadCheckSummary();
   if (!summary) {
     return;
@@ -100,6 +146,7 @@ async function runUnreadCheck(source) {
   const now = Date.now();
   const becameUnread = summary.hasUnread && summary.unreadCount > lastUnreadCount;
   lastUnreadCount = summary.unreadCount;
+  await saveUnreadConfig();
 
   if (!becameUnread) {
     return;
@@ -110,6 +157,7 @@ async function runUnreadCheck(source) {
   }
 
   lastUnreadNotificationAt = now;
+  await saveUnreadConfig();
 
   await self.registration.showNotification('🔐 New encrypted message', {
     body: 'Open Skypier to decrypt and read.',
@@ -148,6 +196,9 @@ self.addEventListener('activate', (event) => {
     const clients = await self.clients.matchAll({ includeUncontrolled: true, type: 'window' });
     for (const client of clients) {
       client.postMessage({ type: 'SKYPIER_RECOVER_CONNECTIVITY', source: 'sw-activate' });
+      // Ask open windows to re-send unread config so the SW has it for
+      // background polling (SKYPIER_REQUEST_UNREAD_CONFIG is handled in App.tsx).
+      client.postMessage({ type: 'SKYPIER_REQUEST_UNREAD_CONFIG' });
     }
 
     await runUnreadCheck('activate');
@@ -228,7 +279,10 @@ self.addEventListener('message', (event) => {
     unreadEndpointUrl = typeof data.unreadEndpointUrl === 'string' ? data.unreadEndpointUrl.trim() : '';
     unreadToken = typeof data.unreadToken === 'string' ? data.unreadToken.trim() : '';
     unreadRecipientPeerId = typeof data.recipientPeerId === 'string' ? data.recipientPeerId.trim() : '';
-    event.waitUntil(runUnreadCheck('config-update'));
+    event.waitUntil((async () => {
+      await saveUnreadConfig();
+      await runUnreadCheck('config-update');
+    })());
     return;
   }
 

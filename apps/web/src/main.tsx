@@ -64,6 +64,9 @@ if ('serviceWorker' in navigator) {
         emitConnectivityRecoveryRequest(data.source ?? 'service-worker');
       } else if (data.type === 'SKYPIER_PUSH_SUBSCRIPTION_CHANGED') {
         window.dispatchEvent(new CustomEvent('skypier:push-subscription-changed'));
+      } else if (data.type === 'SKYPIER_REQUEST_UNREAD_CONFIG') {
+        // SW woke up without config (e.g. after being killed); re-broadcast it.
+        window.dispatchEvent(new CustomEvent('skypier:sw-unread-config-requested'));
       }
     });
 
@@ -71,6 +74,36 @@ if ('serviceWorker' in navigator) {
       skypierServiceWorkerRegistration = registration;
       registration.active?.postMessage({ type: 'SKYPIER_REQUEST_RECOVERY' });
       void registerUnreadBackgroundTasks(registration);
+    });
+
+    // Fallback for browsers that don't support Periodic Background Sync
+    // (or when Chrome withholds it due to low site-engagement score).
+    // While the page is hidden (app backgrounded), ping the SW every 3 min.
+    const BACKGROUND_POLL_INTERVAL_MS = 3 * 60 * 1000;
+    let backgroundPollTimer: ReturnType<typeof setInterval> | null = null;
+
+    function startBackgroundPoll() {
+      if (backgroundPollTimer !== null) return;
+      backgroundPollTimer = setInterval(() => {
+        navigator.serviceWorker.controller?.postMessage({ type: 'SKYPIER_CHECK_UNREAD' });
+      }, BACKGROUND_POLL_INTERVAL_MS);
+    }
+
+    function stopBackgroundPoll() {
+      if (backgroundPollTimer !== null) {
+        clearInterval(backgroundPollTimer);
+        backgroundPollTimer = null;
+      }
+    }
+
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'hidden') {
+        startBackgroundPoll();
+      } else {
+        stopBackgroundPoll();
+        // Trigger an immediate check when user returns to the app.
+        navigator.serviceWorker.controller?.postMessage({ type: 'SKYPIER_CHECK_UNREAD' });
+      }
     });
 
     window.addEventListener('skypier:sw-unread-config', (event) => {
