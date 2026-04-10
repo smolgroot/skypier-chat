@@ -48,3 +48,15 @@ mailbox_default_ttl: 168h
 
 # Maximum queued envelopes per recipient peer.
 mailbox_max_per_recipient: 1000
+
+# Enable a minimal HTTP endpoint for service-worker unread checks.
+unread_check_http_enabled: true
+
+# HTTP listen address for unread checks. Put this behind TLS/reverse proxy when public.
+unread_check_http_listen_addr: 127.0.0.1:8090
+
+# Optional bearer token required in header: X-Skypier-Unread-Token.
+unread_check_http_token: ""
+
+# CORS allow origin for unread checks.
+unread_check_http_cors_allow_origin: "*"

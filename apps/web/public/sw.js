@@ -1,9 +1,20 @@
 const SKYPIER_CACHE = 'skypier-app-v1';
+const SKYPIER_UNREAD_NOTIFICATION_TAG = 'skypier-unread-check';
+const SKYPIER_UNREAD_SYNC_TAG = 'skypier-unread-sync';
+const SKYPIER_UNREAD_PERIODIC_SYNC_TAG = 'skypier-unread-periodic';
+const SKYPIER_UNREAD_CHECK_DEDUPE_MS = 2 * 60 * 1000;
+const SKYPIER_UNREAD_CHECK_TIMEOUT_MS = 8000;
 const SKYPIER_APP_SHELL_URLS = [
   '/',
   '/index.html',
   '/manifest.webmanifest',
 ];
+
+let unreadEndpointUrl = '';
+let unreadToken = '';
+let unreadRecipientPeerId = '';
+let lastUnreadCount = 0;
+let lastUnreadNotificationAt = 0;
 
 function isCacheableGetRequest(request) {
   if (request.method !== 'GET') {
@@ -35,6 +46,88 @@ async function addCoreShellToCache() {
   );
 }
 
+function canRunUnreadCheck() {
+  return Boolean(unreadEndpointUrl && unreadRecipientPeerId);
+}
+
+function buildUnreadCheckUrl() {
+  const baseUrl = new URL(unreadEndpointUrl);
+  baseUrl.searchParams.set('recipientPeerId', unreadRecipientPeerId);
+  return baseUrl.toString();
+}
+
+async function fetchUnreadCheckSummary() {
+  if (!canRunUnreadCheck()) {
+    return null;
+  }
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), SKYPIER_UNREAD_CHECK_TIMEOUT_MS);
+
+  try {
+    const response = await fetch(buildUnreadCheckUrl(), {
+      method: 'GET',
+      headers: {
+        ...(unreadToken ? { 'X-Skypier-Unread-Token': unreadToken } : {}),
+      },
+      cache: 'no-store',
+      signal: controller.signal,
+    });
+
+    if (!response.ok) {
+      return null;
+    }
+
+    const payload = await response.json();
+    const unreadCount = Number(payload?.unreadCount ?? 0);
+    return {
+      hasUnread: Boolean(payload?.hasUnread),
+      unreadCount: Number.isFinite(unreadCount) ? Math.max(0, Math.floor(unreadCount)) : 0,
+    };
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function runUnreadCheck(source) {
+  const summary = await fetchUnreadCheckSummary();
+  if (!summary) {
+    return;
+  }
+
+  const now = Date.now();
+  const becameUnread = summary.hasUnread && summary.unreadCount > lastUnreadCount;
+  lastUnreadCount = summary.unreadCount;
+
+  if (!becameUnread) {
+    return;
+  }
+
+  if (now - lastUnreadNotificationAt < SKYPIER_UNREAD_CHECK_DEDUPE_MS) {
+    return;
+  }
+
+  lastUnreadNotificationAt = now;
+
+  await self.registration.showNotification('🔐 New encrypted message', {
+    body: 'Open Skypier to decrypt and read.',
+    icon: '/icons/icon-192x192.png',
+    badge: '/icons/icon-72x72.png',
+    tag: SKYPIER_UNREAD_NOTIFICATION_TAG,
+    data: {
+      source,
+      unreadCount: summary.unreadCount,
+    },
+  });
+
+  const clients = await self.clients.matchAll({ includeUncontrolled: true, type: 'window' });
+  for (const client of clients) {
+    client.postMessage({ type: 'SKYPIER_RECOVER_CONNECTIVITY', source: `unread-check:${source}` });
+  }
+}
+
 self.addEventListener('install', (event) => {
   event.waitUntil((async () => {
     await addCoreShellToCache();
@@ -56,6 +149,8 @@ self.addEventListener('activate', (event) => {
     for (const client of clients) {
       client.postMessage({ type: 'SKYPIER_RECOVER_CONNECTIVITY', source: 'sw-activate' });
     }
+
+    await runUnreadCheck('activate');
   })());
 });
 
@@ -125,6 +220,20 @@ self.addEventListener('message', (event) => {
   const data = event.data ?? {};
   if (data.type === 'SKYPIER_REQUEST_RECOVERY') {
     event.source?.postMessage({ type: 'SKYPIER_RECOVER_CONNECTIVITY', source: 'sw-message' });
+    event.waitUntil(runUnreadCheck('message-recovery'));
+    return;
+  }
+
+  if (data.type === 'SKYPIER_UNREAD_CONFIG') {
+    unreadEndpointUrl = typeof data.unreadEndpointUrl === 'string' ? data.unreadEndpointUrl.trim() : '';
+    unreadToken = typeof data.unreadToken === 'string' ? data.unreadToken.trim() : '';
+    unreadRecipientPeerId = typeof data.recipientPeerId === 'string' ? data.recipientPeerId.trim() : '';
+    event.waitUntil(runUnreadCheck('config-update'));
+    return;
+  }
+
+  if (data.type === 'SKYPIER_CHECK_UNREAD') {
+    event.waitUntil(runUnreadCheck('manual-check'));
   }
 });
 
@@ -141,33 +250,18 @@ self.addEventListener('notificationclick', (event) => {
 
     const created = await self.clients.openWindow('/');
     created?.postMessage({ type: 'SKYPIER_RECOVER_CONNECTIVITY', source: 'notification-click' });
+
+    await runUnreadCheck('notification-click');
   })());
 });
 
 self.addEventListener('push', (event) => {
   event.waitUntil((async () => {
-    let payload = {};
-    try {
-      payload = event.data?.json() ?? {};
-    } catch {
-      payload = {};
-    }
-
-    const title = typeof payload.title === 'string' && payload.title.trim().length > 0
-      ? payload.title
-      : '🔐 New encrypted message';
-
-    const body = typeof payload.body === 'string' && payload.body.trim().length > 0
-      ? payload.body
-      : 'Open Skypier to decrypt and read.';
-
-    await self.registration.showNotification(title, {
-      body,
+    await self.registration.showNotification('🔐 New encrypted message', {
+      body: 'Open Skypier to decrypt and read.',
       icon: '/icons/icon-192x192.png',
       badge: '/icons/icon-72x72.png',
-      tag: typeof payload.tag === 'string' && payload.tag.trim().length > 0
-        ? payload.tag
-        : 'skypier-message',
+      tag: 'skypier-message',
       data: {
         source: 'push',
       },
@@ -177,6 +271,8 @@ self.addEventListener('push', (event) => {
     for (const client of clients) {
       client.postMessage({ type: 'SKYPIER_RECOVER_CONNECTIVITY', source: 'push' });
     }
+
+    await runUnreadCheck('push');
   })());
 });
 
@@ -187,4 +283,20 @@ self.addEventListener('pushsubscriptionchange', (event) => {
       client.postMessage({ type: 'SKYPIER_PUSH_SUBSCRIPTION_CHANGED' });
     }
   })());
+});
+
+self.addEventListener('sync', (event) => {
+  if (event.tag !== SKYPIER_UNREAD_SYNC_TAG) {
+    return;
+  }
+
+  event.waitUntil(runUnreadCheck('background-sync'));
+});
+
+self.addEventListener('periodicsync', (event) => {
+  if (event.tag !== SKYPIER_UNREAD_PERIODIC_SYNC_TAG) {
+    return;
+  }
+
+  event.waitUntil(runUnreadCheck('periodic-sync'));
 });

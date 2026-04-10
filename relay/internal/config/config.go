@@ -65,6 +65,24 @@ type Config struct {
 	// MailboxMaxPerRecipient is the maximum buffered envelopes for a recipient.
 	// Default: 1000
 	MailboxMaxPerRecipient int `yaml:"mailbox_max_per_recipient"`
+
+	// UnreadCheckHTTPEnabled enables an HTTP endpoint used by service workers to
+	// query whether a recipient has unread mailbox envelopes.
+	// Default: true
+	UnreadCheckHTTPEnabled bool `yaml:"unread_check_http_enabled"`
+
+	// UnreadCheckHTTPListenAddr is the host:port for the unread-check HTTP
+	// endpoint (recommend reverse proxy + TLS for public exposure).
+	// Default: 127.0.0.1:8090
+	UnreadCheckHTTPListenAddr string `yaml:"unread_check_http_listen_addr"`
+
+	// UnreadCheckHTTPToken is an optional shared bearer token required by the
+	// unread-check endpoint. Leave empty to disable token enforcement.
+	UnreadCheckHTTPToken string `yaml:"unread_check_http_token"`
+
+	// UnreadCheckHTTPCORSAllowOrigin controls Access-Control-Allow-Origin for the
+	// unread-check endpoint. Default: *
+	UnreadCheckHTTPCORSAllowOrigin string `yaml:"unread_check_http_cors_allow_origin"`
 }
 
 // Duration is a time.Duration that marshals/unmarshals as a human-readable
@@ -86,18 +104,22 @@ func (d *Duration) UnmarshalYAML(value *yaml.Node) error {
 // Defaults returns a Config pre-filled with sensible defaults.
 func Defaults() Config {
 	return Config{
-		DNSName:                "relay.skypier.chat",
-		ListenAddr:             "/ip4/0.0.0.0/tcp/443/tls/ws",
-		WebTransportListenAddr: "/ip4/0.0.0.0/udp/443/quic-v1/webtransport",
-		ACMECacheDir:           "/var/cache/skypier-relay/acme",
-		MaxReservations:        512,
-		ReservationTTL:         Duration{time.Hour},
-		CircuitDuration:        Duration{15 * time.Minute},
-		CircuitDataMB:          512,
-		StatusFile:             "/run/skypier-relay/status.json",
-		MailboxEnabled:         true,
-		MailboxDefaultTTL:      Duration{7 * 24 * time.Hour},
-		MailboxMaxPerRecipient: 1000,
+		DNSName:                        "relay.skypier.chat",
+		ListenAddr:                     "/ip4/0.0.0.0/tcp/443/tls/ws",
+		WebTransportListenAddr:         "/ip4/0.0.0.0/udp/443/quic-v1/webtransport",
+		ACMECacheDir:                   "/var/cache/skypier-relay/acme",
+		MaxReservations:                512,
+		ReservationTTL:                 Duration{time.Hour},
+		CircuitDuration:                Duration{15 * time.Minute},
+		CircuitDataMB:                  512,
+		StatusFile:                     "/run/skypier-relay/status.json",
+		MailboxEnabled:                 true,
+		MailboxDefaultTTL:              Duration{7 * 24 * time.Hour},
+		MailboxMaxPerRecipient:         1000,
+		UnreadCheckHTTPEnabled:         true,
+		UnreadCheckHTTPListenAddr:      "127.0.0.1:8090",
+		UnreadCheckHTTPToken:           "",
+		UnreadCheckHTTPCORSAllowOrigin: "*",
 	}
 }
 

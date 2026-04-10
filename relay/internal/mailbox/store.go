@@ -267,3 +267,13 @@ func (s *Store) Stats(now time.Time) (pendingMessages int64, recipientsWithUnrea
 
 	return pendingMessages, recipientsWithUnread
 }
+
+// UnreadCount returns the number of unread envelopes for a recipient after
+// pruning expired entries.
+func (s *Store) UnreadCount(recipientPeerID string, now time.Time) int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.cleanupLocked(now)
+
+	return len(s.byRecipient[recipientPeerID])
+}

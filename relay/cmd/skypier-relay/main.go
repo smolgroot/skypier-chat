@@ -72,6 +72,10 @@ func serveCmd() *cobra.Command {
 				_ = r.Close()
 			}()
 
+			if err := node.StartUnreadCheckHTTP(ctx, r, cfg); err != nil {
+				return fmt.Errorf("start unread-check HTTP: %w", err)
+			}
+
 			r.LogAddrs()
 
 			// Build the human-friendly announced multiaddr for logging.

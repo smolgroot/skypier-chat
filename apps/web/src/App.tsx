@@ -51,6 +51,8 @@ function findRemoteParticipant(
 }
 
 const OFFLINE_ALERT_MESSAGE = "You're offline. Couldn't connect to send new messages.";
+const RELAY_UNREAD_CHECK_URL = String(import.meta.env.VITE_RELAY_UNREAD_CHECK_URL ?? '').trim();
+const RELAY_UNREAD_CHECK_TOKEN = String(import.meta.env.VITE_RELAY_UNREAD_CHECK_TOKEN ?? '').trim();
 
 function decodeBase64ToUtf8(value: string): string | null {
   try {
@@ -517,6 +519,25 @@ export function App() {
   }, [account.localPeerId, liveState.localPeerId, updateAccount]);
 
   useEffect(() => {
+    if (!('serviceWorker' in navigator) || !import.meta.env.PROD) {
+      return;
+    }
+
+    const recipientPeerId = (liveState.localPeerId ?? account.localPeerId ?? '').trim();
+    if (!recipientPeerId) {
+      return;
+    }
+
+    window.dispatchEvent(new CustomEvent('skypier:sw-unread-config', {
+      detail: {
+        unreadEndpointUrl: RELAY_UNREAD_CHECK_URL,
+        unreadToken: RELAY_UNREAD_CHECK_TOKEN,
+        recipientPeerId,
+      },
+    }));
+  }, [account.localPeerId, liveState.localPeerId]);
+
+  useEffect(() => {
     if (!identityProtobuf || !account.localPeerId || account.deviceCryptoState) {
       return;
     }
@@ -655,6 +676,9 @@ export function App() {
         return;
       }
       lastRecoveryAtRef.current = now;
+      if ('serviceWorker' in navigator && import.meta.env.PROD) {
+        navigator.serviceWorker.controller?.postMessage({ type: 'SKYPIER_CHECK_UNREAD' });
+      }
       void recoverConnectivity(reason).catch((error) => {
         console.warn('[skypier:app] recoverConnectivity failed:', error instanceof Error ? error.message : error);
       });
