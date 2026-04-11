@@ -6,6 +6,7 @@ const SKYPIER_UNREAD_SYNC_TAG = 'skypier-unread-sync';
 const SKYPIER_UNREAD_PERIODIC_SYNC_TAG = 'skypier-unread-periodic';
 const SKYPIER_UNREAD_CHECK_DEDUPE_MS = 2 * 60 * 1000;
 const SKYPIER_UNREAD_CHECK_TIMEOUT_MS = 8000;
+const SKYPIER_NOTIFICATION_VIBRATE_PATTERN = [120, 60, 120];
 const SKYPIER_APP_SHELL_URLS = [
   '/',
   '/index.html',
@@ -163,6 +164,7 @@ async function runUnreadCheck(source) {
     body: 'Open Skypier to decrypt and read.',
     icon: '/icons/icon-192x192.png',
     badge: '/icons/icon-72x72.png',
+    vibrate: SKYPIER_NOTIFICATION_VIBRATE_PATTERN,
     tag: SKYPIER_UNREAD_NOTIFICATION_TAG,
     data: {
       source,
@@ -315,6 +317,7 @@ self.addEventListener('push', (event) => {
       body: 'Open Skypier to decrypt and read.',
       icon: '/icons/icon-192x192.png',
       badge: '/icons/icon-72x72.png',
+      vibrate: SKYPIER_NOTIFICATION_VIBRATE_PATTERN,
       tag: 'skypier-message',
       data: {
         source: 'push',
