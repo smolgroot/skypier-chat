@@ -163,7 +163,7 @@ export function ChatThread(props: ChatThreadProps) {
   };
 
   return (
-    <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%', position: 'relative' }}>
+    <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%', position: 'relative', overflow: 'hidden' }}>
       {/* Header - Hidden on mobile because MainLayout handles it */}
       {!isMobile && (
         <Box sx={{
@@ -219,7 +219,7 @@ export function ChatThread(props: ChatThreadProps) {
           flexGrow: 1,
           overflowY: 'auto',
           px: 2,
-          pb: 2,
+          pb: 'calc(110px + env(safe-area-inset-bottom))',
           // On mobile, extend scroll area behind the glass AppBar
           pt: isMobile ? 'calc(env(safe-area-inset-top) + 80px)' : 2,
           display: 'flex',
@@ -295,7 +295,32 @@ export function ChatThread(props: ChatThreadProps) {
       </Box>
 
       {/* Composer */}
-      <Box sx={{ p: 2, bgcolor: 'background.paper' }}>
+      <Box
+        sx={{
+          position: 'absolute',
+          bottom: 0,
+          left: 0,
+          right: 0,
+          zIndex: 10,
+          p: 2,
+          pb: 'calc(env(safe-area-inset-bottom) + 12px)',
+          bgcolor: (currentTheme) =>
+            currentTheme.palette.mode === 'dark'
+              ? 'rgba(14, 8, 28, 0.15)'
+              : 'rgba(255, 255, 255, 0.15)',
+          backdropFilter: 'blur(15px) saturate(190%)',
+          WebkitBackdropFilter: (currentTheme) => `blur(15px) saturate(190%) url(#liquid-glass-refraction-${currentTheme.palette.mode})`,
+          filter: (currentTheme) => `url(#liquid-glass-gloss-${currentTheme.palette.mode})`,
+          borderTop: (currentTheme) =>
+            currentTheme.palette.mode === 'dark'
+              ? '1px solid rgba(171, 110, 255, 0.12)'
+              : '1px solid rgba(0, 0, 0, 0.04)',
+          boxShadow: (currentTheme) =>
+            currentTheme.palette.mode === 'dark'
+              ? '0 -8px 24px rgba(0, 0, 0, 0.15), inset 0 1px 0 rgba(255, 255, 255, 0.02)'
+              : '0 -8px 24px rgba(31, 38, 135, 0.04), inset 0 1px 0 rgba(255, 255, 255, 0.15)',
+        }}
+      >
         {callStatusLabel ? (
           <Box sx={{ display: 'flex', justifyContent: 'center', mb: 1 }}>
             <Chip label={callStatusLabel} size="small" color="primary" variant="outlined" />
