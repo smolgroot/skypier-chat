@@ -8,7 +8,16 @@ import {
 } from './protocols';
 
 export { SKYPIER_CHAT_PROTOCOLS, deserializeWireEnvelope, serializeWireEnvelope };
-export { SKYPIER_E2EE_PREFIX, SKYPIER_MEDIA_PREFIX, createBrowserLiveSession, parseE2EEWirePayload, serializeE2EEWirePayload } from './session';
+export {
+  SKYPIER_E2EE_PREFIX,
+  SKYPIER_MEDIA_PREFIX,
+  SKYPIER_TEXT_PREFIX,
+  createBrowserLiveSession,
+  parseE2EEWirePayload,
+  parseTextWirePayload,
+  serializeE2EEWirePayload,
+  serializeTextWirePayload,
+} from './session';
 export { generateNewIdentity, getPeerIdFromProtobuf } from './identity';
 export type { BrowserLiveSession, BrowserLiveSessionEventMap, BrowserLiveSessionState, SessionStatus, PeerReachabilityEvent, DeliveryStatusEvent, DialLogEntry, ConnectionDebugInfo, NetworkDebugSnapshot, SyncMessageEntry } from './session';
 

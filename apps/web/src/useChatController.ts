@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createEncryptedBackupBundle, createPinataUploadRequest } from '@skypier/backup';
 import { decryptMessageEnvelope, exportDevicePreKeyBundle } from '@skypier/crypto';
-import { parseE2EEWirePayload, serializeE2EEWirePayload, SKYPIER_MEDIA_PREFIX, type SyncMessageEntry } from '@skypier/network';
+import { parseE2EEWirePayload, parseTextWirePayload, serializeE2EEWirePayload, SKYPIER_MEDIA_PREFIX, type SyncMessageEntry } from '@skypier/network';
 import type { WireEnvelope } from '@skypier/network';
 import {
   parseChatReactionEventPayload,
@@ -1060,12 +1060,14 @@ export function useChatController() {
             const resolvedPayload = parsedE2EEPayload
               ? (decryptedPayload ?? '🔐 Encrypted message')
               : entry.payload;
-            const isImagePayload = resolvedPayload.startsWith(SKYPIER_MEDIA_PREFIX);
-            const payloadPreviewText = isImagePayload ? '📷 Photo' : resolvedPayload;
+            const parsedTextPayload = parseTextWirePayload(resolvedPayload);
+            const resolvedTextPayload = parsedTextPayload?.text ?? resolvedPayload;
+            const isImagePayload = resolvedTextPayload.startsWith(SKYPIER_MEDIA_PREFIX);
+            const payloadPreviewText = isImagePayload ? '📷 Photo' : resolvedTextPayload;
             let incomingAttachments: MediaAttachment[] | undefined;
             if (isImagePayload) {
               try {
-                const att = JSON.parse(resolvedPayload.slice(SKYPIER_MEDIA_PREFIX.length)) as MediaAttachment;
+                const att = JSON.parse(resolvedTextPayload.slice(SKYPIER_MEDIA_PREFIX.length)) as MediaAttachment;
                 incomingAttachments = [att];
               } catch { /* ignore malformed */ }
             }
@@ -1120,6 +1122,7 @@ export function useChatController() {
               },
               delivery: 'delivered',
               reactions: [],
+              ...(parsedTextPayload?.replyTo ? { replyTo: parsedTextPayload.replyTo } : {}),
               ...(incomingAttachments ? { attachments: incomingAttachments } : {}),
             };
 
@@ -1202,12 +1205,14 @@ export function useChatController() {
     const resolvedPayload = parsedE2EEPayload
       ? (decryptedPayload ?? '🔐 Encrypted message')
       : envelope.payload;
-    const isImagePayload = resolvedPayload.startsWith(SKYPIER_MEDIA_PREFIX);
-    const payloadPreviewText = isImagePayload ? '📷 Photo' : resolvedPayload;
+    const parsedTextPayload = parseTextWirePayload(resolvedPayload);
+    const resolvedTextPayload = parsedTextPayload?.text ?? resolvedPayload;
+    const isImagePayload = resolvedTextPayload.startsWith(SKYPIER_MEDIA_PREFIX);
+    const payloadPreviewText = isImagePayload ? '📷 Photo' : resolvedTextPayload;
     let incomingAttachments: MediaAttachment[] | undefined;
     if (isImagePayload) {
       try {
-        const att = JSON.parse(resolvedPayload.slice(SKYPIER_MEDIA_PREFIX.length)) as MediaAttachment;
+        const att = JSON.parse(resolvedTextPayload.slice(SKYPIER_MEDIA_PREFIX.length)) as MediaAttachment;
         incomingAttachments = [att];
       } catch {
         // malformed payload — fall back to text display
@@ -1284,6 +1289,7 @@ export function useChatController() {
       },
       delivery: 'delivered',
       reactions: [],
+      ...(parsedTextPayload?.replyTo ? { replyTo: parsedTextPayload.replyTo } : {}),
       ...(incomingAttachments ? { attachments: incomingAttachments } : {}),
     };
 

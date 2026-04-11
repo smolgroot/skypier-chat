@@ -1,5 +1,5 @@
 import { createKeyCustodyPlan, createSecuritySummary, encryptMessageEnvelope, exportDevicePreKeyBundle, generateDeviceCryptoState, toLegacyMessageCiphertext } from '@skypier/crypto';
-import { createPresence, createRuntimePlan, parseE2EEWirePayload, serializeE2EEWirePayload, SKYPIER_MEDIA_PREFIX, type DeliveryStatusEvent, type PeerReachabilityEvent, type DialLogEntry } from '@skypier/network';
+import { createPresence, createRuntimePlan, parseE2EEWirePayload, parseTextWirePayload, serializeE2EEWirePayload, serializeTextWirePayload, SKYPIER_MEDIA_PREFIX, type DeliveryStatusEvent, type PeerReachabilityEvent, type DialLogEntry } from '@skypier/network';
 import { getCurrentDevice } from '@skypier/storage';
 import { useCallback, useState, useMemo, useEffect, useRef } from 'react';
 import { ThemeProvider, CssBaseline, Snackbar, Alert, Drawer, Box as MuiBox } from '@mui/material';
@@ -74,10 +74,21 @@ function previewFromInboundPayload(payload: string): string {
 
   const e2eePayload = parseE2EEWirePayload(payload);
   if (!e2eePayload) {
-    return payload;
+    const textPayload = parseTextWirePayload(payload);
+    return textPayload?.text ?? payload;
   }
 
-  return e2eePayload.keyWraps?.length ? '🔐 Encrypted message' : decodeBase64ToUtf8(e2eePayload.ciphertext) ?? '🔐 Encrypted message';
+  if (e2eePayload.keyWraps?.length) {
+    return '🔐 Encrypted message';
+  }
+
+  const decrypted = decodeBase64ToUtf8(e2eePayload.ciphertext);
+  if (!decrypted) {
+    return '🔐 Encrypted message';
+  }
+
+  const textPayload = parseTextWirePayload(decrypted);
+  return textPayload?.text ?? decrypted;
 }
 
 function capSharedAvatarDataUri(value: string | undefined, maxBytes = 48 * 1024): string | undefined {
@@ -363,7 +374,7 @@ export function App() {
       : undefined;
 
     const encryptedEnvelope = await encryptMessageEnvelope({
-      plaintext: attachmentPayload ?? message.previewText,
+      plaintext: attachmentPayload ?? serializeTextWirePayload(message.previewText, message.replyTo),
       senderKeyId: account.deviceCryptoState.preKeyId,
       recipientBundles,
       aad: JSON.stringify({

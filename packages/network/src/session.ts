@@ -191,6 +191,61 @@ export interface CreateBrowserLiveSessionOptions {
 /** Prefix placed in WireEnvelope.payload for image messages. */
 export const SKYPIER_MEDIA_PREFIX = 'skypier:img:';
 export const SKYPIER_E2EE_PREFIX = 'skypier:e2ee:1:';
+export const SKYPIER_TEXT_PREFIX = 'skypier:msg:1:';
+
+export interface TextWirePayload {
+  v: 1;
+  text: string;
+  replyTo?: ChatMessage['replyTo'];
+}
+
+function isValidReplyReference(value: unknown): value is NonNullable<ChatMessage['replyTo']> {
+  if (value == null || typeof value !== 'object') {
+    return false;
+  }
+
+  const replyReference = value as Partial<NonNullable<ChatMessage['replyTo']>>;
+  return typeof replyReference.messageId === 'string'
+    && typeof replyReference.excerpt === 'string'
+    && typeof replyReference.authorDisplayName === 'string';
+}
+
+export function serializeTextWirePayload(text: string, replyTo?: ChatMessage['replyTo']): string {
+  if (!replyTo) {
+    return text;
+  }
+
+  return `${SKYPIER_TEXT_PREFIX}${JSON.stringify({
+    v: 1,
+    text,
+    replyTo,
+  } satisfies TextWirePayload)}`;
+}
+
+export function parseTextWirePayload(payload: string): TextWirePayload | null {
+  if (!payload.startsWith(SKYPIER_TEXT_PREFIX)) {
+    return null;
+  }
+
+  try {
+    const parsed = JSON.parse(payload.slice(SKYPIER_TEXT_PREFIX.length)) as Partial<TextWirePayload>;
+    if (parsed.v !== 1 || typeof parsed.text !== 'string') {
+      return null;
+    }
+
+    if (parsed.replyTo != null && !isValidReplyReference(parsed.replyTo)) {
+      return null;
+    }
+
+    return {
+      v: 1,
+      text: parsed.text,
+      ...(parsed.replyTo ? { replyTo: parsed.replyTo } : {}),
+    };
+  } catch {
+    return null;
+  }
+}
 
 export interface E2EEWirePayload {
   v: 1;
@@ -258,7 +313,7 @@ function buildEnvelopePayload(message: ChatMessage): string {
   }
 
   if (message.previewText.startsWith('skypier:react:') || message.ciphertext.ciphertext.length === 0) {
-    return message.previewText;
+    return serializeTextWirePayload(message.previewText, message.replyTo);
   }
 
   return serializeE2EEWirePayload({

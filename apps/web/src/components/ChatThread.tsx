@@ -119,6 +119,7 @@ export function ChatThread(props: ChatThreadProps) {
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const composerInputRef = useRef<HTMLInputElement>(null);
 
   const [emojiAnchorEl, setEmojiAnchorEl] = useState<HTMLButtonElement | null>(null);
   const showEmojiPicker = Boolean(emojiAnchorEl);
@@ -143,6 +144,15 @@ export function ChatThread(props: ChatThreadProps) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
   }, [messages]);
+
+  useEffect(() => {
+    if (!replyTarget) {
+      return;
+    }
+
+    // Focus composer when a reply target is chosen so typing can start immediately.
+    composerInputRef.current?.focus();
+  }, [replyTarget?.id]);
 
   const handleKeyPress = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -389,6 +399,7 @@ export function ChatThread(props: ChatThreadProps) {
           />
           <TextField
             fullWidth
+            inputRef={composerInputRef}
             placeholder="  Write a message..."
             value={composerValue}
             onChange={(e) => onComposerChange(e.target.value)}
