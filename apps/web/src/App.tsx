@@ -50,6 +50,31 @@ function findRemoteParticipant(
     ?? participants[0];
 }
 
+function getConversationTopicId(conversation: { id: string; groupTopicId?: string }): string {
+  return conversation.groupTopicId?.trim() || `skypier.group.${conversation.id}`;
+}
+
+function buildGroupTextContext(conversation: {
+  kind?: 'direct' | 'group';
+  title: string;
+  adminPeerId?: string;
+  participants: Array<{ peerId: string; displayName: string }>;
+}) {
+  const isGroupConversation = conversation.kind === 'group' || conversation.participants.length > 2;
+  if (!isGroupConversation) {
+    return undefined;
+  }
+
+  return {
+    title: conversation.title,
+    ...(conversation.adminPeerId ? { adminPeerId: conversation.adminPeerId } : {}),
+    participants: conversation.participants.map((participant) => ({
+      peerId: participant.peerId,
+      displayName: participant.displayName,
+    })),
+  };
+}
+
 const OFFLINE_ALERT_MESSAGE = "You're offline. Couldn't connect to send new messages.";
 const RELAY_UNREAD_CHECK_URL = String(import.meta.env.VITE_RELAY_UNREAD_CHECK_URL ?? '').trim();
 const RELAY_UNREAD_CHECK_TOKEN = String(import.meta.env.VITE_RELAY_UNREAD_CHECK_TOKEN ?? '').trim();
@@ -207,9 +232,11 @@ export function App() {
     composerValue,
     setComposerValue,
     createConversationWithPeer,
+    createConversationWithPeers,
     updateConversationConnection,
     markConversationRead,
     deleteConversation,
+    updateGroupTitle,
     deleteMessage,
     sendMessage,
     sendImageMessage,
@@ -374,7 +401,11 @@ export function App() {
       : undefined;
 
     const encryptedEnvelope = await encryptMessageEnvelope({
-      plaintext: attachmentPayload ?? serializeTextWirePayload(message.previewText, message.replyTo),
+      plaintext: attachmentPayload ?? serializeTextWirePayload(
+        message.previewText,
+        message.replyTo,
+        buildGroupTextContext(conversation),
+      ),
       senderKeyId: account.deviceCryptoState.preKeyId,
       recipientBundles,
       aad: JSON.stringify({
@@ -449,6 +480,9 @@ export function App() {
     dialPeerById,
     broadcastChatMessage,
     sendChatMessageToPeer,
+    joinGroupTopic,
+    leaveGroupTopic,
+    publishGroupMessage,
     requestPeerProfile,
     enqueueMailboxForPeer,
     pullMailboxFromPeer,
@@ -520,6 +554,26 @@ export function App() {
     sendAudioCallSignal,
     sendAudioCallChunk,
   });
+
+  useEffect(() => {
+    if (liveState.status !== 'running' || !selectedConversation || selectedConversation.kind !== 'group') {
+      return;
+    }
+
+    const topicId = getConversationTopicId(selectedConversation);
+    let disposed = false;
+
+    void joinGroupTopic(topicId).catch((error) => {
+      if (!disposed) {
+        console.warn('[skypier:app] failed to join group topic:', error instanceof Error ? error.message : error);
+      }
+    });
+
+    return () => {
+      disposed = true;
+      void leaveGroupTopic(topicId).catch(() => {});
+    };
+  }, [joinGroupTopic, leaveGroupTopic, liveState.status, selectedConversation]);
 
   const lastRecoveryAtRef = useRef(0);
 
@@ -993,6 +1047,7 @@ export function App() {
     if (!selectedConversationId || liveState.status !== 'running') return;
     const localId = liveState.localPeerId ?? localPeerId ?? getCurrentDevice().peerId;
     const conv = conversations.find((c) => c.id === selectedConversationId);
+    if (conv?.kind === 'group') return;
     const remotePeer = conv?.participants.find((p) => p.peerId !== localId);
     if (!remotePeer) return;
     const remotePeerId = remotePeer.peerId;
@@ -1044,6 +1099,13 @@ export function App() {
       return false;
     }
 
+    if (selectedConversation.kind === 'group') {
+      const sealedMessage = await sealOutgoingMessage(message, selectedConversation);
+      const published = await publishGroupMessage(sealedMessage, getConversationTopicId(selectedConversation));
+      await updateMessageDeliveryStatus(message.id, published ? 'sent' : 'queued');
+      return published;
+    }
+
     if (!navigator.onLine || isBrowserOffline) {
       await updateMessageDeliveryStatus(message.id, 'local-only');
       showOfflineAlert();
@@ -1084,6 +1146,7 @@ export function App() {
     isBrowserOffline,
     liveState.localPeerId,
     localPeerId,
+    publishGroupMessage,
     retryMessage,
     sealOutgoingMessage,
     selectedConversation,
@@ -1117,6 +1180,11 @@ export function App() {
       reactions: [],
     };
 
+    if (selectedConversation.kind === 'group') {
+      await publishGroupMessage(reactionTransportMessage, getConversationTopicId(selectedConversation));
+      return;
+    }
+
     const targets = selectedConversation.participants
       .map((participant) => participant.peerId)
       .filter((peerId, index, all) => peerId && peerId !== actorPeerId && all.indexOf(peerId) === index);
@@ -1128,7 +1196,7 @@ export function App() {
     for (const targetPeerId of targets) {
       await sendChatMessageToPeer(reactionTransportMessage, targetPeerId);
     }
-  }, [account.displayName, account.userId, liveState.localPeerId, localPeerId, selectedConversation, sendChatMessageToPeer]);
+  }, [account.displayName, account.userId, liveState.localPeerId, localPeerId, publishGroupMessage, selectedConversation, sendChatMessageToPeer]);
 
   const handleToggleReaction = useCallback(async (messageId: string, emoji: string) => {
     const reactionEvent = await toggleReaction(messageId, emoji);
@@ -1305,6 +1373,10 @@ export function App() {
             const convId = await createConversationWithPeer(peerId, displayName);
             navigate(`/chats/${convId}`);
           }}
+          onStartGroupChat={async (peerIds, title) => {
+            const convId = await createConversationWithPeers(peerIds, { title });
+            navigate(`/chats/${convId}`);
+          }}
         />
       );
     }
@@ -1406,7 +1478,11 @@ export function App() {
           onStartCall={() => {
             void startConversationCall();
           }}
-          callButtonDisabled={!selectedRemotePeer || (audioCall.hasActiveCall && audioCall.call?.conversationId !== selectedConversation.id)}
+          callButtonDisabled={
+            (selectedConversation.kind === 'group')
+            || !selectedRemotePeer
+            || (audioCall.hasActiveCall && audioCall.call?.conversationId !== selectedConversation.id)
+          }
           callStatusLabel={audioCall.call?.conversationId === selectedConversation.id ? activeCallLabel : undefined}
           onSendMessage={() => {
             void (async () => {
@@ -1415,6 +1491,13 @@ export function App() {
                 if (!navigator.onLine || isBrowserOffline) {
                   await updateMessageDeliveryStatus(message.id, 'local-only');
                   showOfflineAlert();
+                  return;
+                }
+
+                if (selectedConversation.kind === 'group') {
+                  const sealedMessage = await sealOutgoingMessage(message, selectedConversation);
+                  const published = await publishGroupMessage(sealedMessage, getConversationTopicId(selectedConversation));
+                  await updateMessageDeliveryStatus(message.id, published ? 'sent' : 'queued');
                   return;
                 }
 
@@ -1449,6 +1532,7 @@ export function App() {
             void retryConversationMessage(retryTarget);
           }}
           onReplySelect={selectReplyTarget}
+          onRenameGroup={selectedConversation.kind === 'group' ? (newTitle) => void updateGroupTitle(selectedConversation.id, newTitle) : undefined}
           onSendImage={(file) => {
             void (async () => {
               try {
@@ -1457,6 +1541,13 @@ export function App() {
                   if (!navigator.onLine || isBrowserOffline) {
                     await updateMessageDeliveryStatus(message.id, 'local-only');
                     showOfflineAlert();
+                    return;
+                  }
+
+                  if (selectedConversation.kind === 'group') {
+                    const sealedMessage = await sealOutgoingMessage(message, selectedConversation);
+                    const published = await publishGroupMessage(sealedMessage, getConversationTopicId(selectedConversation));
+                    await updateMessageDeliveryStatus(message.id, published ? 'sent' : 'queued');
                     return;
                   }
 
@@ -1739,7 +1830,12 @@ export function App() {
         linkedWallets={account.linkedEthAddresses}
         localAvatarUrl={localAvatarUrl}
         avatarByPeerId={avatarByPeerId}
+        contacts={contacts}
         onCreateChat={handleCreateChat}
+        onCreateGroupChat={async (peerIds, title) => {
+          const conversationId = await createConversationWithPeers(peerIds, { title });
+          navigate(`/chats/${conversationId}`);
+        }}
         onDeleteConversation={(id) => void deleteConversation(id)}
         onOpenSelectedContact={openSelectedContact}
         onOpenRetryDetails={() => setShowRetryDetails(true)}
@@ -1747,7 +1843,11 @@ export function App() {
         onStartCall={() => {
           void startConversationCall();
         }}
-        callButtonDisabled={!selectedRemotePeer || (audioCall.hasActiveCall && audioCall.call?.conversationId !== selectedConversation?.id)}
+        callButtonDisabled={
+          (selectedConversation?.kind === 'group')
+          || !selectedRemotePeer
+          || (audioCall.hasActiveCall && audioCall.call?.conversationId !== selectedConversation?.id)
+        }
         onBack={() => {
           if (window.history.length > 1) {
             navigate(-1);

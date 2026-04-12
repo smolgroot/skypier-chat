@@ -8,6 +8,7 @@ export type AudioCallPhase = 'idle' | 'requesting-media' | 'incoming' | 'ringing
 export type AudioCallChunkKind = 'chunk' | 'end';
 export type ChatSystemEventType = 'call-attempted' | 'call-ended';
 export type ReactionAction = 'add' | 'remove';
+export type ConversationKind = 'direct' | 'group';
 
 export const SKYPIER_REACTION_PREFIX = 'skypier:react:';
 
@@ -251,6 +252,10 @@ export interface ChatMessage {
 export interface Conversation {
   id: string;
   title: string;
+  kind?: ConversationKind;
+  groupTopicId?: string;
+  groupDescription?: string;
+  adminPeerId?: string;
   participants: Participant[];
   lastMessagePreview: string;
   unreadCount: number;

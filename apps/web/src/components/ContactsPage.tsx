@@ -23,6 +23,7 @@ import {
   Menu,
   MenuItem,
   ListItemIcon,
+  Checkbox,
   alpha,
 } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
@@ -33,6 +34,7 @@ import ContentCopyIcon from '@mui/icons-material/ContentCopy';
 import ChatIcon from '@mui/icons-material/Chat';
 import SearchIcon from '@mui/icons-material/Search';
 import MoreVertIcon from '@mui/icons-material/MoreVert';
+import GroupAddIcon from '@mui/icons-material/GroupAdd';
 import { useState, useMemo } from 'react';
 import type { Contact } from '@skypier/storage';
 import { UserAvatar } from './UserAvatar';
@@ -42,11 +44,12 @@ interface ContactsPageProps {
   onSaveContact: (id: string, peerId: string, displayName: string, avatarUrl?: string, extras?: { bio?: string; ensName?: string; ethAddress?: string }) => Promise<void>;
   onDeleteContact: (id: string) => Promise<void>;
   onStartChat: (peerId: string, displayName: string) => Promise<void>;
+  onStartGroupChat?: (peerIds: string[], title?: string) => Promise<void>;
 }
 
 const emptyForm = { peerId: '', displayName: '', avatarUrl: '' };
 
-export function ContactsPage({ contacts, onSaveContact, onDeleteContact, onStartChat }: ContactsPageProps) {
+export function ContactsPage({ contacts, onSaveContact, onDeleteContact, onStartChat, onStartGroupChat }: ContactsPageProps) {
   const theme = useTheme();
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingContact, setEditingContact] = useState<Contact | null>(null);
@@ -58,6 +61,11 @@ export function ContactsPage({ contacts, onSaveContact, onDeleteContact, onStart
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
   const [menuAnchor, setMenuAnchor] = useState<{ el: HTMLElement; contact: Contact } | null>(null);
   const [selectedContact, setSelectedContact] = useState<Contact | null>(null);
+  const [groupDialogOpen, setGroupDialogOpen] = useState(false);
+  const [groupName, setGroupName] = useState('');
+  const [groupSelection, setGroupSelection] = useState<Record<string, boolean>>({});
+  const [groupCreating, setGroupCreating] = useState(false);
+  const [groupError, setGroupError] = useState('');
 
   const filteredContacts = useMemo(() => {
     if (!searchQuery.trim()) return contacts;
@@ -116,6 +124,48 @@ export function ContactsPage({ contacts, onSaveContact, onDeleteContact, onStart
     setSelectedContact(contact);
   };
 
+  const selectedGroupContacts = useMemo(
+    () => contacts.filter((contact) => groupSelection[contact.peerId]),
+    [contacts, groupSelection],
+  );
+
+  const openGroupDialog = () => {
+    setGroupSelection({});
+    setGroupName('');
+    setGroupError('');
+    setGroupDialogOpen(true);
+  };
+
+  const toggleGroupContact = (peerId: string) => {
+    setGroupSelection((prev) => ({
+      ...prev,
+      [peerId]: !prev[peerId],
+    }));
+  };
+
+  const handleCreateGroup = async () => {
+    if (!onStartGroupChat) {
+      return;
+    }
+
+    const peerIds = selectedGroupContacts.map((contact) => contact.peerId);
+    if (peerIds.length < 2) {
+      setGroupError('Select at least two contacts.');
+      return;
+    }
+
+    setGroupCreating(true);
+    setGroupError('');
+    try {
+      await onStartGroupChat(peerIds, groupName.trim() || undefined);
+      setGroupDialogOpen(false);
+    } catch (error) {
+      setGroupError(error instanceof Error ? error.message : 'Failed to create group chat');
+    } finally {
+      setGroupCreating(false);
+    }
+  };
+
   return (
     <Box sx={{ display: 'flex', height: '100%', overflow: 'hidden' }}>
       {/* Left panel - Contact list */}
@@ -154,6 +204,23 @@ export function ContactsPage({ contacts, onSaveContact, onDeleteContact, onStart
             >
               <PersonAddIcon />
             </IconButton>
+            {onStartGroupChat ? (
+              <Tooltip title="Create group chat">
+                <IconButton
+                  color="primary"
+                  onClick={openGroupDialog}
+                  sx={{
+                    ml: 1,
+                    bgcolor: (currentTheme) =>
+                      currentTheme.palette.mode === 'dark'
+                        ? 'rgba(74, 0, 224, 0.18)'
+                        : 'rgba(31, 124, 255, 0.14)',
+                  }}
+                >
+                  <GroupAddIcon />
+                </IconButton>
+              </Tooltip>
+            ) : null}
           </Box>
 
           {/* Search bar */}
@@ -657,6 +724,80 @@ export function ContactsPage({ contacts, onSaveContact, onDeleteContact, onStart
             }}
           >
             {saving ? 'Saving…' : 'Save'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Create Group Dialog */}
+      <Dialog
+        open={groupDialogOpen}
+        onClose={() => setGroupDialogOpen(false)}
+        maxWidth="sm"
+        fullWidth
+        PaperProps={{
+          sx: {
+            borderRadius: 3,
+            bgcolor: (currentTheme) =>
+              currentTheme.palette.mode === 'dark' ? 'rgba(14,8,28,0.9)' : 'rgba(255,255,255,0.95)',
+            backdropFilter: 'blur(30px)',
+          },
+        }}
+      >
+        <DialogTitle sx={{ fontWeight: 700 }}>Create Group Chat</DialogTitle>
+        <DialogContent sx={{ display: 'flex', flexDirection: 'column', gap: 2, pt: 1 }}>
+          <TextField
+            label="Group name (optional)"
+            value={groupName}
+            onChange={(event) => setGroupName(event.target.value)}
+            fullWidth
+            placeholder="Weekend Crew"
+          />
+          <Typography variant="caption" color="text.secondary">
+            Select at least two contacts
+          </Typography>
+          <Paper
+            elevation={0}
+            sx={{
+              maxHeight: 320,
+              overflowY: 'auto',
+              bgcolor: (currentTheme) =>
+                currentTheme.palette.mode === 'dark'
+                  ? 'rgba(255,255,255,0.04)'
+                  : 'rgba(0,0,0,0.02)',
+            }}
+          >
+            <List disablePadding>
+              {contacts.map((contact) => (
+                <ListItemButton
+                  key={`group-${contact.id}`}
+                  onClick={() => toggleGroupContact(contact.peerId)}
+                >
+                  <ListItemIcon sx={{ minWidth: 36 }}>
+                    <Checkbox edge="start" checked={Boolean(groupSelection[contact.peerId])} tabIndex={-1} disableRipple />
+                  </ListItemIcon>
+                  <ListItemAvatar>
+                    <UserAvatar seed={contact.peerId} size={36} src={contact.avatarUrl ?? undefined} />
+                  </ListItemAvatar>
+                  <ListItemText
+                    primary={contact.displayName}
+                    secondary={contact.peerId.slice(0, 18) + '…'}
+                    secondaryTypographyProps={{ sx: { fontFamily: 'monospace' } }}
+                  />
+                </ListItemButton>
+              ))}
+            </List>
+          </Paper>
+          {groupError ? <Typography color="error" variant="caption">{groupError}</Typography> : null}
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 2 }}>
+          <Button onClick={() => setGroupDialogOpen(false)} sx={{ textTransform: 'none' }}>Cancel</Button>
+          <Button
+            variant="contained"
+            onClick={() => { void handleCreateGroup(); }}
+            disabled={groupCreating || selectedGroupContacts.length < 2}
+            sx={{ textTransform: 'none', borderRadius: 2 }}
+          >
+            {groupCreating ? 'Creating…' : `Create Group (${selectedGroupContacts.length})`}
           </Button>
         </DialogActions>
       </Dialog>

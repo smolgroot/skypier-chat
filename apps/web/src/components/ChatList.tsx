@@ -15,16 +15,20 @@ import {
 } from '@mui/material';
 import MoreVertIcon from '@mui/icons-material/MoreVert';
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline';
+import GroupAddIcon from '@mui/icons-material/GroupAdd';
+import PersonAddAlt1Icon from '@mui/icons-material/PersonAddAlt1';
 import { reachabilityColor } from '@skypier/network';
 import type { Conversation } from '@skypier/protocol';
 import { useState } from 'react';
 import { UserAvatar } from './UserAvatar';
 
+type NewChatMode = 'direct' | 'group';
+
 interface ChatListProps {
   conversations: Conversation[];
   selectedConversationId?: string;
   onSelectConversation: (id: string) => void;
-  onNewChat: () => void;
+  onNewChat: (mode: NewChatMode) => void;
   onDeleteConversation?: (conversationId: string) => void;
   localPeerId?: string;
   dense?: boolean;
@@ -34,6 +38,7 @@ interface ChatListProps {
 export function ChatList({ conversations, selectedConversationId, onSelectConversation, onNewChat, onDeleteConversation, localPeerId, dense = false, avatarByPeerId = {} }: ChatListProps) {
   const [menuAnchor, setMenuAnchor] = useState<HTMLElement | null>(null);
   const [menuConvId, setMenuConvId] = useState<string | null>(null);
+  const [newChatMenuAnchor, setNewChatMenuAnchor] = useState<HTMLElement | null>(null);
 
   const handleMenuOpen = (event: React.MouseEvent<HTMLElement>, conversationId: string) => {
     event.stopPropagation();
@@ -53,13 +58,26 @@ export function ChatList({ conversations, selectedConversationId, onSelectConver
     handleMenuClose();
   };
 
+  const openNewChatMenu = (event: React.MouseEvent<HTMLElement>) => {
+    setNewChatMenuAnchor(event.currentTarget);
+  };
+
+  const closeNewChatMenu = () => {
+    setNewChatMenuAnchor(null);
+  };
+
+  const selectNewChatMode = (mode: NewChatMode) => {
+    onNewChat(mode);
+    closeNewChatMenu();
+  };
+
   return (
     <Box sx={{ flexGrow: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column' }}>
       <Box sx={{ px: 2, py: 1.5, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <Typography variant="caption" sx={{ color: 'text.secondary', fontWeight: 'bold', letterSpacing: '0.05em' }}>
           RECENT CHATS
         </Typography>
-        <Button size="small" sx={{ borderRadius: 4 }} onClick={onNewChat}>New Chat</Button>
+        <Button size="small" sx={{ borderRadius: 4 }} onClick={openNewChatMenu}>New Chat</Button>
       </Box>
       <Divider />
       <List sx={{ px: 1, py: 1 }}>
@@ -68,6 +86,11 @@ export function ChatList({ conversations, selectedConversationId, onSelectConver
             ?? conv.participants[0];
           const avatarSeed = remotePeer?.peerId || conv.id;
           const avatarSrc = remotePeer?.peerId ? avatarByPeerId[remotePeer.peerId] : undefined;
+          const isGroupConversation = conv.kind === 'group' || conv.participants.length > 2;
+          const title = isGroupConversation ? `# ${conv.title}` : conv.title;
+          const subtitle = isGroupConversation
+            ? `${conv.participants.length} members · ${conv.lastMessagePreview}`
+            : conv.lastMessagePreview;
           return (
           <ListItem
             key={conv.id}
@@ -124,8 +147,8 @@ export function ChatList({ conversations, selectedConversationId, onSelectConver
                 </Box>
               </ListItemIcon>
               <ListItemText 
-                primary={conv.title} 
-                secondary={conv.lastMessagePreview}
+                primary={title} 
+                secondary={subtitle}
                 primaryTypographyProps={{ variant: 'subtitle2', noWrap: true, fontWeight: 'bold' }}
                 secondaryTypographyProps={{ variant: 'caption', noWrap: true, sx: { opacity: 0.7 } }}
               />
@@ -171,6 +194,28 @@ export function ChatList({ conversations, selectedConversationId, onSelectConver
             <DeleteOutlineIcon fontSize="small" />
           </MenuItemIcon>
           Delete chat
+        </MenuItem>
+      </Menu>
+
+      <Menu
+        anchorEl={newChatMenuAnchor}
+        open={Boolean(newChatMenuAnchor)}
+        onClose={closeNewChatMenu}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
+        transformOrigin={{ vertical: 'top', horizontal: 'right' }}
+        slotProps={{ paper: { sx: { borderRadius: 2, minWidth: 190 } } }}
+      >
+        <MenuItem onClick={() => selectNewChatMode('direct')}>
+          <MenuItemIcon>
+            <PersonAddAlt1Icon fontSize="small" />
+          </MenuItemIcon>
+          New Direct Chat
+        </MenuItem>
+        <MenuItem onClick={() => selectNewChatMode('group')}>
+          <MenuItemIcon>
+            <GroupAddIcon fontSize="small" />
+          </MenuItemIcon>
+          New Group Chat
         </MenuItem>
       </Menu>
     </Box>

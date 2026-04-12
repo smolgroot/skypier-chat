@@ -69,6 +69,7 @@ export const seededConversations: Conversation[] = [
   {
     id: 'conv-ari',
     title: 'Ari',
+    kind: 'direct',
     participants: participants.slice(0, 2),
     lastMessagePreview: 'Pinned the recovery CID. Messages stay encrypted before backup.',
     unreadCount: 2,
@@ -79,6 +80,7 @@ export const seededConversations: Conversation[] = [
   {
     id: 'conv-noah',
     title: 'Noah',
+    kind: 'direct',
     participants: [participants[0], participants[2]],
     lastMessagePreview: 'Relay fallback is ready if AutoNAT can’t open a direct path.',
     unreadCount: 0,
@@ -494,7 +496,18 @@ function normalizePersistedState(raw: PersistedChatState): PersistedChatState {
       identityProtobuf: account.identityProtobuf,
       deviceCryptoState: account.deviceCryptoState,
     },
-    conversations: raw.conversations ?? [],
+    conversations: (raw.conversations ?? []).map((conversation) => {
+      const normalizedKind = conversation.kind ?? (conversation.participants.length > 2 ? 'group' : 'direct');
+      const normalizedTitle = (conversation.title ?? '').trim() || (normalizedKind === 'group'
+        ? `Group (${conversation.participants.length})`
+        : 'Direct chat');
+
+      return {
+        ...conversation,
+        kind: normalizedKind,
+        title: normalizedTitle,
+      };
+    }),
     messagesByConversation: raw.messagesByConversation ?? {},
     contacts: raw.contacts ?? [],
   };

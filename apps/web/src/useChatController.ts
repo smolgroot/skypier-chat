@@ -10,6 +10,7 @@ import {
   type ChatMessage,
   type ChatReactionEvent,
   type ChatSystemEvent,
+  type Conversation,
   type DevicePreKeyBundle,
   type LinkedEthAddress,
   type MediaAttachment,
@@ -127,6 +128,85 @@ function messageIdsMatch(left: string, right: string): boolean {
     return true;
   }
   return normalizeNetworkMessageId(left) === normalizeNetworkMessageId(right);
+}
+
+function toConversationMessageKey(conversationId: string, messageId: string): string {
+  return `${conversationId}:${normalizeNetworkMessageId(messageId)}`;
+}
+
+function compareMessagesChronologically(left: ChatMessage, right: ChatMessage): number {
+  const leftTime = new Date(left.createdAt).getTime();
+  const rightTime = new Date(right.createdAt).getTime();
+
+  if (leftTime !== rightTime) {
+    return leftTime - rightTime;
+  }
+
+  return normalizeNetworkMessageId(left.id).localeCompare(normalizeNetworkMessageId(right.id));
+}
+
+function sortConversationMessages(messages: ChatMessage[]): ChatMessage[] {
+  return [...messages].sort(compareMessagesChronologically);
+}
+
+function inferConversationKind(conversationId: string): 'direct' | 'group' {
+  return conversationId.startsWith('group-') ? 'group' : 'direct';
+}
+
+function createSyntheticRemoteParticipant(peerId: string, displayName: string) {
+  return {
+    id: peerId,
+    displayName,
+    peerId,
+    devices: [
+      {
+        id: `device-${peerId}`,
+        label: 'Remote device',
+        peerId,
+        platform: 'web' as const,
+        trustLevel: 'software' as const,
+      },
+    ],
+  };
+}
+
+function mergeConversationWithGroupContext(
+  conversation: Conversation,
+  groupContext: { title: string; adminPeerId?: string; participants: Array<{ peerId: string; displayName: string }> },
+): Conversation {
+  const mergedParticipantsByPeerId = new Map(
+    conversation.participants.map((participant) => [participant.peerId, participant]),
+  );
+
+  for (const participant of groupContext.participants) {
+    const peerId = participant.peerId?.trim();
+    if (!peerId) {
+      continue;
+    }
+
+    const displayName = participant.displayName?.trim() || `Peer ${peerId.slice(0, 10)}…`;
+    const existingParticipant = mergedParticipantsByPeerId.get(peerId);
+    if (existingParticipant) {
+      if (existingParticipant.displayName !== displayName) {
+        mergedParticipantsByPeerId.set(peerId, {
+          ...existingParticipant,
+          displayName,
+        });
+      }
+      continue;
+    }
+
+    mergedParticipantsByPeerId.set(peerId, createSyntheticRemoteParticipant(peerId, displayName));
+  }
+
+  return {
+    ...conversation,
+    kind: 'group',
+    groupTopicId: conversation.groupTopicId ?? `skypier.group.${conversation.id}`,
+    title: groupContext.title?.trim() || conversation.title,
+    ...(groupContext.adminPeerId && !conversation.adminPeerId ? { adminPeerId: groupContext.adminPeerId } : {}),
+    participants: Array.from(mergedParticipantsByPeerId.values()),
+  };
 }
 
 function upsertReactionAuthors(
@@ -424,14 +504,15 @@ export function useChatController() {
       if (isReactionControlMessage(message)) {
         continue;
       }
-      if (seen.has(message.id)) {
+      const normalizedMessageKey = toConversationMessageKey(selectedConversation.id, message.id);
+      if (seen.has(normalizedMessageKey)) {
         continue;
       }
-      seen.add(message.id);
+      seen.add(normalizedMessageKey);
       deduped.push(message);
     }
 
-    return deduped;
+    return sortConversationMessages(deduped);
   }, [selectedConversation, state.messagesByConversation]);
   const replyTarget = messages.find((message) => message.id === replyTargetId);
 
@@ -442,59 +523,77 @@ export function useChatController() {
     await repository.save(nextState);
   }, []);
 
-  const createConversationWithPeer = useCallback(async (peerId: string, displayName?: string): Promise<string> => {
-    const normalizedPeerId = peerId.trim();
-    if (!normalizedPeerId) {
-      throw new Error('Peer ID is required to create a chat.');
+  const createConversationWithPeers = useCallback(async (
+    peerIds: string[],
+    options?: { title?: string },
+  ): Promise<string> => {
+    const uniquePeerIds = Array.from(new Set(peerIds.map((peerId) => peerId.trim()).filter(Boolean)));
+    if (uniquePeerIds.length === 0) {
+      throw new Error('At least one peer ID is required to create a chat.');
     }
 
-    const existing = stateRef.current.conversations.find((conversation) =>
-      conversation.participants.some((participant) => participant.peerId === normalizedPeerId),
-    );
+    const isGroupConversation = uniquePeerIds.length > 1;
+    const snap = stateRef.current;
 
-    if (existing) {
-      setSelectedConversationId(existing.id);
-      selectedConversationIdRef.current = existing.id;
-      return existing.id;
+    if (!isGroupConversation) {
+      const [singlePeerId] = uniquePeerIds;
+      const existingDirect = snap.conversations.find((conversation) =>
+        (conversation.kind ?? 'direct') === 'direct'
+        && conversation.participants.length === 2
+        && conversation.participants.some((participant) => participant.peerId === singlePeerId),
+      );
+
+      if (existingDirect) {
+        setSelectedConversationId(existingDirect.id);
+        selectedConversationIdRef.current = existingDirect.id;
+        return existingDirect.id;
+      }
     }
 
-    const currentDevice = buildCurrentDeviceIdentity(stateRef.current);
-    const localPeerId = resolveLocalPeerId(stateRef.current);
-    const conversationId = `conv-${normalizedPeerId.slice(-8)}-${Math.random().toString(36).slice(2, 6)}`;
-    const title = (displayName?.trim() || `Peer ${normalizedPeerId.slice(0, 10)}…`);
+    const currentDevice = buildCurrentDeviceIdentity(snap);
+    const localPeerId = resolveLocalPeerId(snap);
+    const conversationId = isGroupConversation
+      ? `group-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`
+      : `conv-${uniquePeerIds[0].slice(-8)}-${Math.random().toString(36).slice(2, 6)}`;
+
+    const participantDisplayNames = uniquePeerIds.map((peerId) => `Peer ${peerId.slice(0, 10)}…`);
+    const defaultTitle = isGroupConversation
+      ? `Group (${uniquePeerIds.length + 1})`
+      : participantDisplayNames[0];
 
     const newConversation = {
       id: conversationId,
-      title,
+      title: options?.title?.trim() || defaultTitle,
+      kind: isGroupConversation ? 'group' as const : 'direct' as const,
+      ...(isGroupConversation ? { groupTopicId: `skypier.group.${conversationId}`, adminPeerId: localPeerId } : {}),
       participants: [
         {
           id: CURRENT_USER_ID,
-          displayName: stateRef.current.account.displayName,
+          displayName: snap.account.displayName,
           peerId: localPeerId,
           devices: [currentDevice],
         },
-        {
-          id: normalizedPeerId,
-          displayName: title,
-          peerId: normalizedPeerId,
+        ...uniquePeerIds.map((peerId, index) => ({
+          id: peerId,
+          displayName: participantDisplayNames[index],
+          peerId,
           devices: [
             {
-              id: `device-${normalizedPeerId}`,
+              id: `device-${peerId}`,
               label: 'Remote device',
-              peerId: normalizedPeerId,
+              peerId,
               platform: 'web' as const,
               trustLevel: 'software' as const,
             },
           ],
-        },
+        })),
       ],
-      lastMessagePreview: 'Connecting securely…',
+      lastMessagePreview: isGroupConversation ? 'Group created.' : 'Connecting securely…',
       unreadCount: 0,
       reachability: 'unknown' as const,
       updatedAt: new Date().toISOString(),
     };
 
-    const snap = stateRef.current;
     const nextState: PersistedChatState = {
       ...snap,
       conversations: [newConversation, ...snap.conversations],
@@ -509,6 +608,17 @@ export function useChatController() {
     selectedConversationIdRef.current = conversationId;
     return conversationId;
   }, [persistState]);
+
+  const createConversationWithPeer = useCallback(async (peerId: string, displayName?: string): Promise<string> => {
+    const normalizedPeerId = peerId.trim();
+    if (!normalizedPeerId) {
+      throw new Error('Peer ID is required to create a chat.');
+    }
+
+    return createConversationWithPeers([normalizedPeerId], {
+      title: displayName,
+    });
+  }, [createConversationWithPeers]);
 
   const updateConversationConnection = useCallback(async (
     peerId: string,
@@ -597,7 +707,7 @@ export function useChatController() {
 
       return {
         ...conversation,
-        title: profile.displayName,
+        title: (conversation.kind ?? 'direct') === 'direct' ? profile.displayName : conversation.title,
         participants: nextParticipants,
         updatedAt: now,
       };
@@ -1010,14 +1120,17 @@ export function useChatController() {
           }
 
           const knownIds = new Set<string>(
-            Object.values(snap.messagesByConversation).flatMap((msgs) => msgs.map((m) => m.id)),
+            Object.entries(snap.messagesByConversation).flatMap(([conversationId, msgs]) =>
+              msgs.map((message) => toConversationMessageKey(conversationId, message.id)),
+            ),
           );
           let changed = false;
 
           for (const entry of syncData.messages) {
             const stableId = `net-${entry.messageId}`;
-            if (knownIds.has(stableId)) continue; // already ingested
-            knownIds.add(stableId); // prevent double-ingest within this batch
+            const stableKey = toConversationMessageKey(entry.conversationId, stableId);
+            if (knownIds.has(stableKey)) continue; // already ingested
+            knownIds.add(stableKey); // prevent double-ingest within this batch
 
             const reactionEvent = parseChatReactionEventPayload(entry.payload);
             if (reactionEvent) {
@@ -1073,15 +1186,24 @@ export function useChatController() {
             }
 
             const currentSelectedId = selectedConversationIdRef.current;
+            const incomingConversationKind = inferConversationKind(entry.conversationId);
             const existingConversation =
               snap.conversations.find((c) => c.id === entry.conversationId) ??
-              snap.conversations.find((c) => c.participants.some((p) => p.peerId === entry.senderPeerId));
+              (incomingConversationKind === 'direct'
+                ? snap.conversations.find((c) =>
+                    (c.kind ?? 'direct') === 'direct' && c.participants.some((p) => p.peerId === entry.senderPeerId),
+                  )
+                : undefined);
             const remoteContact = (snap.contacts ?? []).find((entryContact) => entryContact.peerId === entry.senderPeerId);
             const remoteDisplayName = remoteContact?.displayName ?? `Peer ${entry.senderPeerId.slice(0, 10)}…`;
 
             const conversation = existingConversation ?? {
               id: entry.conversationId,
-              title: remoteDisplayName,
+              title: incomingConversationKind === 'group'
+                ? `Group ${entry.conversationId.slice(-6)}`
+                : remoteDisplayName,
+              kind: incomingConversationKind,
+              ...(incomingConversationKind === 'group' ? { groupTopicId: `skypier.group.${entry.conversationId}` } : {}),
               participants: [
                 { id: CURRENT_USER_ID, displayName: snap.account.displayName, peerId: resolveLocalPeerId(snap), devices: [buildCurrentDeviceIdentity(snap)] },
                 {
@@ -1096,6 +1218,9 @@ export function useChatController() {
               reachability: 'direct' as const,
               updatedAt: entry.sentAt,
             };
+            const resolvedConversation = parsedTextPayload?.groupContext
+              ? mergeConversationWithGroupContext(conversation, parsedTextPayload.groupContext)
+              : conversation;
 
             const senderDisplayName = existingConversation
               ? (existingConversation.participants.find((participant) => participant.peerId === entry.senderPeerId)?.displayName
@@ -1126,25 +1251,25 @@ export function useChatController() {
               ...(incomingAttachments ? { attachments: incomingAttachments } : {}),
             };
 
-            const currentMessages = snap.messagesByConversation[conversation.id] ?? [];
-            const nextMessages = capConversationMessages([...currentMessages, incomingMessage]);
+            const currentMessages = snap.messagesByConversation[resolvedConversation.id] ?? [];
+            const nextMessages = capConversationMessages(sortConversationMessages([...currentMessages, incomingMessage]));
             const nextConversations = existingConversation
               ? snap.conversations.map((c) =>
-                  c.id === conversation.id
+                  c.id === resolvedConversation.id
                     ? {
-                        ...c,
+                        ...resolvedConversation,
                         lastMessagePreview: incomingMessage.previewText,
                         updatedAt: incomingMessage.createdAt,
-                        unreadCount: currentSelectedId === conversation.id ? c.unreadCount : c.unreadCount + 1,
+                        unreadCount: currentSelectedId === resolvedConversation.id ? c.unreadCount : c.unreadCount + 1,
                       }
                     : c,
                 )
-              : [conversation, ...snap.conversations];
+              : [resolvedConversation, ...snap.conversations];
 
             snap = {
               ...snap,
               conversations: nextConversations,
-              messagesByConversation: { ...snap.messagesByConversation, [conversation.id]: nextMessages },
+              messagesByConversation: { ...snap.messagesByConversation, [resolvedConversation.id]: nextMessages },
             };
             changed = true;
             console.log('[skypier:controller] sync replay: ingested missed message', entry.messageId, 'from', entry.senderPeerId, 'in conv', entry.conversationId);
@@ -1221,12 +1346,13 @@ export function useChatController() {
 
     const localPeerId = resolveLocalPeerId(snap);
     const currentSelectedId = selectedConversationIdRef.current;
+    const incomingConversationKind = inferConversationKind(envelope.conversationId);
     let existingConversation = snap.conversations.find((conversation) => conversation.id === envelope.conversationId);
     
     // If not found by exact ID, see if we already have a 1-on-1 chat with this peer to prevent duplicate channels
-    if (!existingConversation) {
+    if (!existingConversation && incomingConversationKind === 'direct') {
       existingConversation = snap.conversations.find((conversation) =>
-        conversation.participants.some((p) => p.peerId === fromPeerId)
+        (conversation.kind ?? 'direct') === 'direct' && conversation.participants.some((p) => p.peerId === fromPeerId)
       );
     }
 
@@ -1235,7 +1361,11 @@ export function useChatController() {
 
     const conversation = existingConversation ?? {
       id: envelope.conversationId,
-      title: remoteDisplayName,
+      title: incomingConversationKind === 'group'
+        ? `Group ${envelope.conversationId.slice(-6)}`
+        : remoteDisplayName,
+      kind: incomingConversationKind,
+      ...(incomingConversationKind === 'group' ? { groupTopicId: `skypier.group.${envelope.conversationId}` } : {}),
       participants: [
         {
           id: CURRENT_USER_ID,
@@ -1263,6 +1393,9 @@ export function useChatController() {
       reachability: 'direct' as const,
       updatedAt: envelope.sentAt,
     };
+    const resolvedConversation = parsedTextPayload?.groupContext
+      ? mergeConversationWithGroupContext(conversation, parsedTextPayload.groupContext)
+      : conversation;
 
     const senderDisplayName = existingConversation
       ? (existingConversation.participants.find((participant) => participant.peerId === fromPeerId)?.displayName
@@ -1271,7 +1404,7 @@ export function useChatController() {
 
     const incomingMessage: ChatMessage = {
       id: envelope.messageId ? `net-${envelope.messageId}` : `net-${Math.random().toString(36).slice(2, 10)}`,
-      conversationId: conversation.id,
+      conversationId: resolvedConversation.id,
       senderId: fromPeerId,
       senderDisplayName,
       senderDeviceId: `device-${fromPeerId}`,
@@ -1293,40 +1426,40 @@ export function useChatController() {
       ...(incomingAttachments ? { attachments: incomingAttachments } : {}),
     };
 
-    const currentMessages = snap.messagesByConversation[conversation.id] ?? [];
+    const currentMessages = snap.messagesByConversation[resolvedConversation.id] ?? [];
 
     // Deduplicate network replays/retries: the same envelope.messageId can be
     // delivered more than once (e.g. retry loops, reconnect races, sync replay).
     // If we append duplicates, React list keys collide and spam warnings.
-    if (currentMessages.some((message) => message.id === incomingMessage.id)) {
-      console.log('[skypier:controller] duplicate inbound message ignored:', incomingMessage.id, 'conv:', conversation.id);
+    if (currentMessages.some((message) => messageIdsMatch(message.id, incomingMessage.id))) {
+      console.log('[skypier:controller] duplicate inbound message ignored:', incomingMessage.id, 'conv:', resolvedConversation.id);
       return;
     }
 
-    const nextMessages = capConversationMessages([...currentMessages, incomingMessage]);
+    const nextMessages = capConversationMessages(sortConversationMessages([...currentMessages, incomingMessage]));
 
     const nextConversations = existingConversation
-      ? snap.conversations.map((candidate) => candidate.id === conversation.id ? {
-        ...candidate,
+      ? snap.conversations.map((candidate) => candidate.id === resolvedConversation.id ? {
+        ...resolvedConversation,
         lastMessagePreview: incomingMessage.previewText,
         updatedAt: incomingMessage.createdAt,
-        unreadCount: currentSelectedId === conversation.id ? candidate.unreadCount : candidate.unreadCount + 1,
+        unreadCount: currentSelectedId === resolvedConversation.id ? candidate.unreadCount : candidate.unreadCount + 1,
       } : candidate)
-      : [conversation, ...snap.conversations];
+      : [resolvedConversation, ...snap.conversations];
 
     const nextState: PersistedChatState = {
       account: snap.account,
       conversations: nextConversations,
       messagesByConversation: {
         ...snap.messagesByConversation,
-        [conversation.id]: nextMessages,
+        [resolvedConversation.id]: nextMessages,
       },
       contacts: snap.contacts,
     };
 
     console.log('[skypier:controller] ingested message from', fromPeerId,
       existingConversation ? '(existing conv)' : '(NEW conv auto-created)',
-      'conv:', conversation.id,
+      'conv:', resolvedConversation.id,
       'total msgs now:', nextMessages.length,
     );
     await persistState(nextState);
@@ -1376,6 +1509,18 @@ export function useChatController() {
       ...snap,
       messagesByConversation: nextMessagesByConversation,
     });
+  }, [persistState]);
+
+  const updateGroupTitle = useCallback(async (conversationId: string, newTitle: string) => {
+    const trimmed = newTitle.trim();
+    if (!trimmed) {
+      return;
+    }
+    const snap = stateRef.current;
+    const nextConversations = snap.conversations.map((conv) =>
+      conv.id === conversationId ? { ...conv, title: trimmed } : conv,
+    );
+    await persistState({ ...snap, conversations: nextConversations });
   }, [persistState]);
 
   const deleteConversation = useCallback(async (conversationId: string) => {
@@ -1528,6 +1673,7 @@ export function useChatController() {
     composerValue,
     setComposerValue,
     createConversationWithPeer,
+    createConversationWithPeers,
     updateConversationConnection,
     markConversationRead,
     sendMessage,
@@ -1537,6 +1683,7 @@ export function useChatController() {
     clearReplyTarget: () => setReplyTargetId(undefined),
     toggleReaction,
     deleteConversation,
+    updateGroupTitle,
     deleteMessage,
     saveContact,
     deleteContact,

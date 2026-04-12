@@ -18,6 +18,8 @@ import {
   DialogActions,
   TextField,
   Badge,
+  Chip,
+  Checkbox,
   useTheme,
   useMediaQuery
 } from '@mui/material';
@@ -34,6 +36,7 @@ import CallIcon from '@mui/icons-material/Call';
 import AutorenewIcon from '@mui/icons-material/Autorenew';
 import { useState } from 'react';
 import type { Conversation } from '@skypier/protocol';
+import type { Contact } from '@skypier/storage';
 import { reachabilityColor, reachabilityLabel } from '@skypier/network';
 import { UserAvatar } from './UserAvatar';
 import { useENS } from '../hooks/useENS';
@@ -54,6 +57,7 @@ interface MainLayoutProps {
   userName: string;
   localPeerStatus: 'online' | 'connecting' | 'offline';
   onCreateChat: (peerId: string, displayName?: string) => Promise<void> | void;
+  onCreateGroupChat?: (peerIds: string[], title?: string) => Promise<void> | void;
   onDeleteConversation?: (conversationId: string) => void;
   onBack?: () => void; // New prop for mobile navigation back
   onOpenSelectedContact?: () => void;
@@ -64,6 +68,7 @@ interface MainLayoutProps {
   retryBadgeCount?: number;
   onStartCall?: () => void;
   callButtonDisabled?: boolean;
+  contacts?: Contact[];
 }
 
 export function MainLayout(props: MainLayoutProps) {
@@ -80,6 +85,7 @@ export function MainLayout(props: MainLayoutProps) {
     userName, 
     localPeerStatus, 
     onCreateChat, 
+    onCreateGroupChat,
     onDeleteConversation,
     onBack,
     onOpenSelectedContact,
@@ -90,6 +96,7 @@ export function MainLayout(props: MainLayoutProps) {
     retryBadgeCount = 0,
     onStartCall,
     callButtonDisabled,
+    contacts = [],
   } = props;
 
   const firstWallet = linkedWallets[0]?.address;
@@ -110,7 +117,17 @@ export function MainLayout(props: MainLayoutProps) {
   const [newChatDisplayName, setNewChatDisplayName] = useState('');
   const [newChatError, setNewChatError] = useState<string | undefined>();
   const [creatingChat, setCreatingChat] = useState(false);
+  const [newGroupOpen, setNewGroupOpen] = useState(false);
+  const [newGroupName, setNewGroupName] = useState('');
+  const [newGroupSelection, setNewGroupSelection] = useState<Record<string, boolean>>({});
+  const [newGroupError, setNewGroupError] = useState<string | undefined>();
+  const [creatingGroup, setCreatingGroup] = useState(false);
   const selectedConversation = conversations.find((conversation) => conversation.id === selectedConversationId);
+  const selectedConversationParticipants = selectedConversation?.participants.filter((participant) => participant.peerId !== peerId) ?? [];
+  const selectedIsGroupConversation = Boolean(selectedConversation && ((selectedConversation.kind === 'group') || selectedConversationParticipants.length > 1));
+  const selectedGroupSummary = selectedIsGroupConversation
+    ? `${selectedConversationParticipants.length + 1} members · ${selectedConversationParticipants.slice(0, 2).map((participant) => participant.displayName).join(', ')}${selectedConversationParticipants.length > 2 ? ` +${selectedConversationParticipants.length - 2}` : ''}`
+    : undefined;
   const selectedRemotePeer = selectedConversation?.participants.find((participant) => participant.peerId !== peerId)
     ?? selectedConversation?.participants[0];
   const selectedRemoteAvatarUrl = selectedRemotePeer?.peerId ? avatarByPeerId[selectedRemotePeer.peerId] : undefined;
@@ -140,6 +157,50 @@ export function MainLayout(props: MainLayoutProps) {
       setNewChatError(error instanceof Error ? error.message : 'Failed to create chat');
     } finally {
       setCreatingChat(false);
+    }
+  };
+
+  const handleNewChatMode = (mode: 'direct' | 'group') => {
+    if (mode === 'group') {
+      setNewGroupOpen(true);
+      return;
+    }
+
+    setNewChatOpen(true);
+  };
+
+  const handleToggleGroupContact = (peerIdToToggle: string) => {
+    setNewGroupSelection((prev) => ({
+      ...prev,
+      [peerIdToToggle]: !prev[peerIdToToggle],
+    }));
+  };
+
+  const selectedGroupContacts = contacts.filter((contact) => newGroupSelection[contact.peerId]);
+
+  const handleCreateGroup = async () => {
+    if (!onCreateGroupChat) {
+      setNewGroupError('Group chat is not available yet.');
+      return;
+    }
+
+    const peerIds = selectedGroupContacts.map((contact) => contact.peerId);
+    if (peerIds.length < 2) {
+      setNewGroupError('Select at least two contacts.');
+      return;
+    }
+
+    try {
+      setCreatingGroup(true);
+      setNewGroupError(undefined);
+      await onCreateGroupChat(peerIds, newGroupName.trim() || undefined);
+      setNewGroupOpen(false);
+      setNewGroupSelection({});
+      setNewGroupName('');
+    } catch (error) {
+      setNewGroupError(error instanceof Error ? error.message : 'Failed to create group chat');
+    } finally {
+      setCreatingGroup(false);
     }
   };
 
@@ -238,7 +299,7 @@ export function MainLayout(props: MainLayoutProps) {
           conversations={conversations}
           selectedConversationId={selectedConversationId}
           onSelectConversation={onSelectConversation}
-          onNewChat={() => setNewChatOpen(true)}
+          onNewChat={handleNewChatMode}
           onDeleteConversation={onDeleteConversation}
           localPeerId={peerId}
           avatarByPeerId={avatarByPeerId}
@@ -325,6 +386,70 @@ export function MainLayout(props: MainLayoutProps) {
         </DialogActions>
       </Dialog>
 
+      <Dialog
+        open={newGroupOpen}
+        onClose={() => setNewGroupOpen(false)}
+        fullWidth
+        maxWidth="sm"
+        PaperProps={{
+          sx: {
+            bgcolor: (theme) =>
+              theme.palette.mode === 'dark'
+                ? 'rgba(14, 8, 28, 0.3)'
+                : 'rgba(255, 255, 255, 0.2)',
+            backdropFilter: (theme) => `blur(15px) saturate(190%)`,
+            WebkitBackdropFilter: (theme) => `blur(15px) saturate(190%) url(#liquid-glass-refraction-${theme.palette.mode})`,
+            filter: (theme) => `url(#liquid-glass-gloss-${theme.palette.mode})`,
+            border: (theme) =>
+              theme.palette.mode === 'dark'
+                ? '1px solid rgba(171, 110, 255, 0.25)'
+                : '1px solid rgba(0, 0, 0, 0.08)',
+            borderRadius: 4,
+            backgroundImage: 'none',
+          },
+        }}
+      >
+        <DialogTitle sx={{ fontWeight: 'bold' }}>Create New Group</DialogTitle>
+        <DialogContent sx={{ pt: '8px !important', display: 'grid', gap: 2 }}>
+          <TextField
+            label="Group Name (optional)"
+            placeholder="Weekend Crew"
+            value={newGroupName}
+            onChange={(event) => setNewGroupName(event.target.value)}
+            fullWidth
+            size="small"
+          />
+
+          <Box sx={{ maxHeight: 280, overflowY: 'auto', borderRadius: 2, bgcolor: 'rgba(0,0,0,0.03)' }}>
+            <List dense>
+              {contacts.map((contact) => (
+                <ListItemButton key={`new-group-${contact.id}`} onClick={() => handleToggleGroupContact(contact.peerId)}>
+                  <ListItemIcon sx={{ minWidth: 32 }}>
+                    <Checkbox edge="start" checked={Boolean(newGroupSelection[contact.peerId])} tabIndex={-1} disableRipple />
+                  </ListItemIcon>
+                  <ListItemIcon sx={{ minWidth: 42 }}>
+                    <UserAvatar seed={contact.peerId} size={28} src={contact.avatarUrl ?? undefined} />
+                  </ListItemIcon>
+                  <ListItemText
+                    primary={contact.displayName}
+                    secondary={contact.peerId.slice(0, 16) + '…'}
+                    secondaryTypographyProps={{ sx: { fontFamily: 'monospace' } }}
+                  />
+                </ListItemButton>
+              ))}
+            </List>
+          </Box>
+
+          {newGroupError ? <Typography color="error" variant="caption">{newGroupError}</Typography> : null}
+        </DialogContent>
+        <DialogActions sx={{ p: 2, pt: 0 }}>
+          <Button onClick={() => setNewGroupOpen(false)}>Cancel</Button>
+          <Button onClick={() => { void handleCreateGroup(); }} variant="contained" disabled={creatingGroup || selectedGroupContacts.length < 2}>
+            {creatingGroup ? 'Creating…' : `Create Group (${selectedGroupContacts.length})`}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
       {isMobile && (
         <AppBar 
           position="fixed" 
@@ -380,11 +505,16 @@ export function MainLayout(props: MainLayoutProps) {
                     <UserAvatar seed={selectedRemotePeer?.peerId ?? selectedConversationId} size={32} src={selectedRemoteAvatarUrl} />
                   </IconButton>
                   <Box sx={{ display: 'flex', flexDirection: 'column' }}>
-                    <Typography variant="subtitle1" sx={{ fontWeight: 'bold', lineHeight: 1.2 }}>
-                      {selectedConversation?.title || 'Chat'}
-                    </Typography>
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
+                      <Typography variant="subtitle1" sx={{ fontWeight: 'bold', lineHeight: 1.2 }}>
+                        {selectedConversation?.title || 'Chat'}
+                      </Typography>
+                      {selectedIsGroupConversation ? (
+                        <Chip label={`${selectedConversationParticipants.length + 1}`} size="small" variant="outlined" sx={{ height: 18 }} />
+                      ) : null}
+                    </Box>
                     <Typography variant="caption" sx={{ opacity: 0.8, lineHeight: 1 }}>
-                      {reachabilityLabel(selectedConversation?.reachability ?? 'unknown')}
+                      {selectedGroupSummary ?? reachabilityLabel(selectedConversation?.reachability ?? 'unknown')}
                     </Typography>
                   </Box>
                 </Box>
@@ -511,7 +641,7 @@ export function MainLayout(props: MainLayoutProps) {
             <ChatList 
               conversations={conversations}
               onSelectConversation={onSelectConversation}
-              onNewChat={() => setNewChatOpen(true)}
+              onNewChat={handleNewChatMode}
               onDeleteConversation={onDeleteConversation}
               localPeerId={peerId}
               avatarByPeerId={avatarByPeerId}

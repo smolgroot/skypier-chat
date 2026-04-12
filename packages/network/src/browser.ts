@@ -1,4 +1,5 @@
 import { noise } from '@chainsafe/libp2p-noise';
+import { gossipsub } from '@chainsafe/libp2p-gossipsub';
 import { yamux } from '@chainsafe/libp2p-yamux';
 import { bootstrap } from '@libp2p/bootstrap';
 import { circuitRelayTransport } from '@libp2p/circuit-relay-v2';
@@ -74,6 +75,7 @@ export async function createBrowserSkypierNode(options: CreateBrowserSkypierNode
   }
 
   const services = {
+    pubsub: safelyCreate(() => gossipsub()),
     identify: safelyCreate(() => identify()),
     ping: safelyCreate(() => ping()),
     dcutr: safelyCreate(() => dcutr()),

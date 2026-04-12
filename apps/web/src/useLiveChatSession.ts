@@ -348,6 +348,35 @@ export function useLiveChatSession(options: UseLiveChatSessionOptions) {
     return success;
   }, []);
 
+  const joinGroupTopic = useCallback(async (topicId: string) => {
+    if (!sessionRef.current) {
+      return false;
+    }
+
+    const success = await sessionRef.current.joinGroupTopic(topicId);
+    setState(sessionRef.current.getState());
+    return success;
+  }, []);
+
+  const leaveGroupTopic = useCallback(async (topicId: string) => {
+    if (!sessionRef.current) {
+      return;
+    }
+
+    await sessionRef.current.leaveGroupTopic(topicId);
+    setState(sessionRef.current.getState());
+  }, []);
+
+  const publishGroupMessage = useCallback(async (message: ChatMessage, topicId: string) => {
+    if (!sessionRef.current) {
+      return false;
+    }
+
+    const success = await sessionRef.current.publishGroupMessage(message, topicId);
+    setState(sessionRef.current.getState());
+    return success;
+  }, []);
+
   const requestPeerProfile = useCallback(async (targetPeerId: string): Promise<SharedPeerProfileMetadata | null> => {
     if (!sessionRef.current) {
       return null;
@@ -441,6 +470,9 @@ export function useLiveChatSession(options: UseLiveChatSessionOptions) {
     dialPeerById,
     broadcastChatMessage,
     sendChatMessageToPeer,
+    joinGroupTopic,
+    leaveGroupTopic,
+    publishGroupMessage,
     requestPeerProfile,
     sendAudioCallSignal,
     sendAudioCallChunk,

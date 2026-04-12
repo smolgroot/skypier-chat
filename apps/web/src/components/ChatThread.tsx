@@ -1,10 +1,11 @@
-import { Box, Typography, TextField, IconButton, Paper, Stack, useTheme, useMediaQuery, Popover, Badge, Chip } from '@mui/material';
+import { Box, Typography, TextField, IconButton, Paper, Stack, useTheme, useMediaQuery, Popover, Badge, Chip, Dialog, DialogTitle, DialogContent, DialogActions, Button } from '@mui/material';
 import SendIcon from '@mui/icons-material/Send';
 import EmojiEmotionsIcon from '@mui/icons-material/EmojiEmotions';
 import AttachFileIcon from '@mui/icons-material/AttachFile';
 import CloseIcon from '@mui/icons-material/Close';
 import AutorenewIcon from '@mui/icons-material/Autorenew';
 import CallIcon from '@mui/icons-material/Call';
+import EditIcon from '@mui/icons-material/Edit';
 import { useRef, useEffect, useState } from 'react';
 import EmojiPicker, { Theme as EmojiTheme } from 'emoji-picker-react';
 import type { ChatMessage, Conversation } from '@skypier/protocol';
@@ -88,6 +89,7 @@ interface ChatThreadProps {
   onStartCall?: () => void;
   callButtonDisabled?: boolean;
   callStatusLabel?: string;
+  onRenameGroup?: (newTitle: string) => void;
 }
 
 export function ChatThread(props: ChatThreadProps) {
@@ -111,6 +113,7 @@ export function ChatThread(props: ChatThreadProps) {
     onStartCall,
     callButtonDisabled,
     callStatusLabel,
+    onRenameGroup,
   } = props;
 
   const theme = useTheme();
@@ -123,9 +126,27 @@ export function ChatThread(props: ChatThreadProps) {
 
   const [emojiAnchorEl, setEmojiAnchorEl] = useState<HTMLButtonElement | null>(null);
   const showEmojiPicker = Boolean(emojiAnchorEl);
+  const [renameDialogOpen, setRenameDialogOpen] = useState(false);
+  const [renameValue, setRenameValue] = useState('');
+
+  const isGroupAdmin = Boolean(conversation.adminPeerId && conversation.adminPeerId === localPeerId);
+
+  const handleOpenRename = () => {
+    setRenameValue(conversation.title);
+    setRenameDialogOpen(true);
+  };
+
+  const handleConfirmRename = () => {
+    if (renameValue.trim()) {
+      onRenameGroup?.(renameValue.trim());
+    }
+    setRenameDialogOpen(false);
+  };
   const unsentCount = messages.filter((message) => ['sending', 'queued', 'local-only'].includes(message.delivery)).length;
   const remoteParticipant = conversation.participants.find((participant) => participant.peerId !== localPeerId)
     ?? conversation.participants[0];
+  const groupParticipants = conversation.participants.filter((participant) => participant.peerId !== localPeerId);
+  const isGroupConversation = conversation.kind === 'group' || groupParticipants.length > 1;
 
   const handleEmojiClick = (event: React.MouseEvent<HTMLButtonElement>) => {
     setEmojiAnchorEl(event.currentTarget);
@@ -179,7 +200,14 @@ export function ChatThread(props: ChatThreadProps) {
             <UserAvatar seed={remoteParticipant?.peerId ?? conversation.id} size={40} src={remoteAvatarUrl} />
           </IconButton>
           <Box sx={{ flexGrow: 1 }}>
-            <Typography variant="subtitle1" sx={{ fontWeight: 'bold' }}>{conversation.title}</Typography>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+              <Typography variant="subtitle1" sx={{ fontWeight: 'bold' }}>{conversation.title}</Typography>
+              {isGroupConversation && isGroupAdmin && onRenameGroup ? (
+                <IconButton size="small" onClick={handleOpenRename} aria-label="Rename group" sx={{ opacity: 0.6 }}>
+                  <EditIcon sx={{ fontSize: 16 }} />
+                </IconButton>
+              ) : null}
+            </Box>
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
               {reachabilityColor(conversation.reachability) != null && (
                 <Box
@@ -198,9 +226,41 @@ export function ChatThread(props: ChatThreadProps) {
               <Typography variant="caption" color="secondary.main">
                 {reachabilityLabel(conversation.reachability)}
               </Typography>
+              {isGroupConversation ? (
+                <Chip
+                  label={`${groupParticipants.length + 1} members`}
+                  size="small"
+                  variant="outlined"
+                />
+              ) : null}
               {callStatusLabel ? <Chip label={callStatusLabel} size="small" variant="outlined" /> : null}
             </Box>
+            {isGroupConversation ? (
+              <Stack direction="row" spacing={0.75} sx={{ mt: 0.75, flexWrap: 'wrap' }}>
+                {groupParticipants.slice(0, 3).map((participant) => (
+                  <Chip
+                    key={participant.peerId}
+                    label={participant.displayName}
+                    size="small"
+                    variant="filled"
+                    sx={{
+                      bgcolor: (currentTheme) => currentTheme.palette.mode === 'dark'
+                        ? 'rgba(171,110,255,0.14)'
+                        : 'rgba(31,124,255,0.12)',
+                    }}
+                  />
+                ))}
+                {groupParticipants.length > 3 ? (
+                  <Chip label={`+${groupParticipants.length - 3}`} size="small" variant="outlined" />
+                ) : null}
+              </Stack>
+            ) : null}
           </Box>
+          {isGroupConversation && !isGroupAdmin && conversation.adminPeerId ? (
+            <Typography variant="caption" color="text.secondary" sx={{ px: 1, whiteSpace: 'nowrap', opacity: 0.7 }}>
+              Admin: {conversation.participants.find((p) => p.peerId === conversation.adminPeerId)?.displayName ?? conversation.adminPeerId.slice(0, 10) + '…'}
+            </Typography>
+          ) : null}
           <IconButton onClick={onStartCall} aria-label="Start audio call" disabled={callButtonDisabled || !onStartCall}>
             <CallIcon />
           </IconButton>
@@ -218,6 +278,8 @@ export function ChatThread(props: ChatThreadProps) {
         sx={{
           flexGrow: 1,
           overflowY: 'auto',
+          scrollbarWidth: 'none',
+          '&::-webkit-scrollbar': { display: 'none' },
           px: 2,
           pb: 'calc(110px + env(safe-area-inset-bottom))',
           // On mobile, extend scroll area behind the glass AppBar
@@ -460,6 +522,27 @@ export function ChatThread(props: ChatThreadProps) {
           </IconButton>
         </Paper>
       </Box>
+
+      <Dialog open={renameDialogOpen} onClose={() => setRenameDialogOpen(false)} maxWidth="xs" fullWidth>
+        <DialogTitle>Rename group</DialogTitle>
+        <DialogContent>
+          <TextField
+            autoFocus
+            fullWidth
+            label="Group name"
+            value={renameValue}
+            onChange={(e) => setRenameValue(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter') { handleConfirmRename(); } }}
+            sx={{ mt: 1 }}
+          />
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 2 }}>
+          <Button onClick={() => setRenameDialogOpen(false)}>Cancel</Button>
+          <Button variant="contained" onClick={handleConfirmRename} disabled={!renameValue.trim()}>
+            Rename
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Box>
   );
 }

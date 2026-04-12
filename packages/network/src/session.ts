@@ -111,6 +111,9 @@ export interface BrowserLiveSession {
   sendEnvelopeToConnected(envelope: WireEnvelope): Promise<number>;
   sendChatMessageToConnected(message: ChatMessage): Promise<number>;
   sendChatMessageToPeer(message: ChatMessage, targetPeerId: string): Promise<boolean>;
+  joinGroupTopic(topicId: string): Promise<boolean>;
+  leaveGroupTopic(topicId: string): Promise<void>;
+  publishGroupMessage(message: ChatMessage, topicId: string): Promise<boolean>;
   requestPeerProfile(targetPeerId: string): Promise<SharedPeerProfileMetadata | null>;
   enqueueMailboxForPeer(message: ChatMessage, targetPeerId: string): Promise<boolean>;
   pullMailboxFromPeer(targetPeerId: string, limit?: number, afterCursor?: string): Promise<MailboxPullResponse | null>;
@@ -197,6 +200,18 @@ export interface TextWirePayload {
   v: 1;
   text: string;
   replyTo?: ChatMessage['replyTo'];
+  groupContext?: GroupTextWireContext;
+}
+
+export interface GroupTextWireContextParticipant {
+  peerId: string;
+  displayName: string;
+}
+
+export interface GroupTextWireContext {
+  title: string;
+  adminPeerId?: string;
+  participants: GroupTextWireContextParticipant[];
 }
 
 function isValidReplyReference(value: unknown): value is NonNullable<ChatMessage['replyTo']> {
@@ -210,8 +225,34 @@ function isValidReplyReference(value: unknown): value is NonNullable<ChatMessage
     && typeof replyReference.authorDisplayName === 'string';
 }
 
-export function serializeTextWirePayload(text: string, replyTo?: ChatMessage['replyTo']): string {
-  if (!replyTo) {
+function isValidGroupTextWireContext(value: unknown): value is GroupTextWireContext {
+  if (value == null || typeof value !== 'object') {
+    return false;
+  }
+
+  const context = value as Partial<GroupTextWireContext>;
+  if (typeof context.title !== 'string' || !Array.isArray(context.participants)) {
+    return false;
+  }
+  if (context.adminPeerId != null && typeof context.adminPeerId !== 'string') {
+    return false;
+  }
+
+  return context.participants.every((participant) => {
+    if (participant == null || typeof participant !== 'object') {
+      return false;
+    }
+    const entry = participant as Partial<GroupTextWireContextParticipant>;
+    return typeof entry.peerId === 'string' && typeof entry.displayName === 'string';
+  });
+}
+
+export function serializeTextWirePayload(
+  text: string,
+  replyTo?: ChatMessage['replyTo'],
+  groupContext?: GroupTextWireContext,
+): string {
+  if (!replyTo && !groupContext) {
     return text;
   }
 
@@ -219,6 +260,7 @@ export function serializeTextWirePayload(text: string, replyTo?: ChatMessage['re
     v: 1,
     text,
     replyTo,
+    groupContext,
   } satisfies TextWirePayload)}`;
 }
 
@@ -237,10 +279,15 @@ export function parseTextWirePayload(payload: string): TextWirePayload | null {
       return null;
     }
 
+    if (parsed.groupContext != null && !isValidGroupTextWireContext(parsed.groupContext)) {
+      return null;
+    }
+
     return {
       v: 1,
       text: parsed.text,
       ...(parsed.replyTo ? { replyTo: parsed.replyTo } : {}),
+      ...(parsed.groupContext ? { groupContext: parsed.groupContext } : {}),
     };
   } catch {
     return null;
@@ -508,6 +555,8 @@ export function createBrowserLiveSession(options: CreateBrowserLiveSessionOption
   const configuredRelayAddresses = configuredRelayBootstrapAddresses.map((addr) =>
     addr.endsWith('/p2p-circuit') ? addr : `${addr}/p2p-circuit`,
   );
+  const activeGroupTopics = new Set<string>();
+  let pubsubMessageListener: ((event: unknown) => void) | null = null;
 
   const configuredRelayPeerIds = Array.from(new Set(
     configuredRelayAddresses
@@ -516,6 +565,62 @@ export function createBrowserLiveSession(options: CreateBrowserLiveSessionOption
   ));
 
   const hardConnectionLimit = Math.max(2, options.nodeOptions?.maxConnections ?? 4);
+
+  function getPubsub() {
+    if (!node) {
+      return null;
+    }
+
+    const maybePubsub = (node.services as { pubsub?: unknown }).pubsub;
+    if (!maybePubsub) {
+      return null;
+    }
+
+    return maybePubsub as {
+      subscribe: (topic: string) => Promise<void> | void;
+      unsubscribe: (topic: string) => Promise<void> | void;
+      publish: (topic: string, data: Uint8Array) => Promise<unknown>;
+      addEventListener?: (event: string, handler: (payload: unknown) => void) => void;
+      removeEventListener?: (event: string, handler: (payload: unknown) => void) => void;
+    };
+  }
+
+  function getPubsubEnvelopeFromEvent(event: unknown): { topic: string; data: Uint8Array; fromPeerId?: string } | null {
+    if (event == null || typeof event !== 'object') {
+      return null;
+    }
+
+    const asAny = event as {
+      detail?: {
+        topic?: string;
+        data?: Uint8Array;
+        from?: string | Uint8Array;
+      };
+      topic?: string;
+      data?: Uint8Array;
+      from?: string | Uint8Array;
+    };
+
+    const detail = asAny.detail ?? asAny;
+    const topic = detail.topic;
+    const data = detail.data;
+    if (typeof topic !== 'string' || !(data instanceof Uint8Array)) {
+      return null;
+    }
+
+    let fromPeerId: string | undefined;
+    if (typeof detail.from === 'string') {
+      fromPeerId = detail.from;
+    } else if (detail.from instanceof Uint8Array) {
+      try {
+        fromPeerId = new TextDecoder().decode(detail.from);
+      } catch {
+        fromPeerId = undefined;
+      }
+    }
+
+    return { topic, data, fromPeerId };
+  }
 
   // ─── Helpers ───────────────────────────────────────────────────────────
 
@@ -1483,6 +1588,36 @@ export function createBrowserLiveSession(options: CreateBrowserLiveSessionOption
 
         await node.start();
 
+        const pubsub = getPubsub();
+        if (pubsub?.addEventListener) {
+          pubsubMessageListener = (event: unknown) => {
+            const payload = getPubsubEnvelopeFromEvent(event);
+            if (!payload) {
+              return;
+            }
+
+            try {
+              const envelope = deserializeWireEnvelope(payload.data);
+              if (envelope.kind !== 'message') {
+                return;
+              }
+
+              if (envelope.senderPeerId === state.localPeerId) {
+                return;
+              }
+
+              emitInbound({
+                fromPeerId: payload.fromPeerId ?? envelope.senderPeerId,
+                envelope,
+              });
+            } catch (error) {
+              console.warn('[skypier:session] failed to decode gossipsub message', error);
+            }
+          };
+
+          pubsub.addEventListener('message', pubsubMessageListener);
+        }
+
         state = {
           ...state,
           status: 'running',
@@ -1569,6 +1704,13 @@ export function createBrowserLiveSession(options: CreateBrowserLiveSessionOption
         emitState();
         return;
       }
+
+      const pubsub = getPubsub();
+      if (pubsub && pubsubMessageListener && pubsub.removeEventListener) {
+        pubsub.removeEventListener('message', pubsubMessageListener);
+      }
+      pubsubMessageListener = null;
+      activeGroupTopics.clear();
 
       await node.stop();
       node = undefined;
@@ -1867,6 +2009,76 @@ export function createBrowserLiveSession(options: CreateBrowserLiveSessionOption
         enqueue(targetPeerId, envelope, 0, true);
       }
       return result === true;
+    },
+
+    async joinGroupTopic(topicId: string) {
+      const normalizedTopicId = topicId.trim();
+      if (!normalizedTopicId) {
+        return false;
+      }
+
+      const pubsub = getPubsub();
+      if (!pubsub) {
+        console.warn('[skypier:session] gossipsub is not available; cannot join topic', normalizedTopicId);
+        return false;
+      }
+
+      if (activeGroupTopics.has(normalizedTopicId)) {
+        return true;
+      }
+
+      await pubsub.subscribe(normalizedTopicId);
+      activeGroupTopics.add(normalizedTopicId);
+      emitDialLog('group', 'info', `Joined group topic ${normalizedTopicId}`);
+      return true;
+    },
+
+    async leaveGroupTopic(topicId: string) {
+      const normalizedTopicId = topicId.trim();
+      if (!normalizedTopicId || !activeGroupTopics.has(normalizedTopicId)) {
+        return;
+      }
+
+      const pubsub = getPubsub();
+      if (!pubsub) {
+        activeGroupTopics.delete(normalizedTopicId);
+        return;
+      }
+
+      await pubsub.unsubscribe(normalizedTopicId);
+      activeGroupTopics.delete(normalizedTopicId);
+      emitDialLog('group', 'info', `Left group topic ${normalizedTopicId}`);
+    },
+
+    async publishGroupMessage(message: ChatMessage, topicId: string) {
+      const normalizedTopicId = topicId.trim();
+      if (!normalizedTopicId) {
+        return false;
+      }
+
+      const pubsub = getPubsub();
+      if (!pubsub) {
+        console.warn('[skypier:session] gossipsub is not available; cannot publish group message');
+        return false;
+      }
+
+      const envelope: WireEnvelope = {
+        kind: 'message',
+        messageId: message.id,
+        conversationId: message.conversationId,
+        senderPeerId: state.localPeerId ?? 'unknown',
+        sentAt: new Date().toISOString(),
+        payload: buildEnvelopePayload(message),
+      };
+
+      if (!activeGroupTopics.has(normalizedTopicId)) {
+        await pubsub.subscribe(normalizedTopicId);
+        activeGroupTopics.add(normalizedTopicId);
+      }
+
+      await pubsub.publish(normalizedTopicId, serializeWireEnvelope(envelope));
+      emitDeliveryStatus({ messageId: message.id, status: 'sent' });
+      return true;
     },
 
     async requestPeerProfile(targetPeerId: string) {
