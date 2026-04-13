@@ -1,4 +1,4 @@
-import { Box, Button, Stack, Typography } from '@mui/material';
+import { AvatarGroup, Box, Button, Stack, Typography } from '@mui/material';
 import SatelliteAltIcon from '@mui/icons-material/SatelliteAlt';
 import ChatIcon from '@mui/icons-material/Chat';
 // import CallIcon from '@mui/icons-material/Call';
@@ -56,6 +56,8 @@ export function ContactDetailPage(props: ContactDetailPageProps) {
     (participant) => participant.peerId !== localPeerId && !isPlaceholderLocalPeerId(participant.peerId),
   ) ?? conversation.participants.find((participant) => participant.peerId !== localPeerId);
   const remoteAvatarSrc = remoteParticipant?.peerId ? avatarByPeerId[remoteParticipant.peerId] : undefined;
+  const isGroupConversation = conversation.kind === 'group' || conversation.participants.length > 2;
+  const groupMembers = conversation.participants;
 
   if (!remoteParticipant) {
     return (
@@ -94,6 +96,60 @@ export function ContactDetailPage(props: ContactDetailPageProps) {
         <Typography variant="body2" color="text.secondary" sx={{ wordBreak: 'break-all', textAlign: 'center', opacity: 0.7, maxWidth: 300 }}>
           {remoteParticipant.peerId}
         </Typography>
+
+        {isGroupConversation ? (
+          <Box sx={{ width: '100%', mt: 1 }}>
+            <Typography variant="overline" sx={{ opacity: 0.65, letterSpacing: 0.8 }}>
+              Group members
+            </Typography>
+            <Stack spacing={1.25} sx={{ mt: 1 }}>
+              <AvatarGroup max={6} sx={{ justifyContent: 'flex-start', '& .MuiAvatar-root': { width: 34, height: 34 } }}>
+                {groupMembers.map((participant) => (
+                  <UserAvatar
+                    key={participant.peerId}
+                    seed={participant.peerId}
+                    size={34}
+                    src={avatarByPeerId[participant.peerId]}
+                    sx={{ border: '1px solid rgba(255,255,255,0.2)' }}
+                  />
+                ))}
+              </AvatarGroup>
+
+              {groupMembers.map((participant) => (
+                <Box
+                  key={`member-${participant.peerId}`}
+                  sx={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 1.25,
+                    p: 1,
+                    borderRadius: 2,
+                    bgcolor: (theme) => theme.palette.mode === 'dark' ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.03)',
+                  }}
+                >
+                  <UserAvatar
+                    seed={participant.peerId}
+                    size={30}
+                    src={avatarByPeerId[participant.peerId]}
+                  />
+                  <Box sx={{ minWidth: 0, flexGrow: 1 }}>
+                    <Typography variant="body2" sx={{ fontWeight: 600 }} noWrap>
+                      {participant.displayName}
+                    </Typography>
+                    <Typography variant="caption" sx={{ opacity: 0.7 }} noWrap>
+                      {participant.peerId}
+                    </Typography>
+                  </Box>
+                  {participant.peerId === conversation.adminPeerId ? (
+                    <Typography variant="caption" color="primary" sx={{ fontWeight: 600 }}>
+                      Admin
+                    </Typography>
+                  ) : null}
+                </Box>
+              ))}
+            </Stack>
+          </Box>
+        ) : null}
 
         <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} sx={{ mt: 2, width: '100%' }}>
           {/* <Button

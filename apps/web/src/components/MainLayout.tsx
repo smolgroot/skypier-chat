@@ -19,7 +19,6 @@ import {
   TextField,
   Badge,
   Chip,
-  AvatarGroup,
   Checkbox,
   useTheme,
   useMediaQuery
@@ -125,7 +124,6 @@ export function MainLayout(props: MainLayoutProps) {
   const [creatingGroup, setCreatingGroup] = useState(false);
   const selectedConversation = conversations.find((conversation) => conversation.id === selectedConversationId);
   const selectedConversationParticipants = selectedConversation?.participants.filter((participant) => participant.peerId !== peerId) ?? [];
-  const selectedGroupMembers = selectedConversation?.participants ?? [];
   const selectedIsGroupConversation = Boolean(selectedConversation && ((selectedConversation.kind === 'group') || selectedConversationParticipants.length > 1));
   const selectedGroupSummary = selectedIsGroupConversation
     ? `${selectedConversationParticipants.length + 1} members · ${selectedConversationParticipants.slice(0, 2).map((participant) => participant.displayName).join(', ')}${selectedConversationParticipants.length > 2 ? ` +${selectedConversationParticipants.length - 2}` : ''}`
@@ -518,26 +516,6 @@ export function MainLayout(props: MainLayoutProps) {
                     <Typography variant="caption" sx={{ opacity: 0.8, lineHeight: 1 }}>
                       {selectedGroupSummary ?? reachabilityLabel(selectedConversation?.reachability ?? 'unknown')}
                     </Typography>
-                    {selectedIsGroupConversation ? (
-                      <AvatarGroup
-                        max={5}
-                        sx={{
-                          mt: 0.5,
-                          justifyContent: 'flex-start',
-                          '& .MuiAvatar-root': { width: 20, height: 20 },
-                        }}
-                      >
-                        {selectedGroupMembers.map((participant) => (
-                          <UserAvatar
-                            key={participant.peerId}
-                            seed={participant.peerId}
-                            size={20}
-                            src={avatarByPeerId[participant.peerId]}
-                            sx={{ border: `1px solid ${theme.palette.background.paper}` }}
-                          />
-                        ))}
-                      </AvatarGroup>
-                    ) : null}
                   </Box>
                 </Box>
               ) : (
