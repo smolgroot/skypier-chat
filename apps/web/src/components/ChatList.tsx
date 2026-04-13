@@ -73,14 +73,14 @@ export function ChatList({ conversations, selectedConversationId, onSelectConver
 
   return (
     <Box sx={{ flexGrow: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column' }}>
-      <Box sx={{ px: 2, py: 1.5, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+      <Box sx={{ px: dense ? 1.25 : 2, py: dense ? 0.75 : 1.5, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <Typography variant="caption" sx={{ color: 'text.secondary', fontWeight: 'bold', letterSpacing: '0.05em' }}>
           RECENT CHATS
         </Typography>
-        <Button size="small" sx={{ borderRadius: 4 }} onClick={openNewChatMenu}>New Chat</Button>
+        <Button size="small" sx={{ borderRadius: 4, minWidth: dense ? 84 : 96, py: dense ? 0.2 : 0.5 }} onClick={openNewChatMenu}>New Chat</Button>
       </Box>
       <Divider />
-      <List sx={{ px: 1, py: 1 }}>
+      <List sx={{ px: dense ? 0.5 : 1, py: dense ? 0.25 : 1 }}>
         {conversations.map((conv) => {
           const remotePeer = conv.participants.find((participant) => participant.peerId !== localPeerId)
             ?? conv.participants[0];
@@ -95,7 +95,7 @@ export function ChatList({ conversations, selectedConversationId, onSelectConver
           <ListItem
             key={conv.id}
             disablePadding
-            sx={{ mb: 0.5 }}
+            sx={{ mb: dense ? 0.125 : 0.5 }}
             secondaryAction={
               onDeleteConversation ? (
                 <IconButton
@@ -114,7 +114,9 @@ export function ChatList({ conversations, selectedConversationId, onSelectConver
               onClick={() => onSelectConversation(conv.id)}
               sx={{ 
                 borderRadius: 3, 
-                py: dense ? 1 : 1.5,
+                minHeight: dense ? 58 : 76,
+                py: dense ? 0.625 : 1.5,
+                px: dense ? 1 : 1.5,
                 pr: onDeleteConversation ? 5 : 2,
                 transition: 'all 0.2s',
                 '&.Mui-selected': {
@@ -125,17 +127,17 @@ export function ChatList({ conversations, selectedConversationId, onSelectConver
                 }
               }}
             >
-              <ListItemIcon sx={{ minWidth: dense ? 48 : 64 }}>
+              <ListItemIcon sx={{ minWidth: dense ? 50 : 64 }}>
                 <Box sx={{ position: 'relative', display: 'inline-flex' }}>
-                  <UserAvatar seed={avatarSeed} size={dense ? 40 : 48} src={avatarSrc} />
+                  <UserAvatar seed={avatarSeed} size={dense ? 42 : 48} src={avatarSrc} />
                   {reachabilityColor(conv.reachability) != null && (
                     <Box
                       sx={{
                         position: 'absolute',
                         bottom: 1,
                         right: 1,
-                        width: 12,
-                        height: 12,
+                        width: dense ? 11 : 12,
+                        height: dense ? 11 : 12,
                         borderRadius: '50%',
                         bgcolor: reachabilityColor(conv.reachability),
                         border: '2px solid',
@@ -149,11 +151,11 @@ export function ChatList({ conversations, selectedConversationId, onSelectConver
               <ListItemText 
                 primary={title} 
                 secondary={subtitle}
-                primaryTypographyProps={{ variant: 'subtitle2', noWrap: true, fontWeight: 'bold' }}
-                secondaryTypographyProps={{ variant: 'caption', noWrap: true, sx: { opacity: 0.7 } }}
+                primaryTypographyProps={{ variant: 'subtitle2', noWrap: true, fontWeight: 'bold', lineHeight: dense ? 1.25 : 1.35 }}
+                secondaryTypographyProps={{ variant: 'caption', noWrap: true, sx: { opacity: 0.7, lineHeight: dense ? 1.25 : 1.3 } }}
               />
-              <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', ml: 1 }}>
-                <Typography variant="caption" sx={{ fontSize: '0.7rem', opacity: 0.6 }}>
+              <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', ml: dense ? 0.5 : 1 }}>
+                <Typography variant="caption" sx={{ fontSize: dense ? '0.68rem' : '0.7rem', opacity: 0.6 }}>
                   {new Date(conv.updatedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                 </Typography>
                 {conv.unreadCount > 0 && (
@@ -161,13 +163,13 @@ export function ChatList({ conversations, selectedConversationId, onSelectConver
                      bgcolor: 'secondary.main', 
                      color: 'white', 
                      borderRadius: '10px', 
-                     minWidth: 20, 
-                     height: 20, 
+                     minWidth: dense ? 19 : 20, 
+                     height: dense ? 19 : 20, 
                      display: 'flex', 
                      alignItems: 'center', 
                      justifyContent: 'center',
-                     fontSize: '0.65rem',
-                     mt: 0.5,
+                     fontSize: dense ? '0.62rem' : '0.65rem',
+                     mt: dense ? 0.25 : 0.5,
                      px: 0.5,
                      fontWeight: 'bold'
                    }}>

@@ -1236,6 +1236,19 @@ export function App() {
     maybeFetchRemoteProfile(selectedRemotePeer?.peerId);
   }, [liveState.status, maybeFetchRemoteProfile, selectedRemotePeer?.peerId]);
 
+  useEffect(() => {
+    if (liveState.status !== 'running' || !selectedConversation) {
+      return;
+    }
+
+    const selfPeerId = liveState.localPeerId ?? localPeerId ?? getCurrentDevice().peerId;
+    for (const participant of selectedConversation.participants) {
+      if (participant.peerId !== selfPeerId) {
+        maybeFetchRemoteProfile(participant.peerId);
+      }
+    }
+  }, [liveState.localPeerId, liveState.status, localPeerId, maybeFetchRemoteProfile, selectedConversation]);
+
   const avatarByPeerId = useMemo(() => {
     const map: Record<string, string | undefined> = {};
     for (const contact of contacts) {
@@ -1466,6 +1479,7 @@ export function App() {
           conversation={selectedConversation}
           localPeerId={liveState.localPeerId ?? localPeerId ?? getCurrentDevice().peerId}
           remoteAvatarUrl={selectedRemotePeer?.peerId ? avatarByPeerId[selectedRemotePeer.peerId] : undefined}
+          avatarByPeerId={avatarByPeerId}
           messages={messages}
           currentUserDisplayName={account.displayName}
           composerValue={composerValue}

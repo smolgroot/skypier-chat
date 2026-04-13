@@ -1,4 +1,4 @@
-import { Box, Typography, TextField, IconButton, Paper, Stack, useTheme, useMediaQuery, Popover, Badge, Chip, Dialog, DialogTitle, DialogContent, DialogActions, Button } from '@mui/material';
+import { Box, Typography, TextField, IconButton, Paper, Stack, useTheme, useMediaQuery, Popover, Badge, Chip, Dialog, DialogTitle, DialogContent, DialogActions, Button, Avatar, AvatarGroup } from '@mui/material';
 import SendIcon from '@mui/icons-material/Send';
 import EmojiEmotionsIcon from '@mui/icons-material/EmojiEmotions';
 import AttachFileIcon from '@mui/icons-material/AttachFile';
@@ -8,6 +8,7 @@ import CallIcon from '@mui/icons-material/Call';
 import EditIcon from '@mui/icons-material/Edit';
 import { useRef, useEffect, useState } from 'react';
 import EmojiPicker, { Theme as EmojiTheme } from 'emoji-picker-react';
+import Jazzicon from 'react-jazzicon';
 import type { ChatMessage, Conversation } from '@skypier/protocol';
 import { reachabilityLabel, reachabilityColor } from '@skypier/network';
 import { ChatBubble } from './ChatBubble';
@@ -69,10 +70,20 @@ function callTimelineMeta(message: ChatMessage): string {
   return parts.join(' · ');
 }
 
+function jazziconSeedFromPeerId(peerId: string): number {
+  let hash = 0x811c9dc5;
+  for (let index = 0; index < peerId.length; index += 1) {
+    hash ^= peerId.charCodeAt(index);
+    hash = Math.imul(hash, 0x01000193);
+  }
+  return (hash >>> 0) || 1;
+}
+
 interface ChatThreadProps {
   conversation: Conversation;
   localPeerId: string;
   remoteAvatarUrl?: string;
+  avatarByPeerId?: Record<string, string | undefined>;
   messages: ChatMessage[];
   composerValue: string;
   replyTarget?: ChatMessage;
@@ -97,6 +108,7 @@ export function ChatThread(props: ChatThreadProps) {
     conversation,
     localPeerId,
     remoteAvatarUrl,
+    avatarByPeerId = {},
     messages,
     composerValue,
     replyTarget,
@@ -147,6 +159,7 @@ export function ChatThread(props: ChatThreadProps) {
     ?? conversation.participants[0];
   const groupParticipants = conversation.participants.filter((participant) => participant.peerId !== localPeerId);
   const isGroupConversation = conversation.kind === 'group' || groupParticipants.length > 1;
+  const groupMembers = isGroupConversation ? conversation.participants : [];
 
   const handleEmojiClick = (event: React.MouseEvent<HTMLButtonElement>) => {
     setEmojiAnchorEl(event.currentTarget);
@@ -236,23 +249,29 @@ export function ChatThread(props: ChatThreadProps) {
               {callStatusLabel ? <Chip label={callStatusLabel} size="small" variant="outlined" /> : null}
             </Box>
             {isGroupConversation ? (
-              <Stack direction="row" spacing={0.75} sx={{ mt: 0.75, flexWrap: 'wrap' }}>
-                {groupParticipants.slice(0, 3).map((participant) => (
-                  <Chip
-                    key={participant.peerId}
-                    label={participant.displayName}
-                    size="small"
-                    variant="filled"
-                    sx={{
-                      bgcolor: (currentTheme) => currentTheme.palette.mode === 'dark'
-                        ? 'rgba(171,110,255,0.14)'
-                        : 'rgba(31,124,255,0.12)',
-                    }}
-                  />
-                ))}
-                {groupParticipants.length > 3 ? (
-                  <Chip label={`+${groupParticipants.length - 3}`} size="small" variant="outlined" />
-                ) : null}
+              <Stack direction="row" spacing={1} sx={{ mt: 0.75, alignItems: 'center' }}>
+                <AvatarGroup max={6} sx={{ '& .MuiAvatar-root': { width: 28, height: 28, fontSize: 12 } }}>
+                  {groupMembers.map((participant) => (
+                    <Avatar
+                      key={participant.peerId}
+                      src={avatarByPeerId[participant.peerId]}
+                      alt={participant.displayName}
+                      title={participant.displayName}
+                      sx={{
+                        bgcolor: 'background.paper',
+                        border: `2px solid ${theme.palette.background.paper}`,
+                      }}
+                    >
+                      {!avatarByPeerId[participant.peerId]
+                        ? <Jazzicon diameter={28} seed={jazziconSeedFromPeerId(participant.peerId)} />
+                        : null}
+                    </Avatar>
+                  ))}
+                </AvatarGroup>
+                <Typography variant="caption" color="text.secondary" sx={{ opacity: 0.9 }}>
+                  {groupMembers.slice(0, 3).map((participant) => participant.displayName).join(', ')}
+                  {groupMembers.length > 3 ? ` +${groupMembers.length - 3}` : ''}
+                </Typography>
               </Stack>
             ) : null}
           </Box>
