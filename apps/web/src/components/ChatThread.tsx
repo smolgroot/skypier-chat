@@ -179,6 +179,14 @@ export function ChatThread(props: ChatThreadProps) {
     }
   }, [messages]);
 
+  // Jump to the bottom immediately when switching to a different conversation.
+  useEffect(() => {
+    if (scrollRef.current) {
+      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [conversation.id]);
+
   useEffect(() => {
     if (!replyTarget) {
       return;

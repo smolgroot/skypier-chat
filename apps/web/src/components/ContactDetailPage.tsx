@@ -13,6 +13,14 @@ function isPlaceholderLocalPeerId(peerId: string | undefined): boolean {
   return peerId === PLACEHOLDER_LOCAL_PEER_ID || peerId.includes('LocalPeer');
 }
 
+function formatPeerIdShort(peerId: string): string {
+  const trimmed = peerId.trim();
+  if (trimmed.length <= 27) {
+    return trimmed;
+  }
+  return `${trimmed.slice(0, 12)}...${trimmed.slice(-12)}`;
+}
+
 interface ContactDetailPageProps {
   conversation: Conversation;
   localPeerId: string;
@@ -93,8 +101,8 @@ export function ContactDetailPage(props: ContactDetailPageProps) {
           ) : null}
         </Box>
 
-        <Typography variant="body2" color="text.secondary" sx={{ wordBreak: 'break-all', textAlign: 'center', opacity: 0.7, maxWidth: 300 }}>
-          {remoteParticipant.peerId}
+        <Typography variant="body2" color="text.secondary" sx={{ textAlign: 'center', opacity: 0.7, maxWidth: 300 }} title={remoteParticipant.peerId}>
+          {formatPeerIdShort(remoteParticipant.peerId)}
         </Typography>
 
         {isGroupConversation ? (
@@ -136,8 +144,8 @@ export function ContactDetailPage(props: ContactDetailPageProps) {
                     <Typography variant="body2" sx={{ fontWeight: 600 }} noWrap>
                       {participant.displayName}
                     </Typography>
-                    <Typography variant="caption" sx={{ opacity: 0.7 }} noWrap>
-                      {participant.peerId}
+                    <Typography variant="caption" sx={{ opacity: 0.7 }} noWrap title={participant.peerId}>
+                      {formatPeerIdShort(participant.peerId)}
                     </Typography>
                   </Box>
                   {participant.peerId === conversation.adminPeerId ? (
