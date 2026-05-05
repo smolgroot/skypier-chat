@@ -304,5 +304,14 @@ export function useNotifications(resolvedLocalPeerId?: string) {
     );
   }, [patterns]);
 
-  return { notifyIncomingMessage, notifyIncomingCall };
+  const enablePushNotifications = useCallback(async () => {
+    const perm = await requestNotificationPermission();
+    permissionRef.current = perm;
+    if (perm === 'granted') {
+      await ensurePushSubscriptionIfConfigured();
+    }
+    return perm;
+  }, []);
+
+  return { notifyIncomingMessage, notifyIncomingCall, enablePushNotifications, permission: permissionRef.current };
 }

@@ -28,6 +28,7 @@ interface SettingsPageProps {
   walletError?: string;
   dialError?: string;
   onBiometricUnlockToggle?: (enabled: boolean) => void;
+  enablePushNotifications?: () => Promise<NotificationPermission>;
 }
 
 export function SettingsPage(props: SettingsPageProps) {
@@ -54,6 +55,7 @@ export function SettingsPage(props: SettingsPageProps) {
     walletError,
     dialError,
     onBiometricUnlockToggle,
+    enablePushNotifications,
   } = props;
 
   return (
@@ -98,8 +100,14 @@ export function SettingsPage(props: SettingsPageProps) {
                 </ListItem>
               </List>
             </>
-          )},
-          { icon: <SettingsInputAntennaIcon color="primary" />, title: 'Transport roadmap', content: (
+          )},          { icon: <SettingsInputAntennaIcon color="primary" />, title: 'Notifications', content: (
+            <>
+              <Typography variant="body1" paragraph>Web Push background notifications allow you to receive messages securely even while the application is closed.</Typography>
+              <Button variant="outlined" onClick={() => enablePushNotifications?.()}>
+                Enable Web Push notifications
+              </Button>
+            </>
+          )},          { icon: <SettingsInputAntennaIcon color="primary" />, title: 'Transport roadmap', content: (
             <>
               <Typography variant="body1" paragraph>
                 Noise handshake planned with {runtimePlan.natTraversal.join(', ')} for traversal support.

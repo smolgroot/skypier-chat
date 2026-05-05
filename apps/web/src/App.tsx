@@ -324,7 +324,7 @@ export function App() {
 
   const networkLog = useNetworkLog();
   const currentTheme = useMemo(() => theme(colorMode), [colorMode]);
-  const { notifyIncomingMessage, notifyIncomingCall } = useNotifications(account.localPeerId);
+  const { notifyIncomingMessage, notifyIncomingCall, enablePushNotifications } = useNotifications(account.localPeerId);
   const firstLinkedWalletAddress = account.linkedEthAddresses[0]?.address;
   const shouldResolveEns = Boolean(firstLinkedWalletAddress)
     && (activeView === 'profile' || account.shareEnsDisplayName || account.preferEnsAvatar);
@@ -1449,6 +1449,7 @@ export function App() {
           walletError={walletError}
           dialError={dialError}
           onBiometricUnlockToggle={handleBiometricUnlockToggle}
+          enablePushNotifications={enablePushNotifications}
         />
       );
     }
