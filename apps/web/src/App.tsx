@@ -271,7 +271,18 @@ export function App() {
   const [walletBusy, setWalletBusy] = useState(false);
   const [walletError, setWalletError] = useState<string | undefined>();
   const [networkAlertDismissed, setNetworkAlertDismissed] = useState(false);
-  const [biometricSessionUnlocked, setBiometricSessionUnlocked] = useState(false);
+  const [biometricSessionUnlocked, setBiometricSessionUnlockedState] = useState(() => sessionStorage.getItem('biometricSessionUnlocked') === 'true');
+  const setBiometricSessionUnlocked = useCallback((unlocked: boolean | ((prevState: boolean) => boolean)) => {
+    setBiometricSessionUnlockedState((prev) => {
+      const newValue = typeof unlocked === 'function' ? unlocked(prev) : unlocked;
+      if (newValue) {
+        sessionStorage.setItem('biometricSessionUnlocked', 'true');
+      } else {
+        sessionStorage.removeItem('biometricSessionUnlocked');
+      }
+      return newValue;
+    });
+  }, []);
   const [contactDialBusy, setContactDialBusy] = useState(false);
   const [contactDialError, setContactDialError] = useState<string | undefined>();
   const [contactDialSuccess, setContactDialSuccess] = useState<string | undefined>();

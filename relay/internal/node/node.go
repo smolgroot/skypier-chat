@@ -10,8 +10,8 @@ import (
 	"net"
 	"time"
 
-	"golang.org/x/crypto/acme/autocert"
 	"github.com/SherClockHolmes/webpush-go"
+	"golang.org/x/crypto/acme/autocert"
 
 	libp2p "github.com/libp2p/go-libp2p"
 	dht "github.com/libp2p/go-libp2p-kad-dht"

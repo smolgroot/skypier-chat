@@ -194,9 +194,6 @@ self.addEventListener('push', (event) => {
       // Increment pseudo local count or just always show a generic notification
       // We rely on the app to fetch and decrypt the actual contents once opened.
       const now = Date.now();
-      if (now - lastUnreadNotificationAt < SKYPIER_UNREAD_CHECK_DEDUPE_MS) {
-        return;
-      }
       lastUnreadNotificationAt = now;
       await saveUnreadConfig();
 
@@ -351,46 +348,6 @@ self.addEventListener('message', (event) => {
   if (data.type === 'SKYPIER_CHECK_UNREAD') {
     event.waitUntil(runUnreadCheck('manual-check'));
   }
-});
-
-self.addEventListener('notificationclick', (event) => {
-  event.notification.close();
-  event.waitUntil((async () => {
-    const allClients = await self.clients.matchAll({ includeUncontrolled: true, type: 'window' });
-    const existing = allClients[0];
-    if (existing) {
-      existing.focus();
-      existing.postMessage({ type: 'SKYPIER_RECOVER_CONNECTIVITY', source: 'notification-click' });
-      return;
-    }
-
-    const created = await self.clients.openWindow('/');
-    created?.postMessage({ type: 'SKYPIER_RECOVER_CONNECTIVITY', source: 'notification-click' });
-
-    await runUnreadCheck('notification-click');
-  })());
-});
-
-self.addEventListener('push', (event) => {
-  event.waitUntil((async () => {
-    await self.registration.showNotification('🔐 New encrypted message', {
-      body: 'Open Skypier to decrypt and read.',
-      icon: '/icons/icon-192x192.png',
-      badge: '/icons/icon-72x72.png',
-      vibrate: SKYPIER_NOTIFICATION_VIBRATE_PATTERN,
-      tag: 'skypier-message',
-      data: {
-        source: 'push',
-      },
-    });
-
-    const clients = await self.clients.matchAll({ includeUncontrolled: true, type: 'window' });
-    for (const client of clients) {
-      client.postMessage({ type: 'SKYPIER_RECOVER_CONNECTIVITY', source: 'push' });
-    }
-
-    await runUnreadCheck('push');
-  })());
 });
 
 self.addEventListener('pushsubscriptionchange', (event) => {

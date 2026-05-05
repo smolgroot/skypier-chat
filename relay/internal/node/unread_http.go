@@ -44,7 +44,7 @@ func StartUnreadCheckHTTP(ctx context.Context, relay *Relay, cfg *config.Config)
 		}
 
 		var payload struct {
-			RecipientPeerID string `json:"recipientPeerId"`
+			RecipientPeerID  string                   `json:"recipientPeerId"`
 			PushSubscription mailbox.PushSubscription `json:"pushSubscription"`
 		}
 
