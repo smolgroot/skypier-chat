@@ -192,7 +192,7 @@ function triggerMobileVibration(pattern: number | number[] = [200, 100, 200]): v
   }
 }
 
-export function useNotifications() {
+export function useNotifications(resolvedLocalPeerId?: string) {
   const permissionRef = useRef<NotificationPermission>('default');
   const { patterns } = useVibration();
   const isMobileRef = useRef(isLikelyMobileDevice());
@@ -205,7 +205,32 @@ export function useNotifications() {
         void ensurePushSubscriptionIfConfigured();
       }
     });
-  }, []);
+
+    const registerSubscription = async (event: Event) => {
+      const e = event as CustomEvent<{ endpoint: string; keys: { p256dh?: string; auth?: string } }>;
+      const relayHost = String(import.meta.env.VITE_RELAY_UNREAD_CHECK_URL ?? 'http://127.0.0.1:8090').replace(/\/api\/mailbox\/unread.*/, '');
+      const localIdMatch = localStorage.getItem('skypier_peer_id') || document.cookie.match(/skypier_peer_id=([^;]+)/)?.[1];
+      const peerId = resolvedLocalPeerId || localIdMatch || window.location.hash.split('peerId=')[1]?.split('&')[0]; // Simple fallback, usually peerId should be provided properly through state.
+
+      if (!peerId || !relayHost || !e.detail.endpoint) return;
+
+      try {
+        await fetch(`${relayHost}/api/mailbox/push-subscribe`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            recipientPeerId: peerId,
+            pushSubscription: e.detail,
+          }),
+        });
+      } catch (err) {
+        console.warn('Failed to dispatch push-subscription', err);
+      }
+    };
+
+    window.addEventListener('skypier:push-subscription-ready', registerSubscription);
+    return () => window.removeEventListener('skypier:push-subscription-ready', registerSubscription);
+  }, [resolvedLocalPeerId]);
 
   // Unlock AudioContext on first user interaction (autoplay policy)
   useEffect(() => {

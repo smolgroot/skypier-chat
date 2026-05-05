@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/skypier/relay/internal/config"
+	"github.com/skypier/relay/internal/mailbox"
 )
 
 type unreadCheckResponse struct {
@@ -27,6 +28,47 @@ func StartUnreadCheckHTTP(ctx context.Context, relay *Relay, cfg *config.Config)
 	}
 
 	mux := http.NewServeMux()
+
+	mux.HandleFunc("/api/mailbox/push-subscribe", func(w http.ResponseWriter, req *http.Request) {
+		setUnreadCheckCORSHeaders(w, cfg.UnreadCheckHTTPCORSAllowOrigin)
+		if req.Method == http.MethodOptions {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+
+		if req.Method != http.MethodPost {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			_ = json.NewEncoder(w).Encode(map[string]string{"error": "method not allowed"})
+			return
+		}
+
+		var payload struct {
+			RecipientPeerID string `json:"recipientPeerId"`
+			PushSubscription mailbox.PushSubscription `json:"pushSubscription"`
+		}
+
+		if err := json.NewDecoder(req.Body).Decode(&payload); err != nil {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusBadRequest)
+			_ = json.NewEncoder(w).Encode(map[string]string{"error": "invalid payload"})
+			return
+		}
+
+		if payload.RecipientPeerID == "" || payload.PushSubscription.Endpoint == "" {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusBadRequest)
+			_ = json.NewEncoder(w).Encode(map[string]string{"error": "missing peer id or endpoint"})
+			return
+		}
+
+		relay.mailbox.SavePushSubscription(payload.RecipientPeerID, payload.PushSubscription)
+
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_ = json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+	})
+
 	mux.HandleFunc("/api/mailbox/unread", func(w http.ResponseWriter, req *http.Request) {
 		setUnreadCheckCORSHeaders(w, cfg.UnreadCheckHTTPCORSAllowOrigin)
 		if req.Method == http.MethodOptions {
@@ -107,6 +149,6 @@ func setUnreadCheckCORSHeaders(w http.ResponseWriter, allowOrigin string) {
 		origin = "*"
 	}
 	w.Header().Set("Access-Control-Allow-Origin", origin)
-	w.Header().Set("Access-Control-Allow-Methods", "GET, OPTIONS")
+	w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
 	w.Header().Set("Access-Control-Allow-Headers", "Content-Type, X-Skypier-Unread-Token")
 }

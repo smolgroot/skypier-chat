@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"golang.org/x/crypto/acme/autocert"
+	"github.com/SherClockHolmes/webpush-go"
 
 	libp2p "github.com/libp2p/go-libp2p"
 	dht "github.com/libp2p/go-libp2p-kad-dht"
@@ -228,7 +229,7 @@ func New(ctx context.Context, cfg *config.Config, priv crypto.PrivKey, m *metric
 	var mailboxStore *mailbox.Store
 	if cfg.MailboxEnabled {
 		mailboxStore = mailbox.NewStore(cfg.MailboxMaxPerRecipient, cfg.MailboxDefaultTTL.Duration)
-		registerMailboxHandlers(h, mailboxStore)
+		registerMailboxHandlers(h, mailboxStore, cfg)
 		log.Printf("[relay] mailbox enabled (max_per_recipient=%d ttl=%s)", cfg.MailboxMaxPerRecipient, cfg.MailboxDefaultTTL.Duration)
 	}
 
@@ -307,7 +308,7 @@ func (r *Relay) Close() error {
 	return r.Host.Close()
 }
 
-func registerMailboxHandlers(h host.Host, store *mailbox.Store) {
+func registerMailboxHandlers(h host.Host, store *mailbox.Store, cfg *config.Config) {
 	h.SetStreamHandler(mailboxEnqueueProtocol, func(stream network.Stream) {
 		defer stream.Close()
 
@@ -329,6 +330,41 @@ func registerMailboxHandlers(h host.Host, store *mailbox.Store) {
 
 		now := time.Now().UTC()
 		accepted, reason, queueDepth, expiresAt := store.Enqueue(req.Envelope, now)
+
+		// Trigger Web Push Notification if accepted and recipient has a subscription
+		if accepted && cfg.WebPushVapidPrivateKey != "" {
+			if sub, ok := store.GetPushSubscription(req.Envelope.RecipientPeerID); ok {
+				go func(recipientID string, subscription mailbox.PushSubscription) {
+					// We construct generic notification to avoid leaking PII or message details to Push providers
+					pushSub := &webpush.Subscription{
+						Endpoint: subscription.Endpoint,
+						Keys: webpush.Keys{
+							P256dh: subscription.Keys.P256dh,
+							Auth:   subscription.Keys.Auth,
+						},
+					}
+
+					resp, err := webpush.SendNotification([]byte(`{"type":"NEW_MESSAGE"}`), pushSub, &webpush.Options{
+						VAPIDPublicKey:  cfg.WebPushVapidPublicKey,
+						VAPIDPrivateKey: cfg.WebPushVapidPrivateKey,
+						Subscriber:      cfg.WebPushContact,
+						TTL:             86400,
+					})
+
+					if err != nil {
+						log.Printf("[relay] Web Push error for %s: %v", recipientID, err)
+					} else {
+						defer resp.Body.Close()
+						if resp.StatusCode >= 400 {
+							log.Printf("[relay] Web Push failed for %s: status %d", recipientID, resp.StatusCode)
+						} else {
+							log.Printf("[relay] Web Push success for %s", recipientID)
+						}
+					}
+				}(req.Envelope.RecipientPeerID, sub)
+			}
+		}
+
 		_ = writeJSONToStream(stream, mailbox.EnqueueResponse{
 			Accepted:   accepted,
 			Reason:     reason,

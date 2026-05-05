@@ -71,12 +71,26 @@ type AckResponse struct {
 	Missing []string `json:"missing"`
 }
 
+type PushSubscription struct {
+	Endpoint string `json:"endpoint"`
+	Keys     struct {
+		P256dh string `json:"p256dh"`
+		Auth   string `json:"auth"`
+	} `json:"keys"`
+}
+
+type PushSubscribeRequest struct {
+	RecipientPeerID  string           `json:"recipientPeerId"`
+	PushSubscription PushSubscription `json:"pushSubscription"`
+}
+
 type Store struct {
 	mu              sync.Mutex
 	maxPerRecipient int
 	defaultTTL      time.Duration
 	byRecipient     map[string][]RelayMailboxEnvelope
 	byRecipientByID map[string]map[string]RelayMailboxEnvelope
+	subscriptions   map[string]PushSubscription
 }
 
 func NewStore(maxPerRecipient int, defaultTTL time.Duration) *Store {
@@ -91,7 +105,21 @@ func NewStore(maxPerRecipient int, defaultTTL time.Duration) *Store {
 		defaultTTL:      defaultTTL,
 		byRecipient:     make(map[string][]RelayMailboxEnvelope),
 		byRecipientByID: make(map[string]map[string]RelayMailboxEnvelope),
+		subscriptions:   make(map[string]PushSubscription),
 	}
+}
+
+func (s *Store) SavePushSubscription(peerID string, sub PushSubscription) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.subscriptions[peerID] = sub
+}
+
+func (s *Store) GetPushSubscription(peerID string) (PushSubscription, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	sub, ok := s.subscriptions[peerID]
+	return sub, ok
 }
 
 func (s *Store) Enqueue(envelope RelayMailboxEnvelope, now time.Time) (accepted bool, reason string, queueDepth int, expiresAt string) {

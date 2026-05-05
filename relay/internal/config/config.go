@@ -83,6 +83,15 @@ type Config struct {
 	// UnreadCheckHTTPCORSAllowOrigin controls Access-Control-Allow-Origin for the
 	// unread-check endpoint. Default: *
 	UnreadCheckHTTPCORSAllowOrigin string `yaml:"unread_check_http_cors_allow_origin"`
+
+	// WebPushVapidPublicKey is the VAPID public key.
+	WebPushVapidPublicKey string `yaml:"web_push_vapid_public_key"`
+
+	// WebPushVapidPrivateKey is the VAPID private key.
+	WebPushVapidPrivateKey string `yaml:"web_push_vapid_private_key"`
+
+	// WebPushContact is the "mailto:" or URL string used for web push VAPID identification.
+	WebPushContact string `yaml:"web_push_contact"`
 }
 
 // Duration is a time.Duration that marshals/unmarshals as a human-readable

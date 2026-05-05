@@ -178,6 +178,66 @@ async function runUnreadCheck(source) {
   }
 }
 
+self.addEventListener('push', (event) => {
+  let payload = {};
+  if (event.data) {
+    try {
+      payload = event.data.json();
+    } catch {
+      // payload could be plain text or empty
+    }
+  }
+
+  // Do not process Web Push events that don't match our notification expectations to preserve privacy/security
+  if (payload.type && payload.type === 'NEW_MESSAGE') {
+    event.waitUntil((async () => {
+      // Increment pseudo local count or just always show a generic notification
+      // We rely on the app to fetch and decrypt the actual contents once opened.
+      const now = Date.now();
+      if (now - lastUnreadNotificationAt < SKYPIER_UNREAD_CHECK_DEDUPE_MS) {
+        return;
+      }
+      lastUnreadNotificationAt = now;
+      await saveUnreadConfig();
+
+      await self.registration.showNotification('🔐 New message received', {
+        body: 'Tap to open Skypier and read.',
+        icon: '/icons/icon-192x192.png',
+        badge: '/icons/icon-72x72.png',
+        vibrate: SKYPIER_NOTIFICATION_VIBRATE_PATTERN,
+        tag: SKYPIER_UNREAD_NOTIFICATION_TAG,
+        data: {
+          source: 'web-push',
+        },
+      });
+
+      const clients = await self.clients.matchAll({ includeUncontrolled: true, type: 'window' });
+      for (const client of clients) {
+        client.postMessage({ type: 'SKYPIER_RECOVER_CONNECTIVITY', source: 'web-push-receive' });
+      }
+    })());
+  }
+});
+
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close();
+  event.waitUntil((async () => {
+    const windowClients = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+    
+    // Focus existing window if any
+    for (const client of windowClients) {
+      if ('focus' in client) {
+        return client.focus();
+      }
+    }
+    
+    // Otherwise open a new one
+    if (self.clients.openWindow) {
+      return self.clients.openWindow('/');
+    }
+  })());
+});
+
 self.addEventListener('install', (event) => {
   event.waitUntil((async () => {
     await addCoreShellToCache();

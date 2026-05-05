@@ -60,3 +60,9 @@ unread_check_http_token: ""
 
 # CORS allow origin for unread checks.
 unread_check_http_cors_allow_origin: "*"
+
+# VAPID configuration for Web Push Notifications.
+# Generate keys once using a webpush tool or library.
+web_push_vapid_public_key: ""
+web_push_vapid_private_key: ""
+web_push_contact: "mailto:admin@example.com"
