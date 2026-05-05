@@ -70,27 +70,36 @@ function decodeBase64Url(input: string): Uint8Array {
 
 async function ensurePushSubscriptionIfConfigured(): Promise<void> {
   if (typeof window === 'undefined' || !('serviceWorker' in navigator) || !('PushManager' in window)) {
+    console.warn('Push Notifications not supported by browser.');
     return;
   }
 
   const vapidPublicKey = String(import.meta.env.VITE_WEB_PUSH_VAPID_PUBLIC_KEY ?? '').trim();
   if (!vapidPublicKey) {
+    console.warn('VITE_WEB_PUSH_VAPID_PUBLIC_KEY is not configured in the frontend enviroment.');
     return;
   }
 
-  const registration = await navigator.serviceWorker.ready;
-  const existing = await registration.pushManager.getSubscription();
-  const subscription = existing ?? await registration.pushManager.subscribe({
-    userVisibleOnly: true,
-    applicationServerKey: decodeBase64Url(vapidPublicKey) as BufferSource,
-  });
+  try {
+    const registration = await navigator.serviceWorker.ready;
+    const existing = await registration.pushManager.getSubscription();
+    console.log('Got existing permission?', existing !== null);
+    const subscription = existing ?? await registration.pushManager.subscribe({
+      userVisibleOnly: true,
+      applicationServerKey: decodeBase64Url(vapidPublicKey) as BufferSource,
+    });
 
-  window.dispatchEvent(new CustomEvent('skypier:push-subscription-ready', {
-    detail: {
-      endpoint: subscription.endpoint,
-      keys: subscription.toJSON().keys ?? {},
-    },
-  }));
+    console.log('Dispatching skypier:push-subscription-ready to let the app post it to the Relay.');
+    window.dispatchEvent(new CustomEvent('skypier:push-subscription-ready', {
+      detail: {
+        endpoint: subscription.endpoint,
+        keys: subscription.toJSON().keys ?? {},
+      },
+    }));
+  } catch (err) {
+    console.error('Failed to subscribe during ensurePushSubscriptionIfConfigured:', err);
+    throw err;
+  }
 }
 
 function isLikelyMobileDevice(): boolean {

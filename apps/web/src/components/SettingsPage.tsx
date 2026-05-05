@@ -103,7 +103,21 @@ export function SettingsPage(props: SettingsPageProps) {
           )},          { icon: <SettingsInputAntennaIcon color="primary" />, title: 'Notifications', content: (
             <>
               <Typography variant="body1" paragraph>Web Push background notifications allow you to receive messages securely even while the application is closed.</Typography>
-              <Button variant="outlined" onClick={() => enablePushNotifications?.()}>
+              <Button 
+                variant="outlined" 
+                onClick={async () => {
+                  try {
+                    const perm = await enablePushNotifications?.();
+                    if (perm === 'granted') {
+                      alert('Push notifications have been enabled! Your browser should now receive updates.');
+                    } else {
+                      alert('Push notifications permission was ' + perm + '. You might need to change this in your browser settings.');
+                    }
+                  } catch (err: any) {
+                    alert('Error enabling push: ' + err.message);
+                  }
+                }}
+              >
                 Enable Web Push notifications
               </Button>
             </>
