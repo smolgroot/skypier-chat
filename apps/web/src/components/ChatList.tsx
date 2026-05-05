@@ -71,6 +71,25 @@ export function ChatList({ conversations, selectedConversationId, onSelectConver
     closeNewChatMenu();
   };
 
+  const sortedConversations = [...conversations].sort((a, b) => {
+    const timeA = new Date(a.updatedAt).getTime();
+    const timeB = new Date(b.updatedAt).getTime();
+    return timeB - timeA;
+  });
+
+  const formatChatDate = (timestamp: string | number) => {
+    const d = new Date(timestamp);
+    const now = new Date();
+    const isToday = d.getDate() === now.getDate() && 
+                    d.getMonth() === now.getMonth() && 
+                    d.getFullYear() === now.getFullYear();
+    
+    if (isToday) {
+      return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    }
+    return d.toLocaleDateString([], { month: 'short', day: 'numeric' });
+  };
+
   return (
     <Box sx={{ flexGrow: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column' }}>
       <Box sx={{ px: dense ? 1.25 : 2, py: dense ? 0.75 : 1.5, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -81,7 +100,7 @@ export function ChatList({ conversations, selectedConversationId, onSelectConver
       </Box>
       <Divider />
       <List sx={{ px: dense ? 0.5 : 1, py: dense ? 0.25 : 1 }}>
-        {conversations.map((conv) => {
+        {sortedConversations.map((conv) => {
           const remotePeer = conv.participants.find((participant) => participant.peerId !== localPeerId)
             ?? conv.participants[0];
           const avatarSeed = remotePeer?.peerId || conv.id;
@@ -156,7 +175,7 @@ export function ChatList({ conversations, selectedConversationId, onSelectConver
               />
               <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', ml: dense ? 0.5 : 1 }}>
                 <Typography variant="caption" sx={{ fontSize: dense ? '0.68rem' : '0.7rem', opacity: 0.6 }}>
-                  {new Date(conv.updatedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                  {formatChatDate(conv.updatedAt)}
                 </Typography>
                 {conv.unreadCount > 0 && (
                    <Box sx={{ 

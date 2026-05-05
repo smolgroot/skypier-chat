@@ -637,7 +637,7 @@ export function MainLayout(props: MainLayoutProps) {
         }}
       >
         {isMobile && activeView === 'chat' && !selectedConversationId ? (
-          <Box sx={{ pt: 'calc(env(safe-area-inset-top) + 68px)' }}>
+          <Box sx={{ pt: 'calc(env(safe-area-inset-top) + 68px)', height: '100%', display: 'flex', flexDirection: 'column', flexGrow: 1 }}>
             <ChatList 
               conversations={conversations}
               onSelectConversation={onSelectConversation}
