@@ -175,14 +175,29 @@ export function ChatThread(props: ChatThreadProps) {
 
   useEffect(() => {
     if (scrollRef.current) {
-      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+      // requestAnimationFrame ensures the browser has rendered the newly added DOM nodes
+      // before we measure scrollHeight and update scrollTop.
+      requestAnimationFrame(() => {
+        // Double rAF ensures we are waiting for the next paint frame
+        requestAnimationFrame(() => {
+          if (scrollRef.current) {
+            scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+          }
+        });
+      });
     }
   }, [messages]);
 
   // Jump to the bottom immediately when switching to a different conversation.
   useEffect(() => {
     if (scrollRef.current) {
-      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          if (scrollRef.current) {
+            scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+          }
+        });
+      });
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [conversation.id]);
