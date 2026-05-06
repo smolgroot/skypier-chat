@@ -76,7 +76,7 @@ export function ContactDetailPage(props: ContactDetailPageProps) {
   }
 
   return (
-    <Box sx={{ p: { xs: 4, sm: 4 }, pt: { xs: 8, sm: 2 }, maxWidth: 600, mx: 'auto', width: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+    <Box sx={{ p: { xs: 4, sm: 4 }, maxWidth: 600, mx: 'auto', width: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
       {/* Drawer Handle */}
       <Box sx={{ 
         width: 40, 

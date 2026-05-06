@@ -134,11 +134,12 @@ export function ProfilePage({ peerId, displayName, avatarUrl, bio, shareEnsDispl
     setActiveTab(newValue);
   };
   const appUrl = 'https://skypier.chat';
+  const profileLink = useMemo(() => `${appUrl}/chats/${encodeURIComponent(peerId)}`, [appUrl, peerId]);
   const effectiveAvatarUrl = preferEnsAvatar && resolvedEnsAvatar ? resolvedEnsAvatar : avatarUrl;
 
   const inviteText = useMemo(() => (
-    `Hey, I'm using Skypier dMessenger, the decentralized and privacy-focused chat. Let's join me there.\n\n${appUrl}\n\nPeer ID: ${peerId}`
-  ), [appUrl, peerId]);
+    `Hey, I'm using Skypier dMessenger, the decentralized and privacy-focused chat.\n\nStart a secure chat with me:\n${profileLink}\n\nIf needed, my Peer ID is: ${peerId}`
+  ), [peerId, profileLink]);
 
   useEffect(() => {
     if (editOpen) {
@@ -175,7 +176,7 @@ export function ProfilePage({ peerId, displayName, avatarUrl, bio, shareEnsDispl
         await navigator.share({
           title: 'Skypier dMessenger invite',
           text: inviteText,
-          url: appUrl,
+          url: profileLink,
         });
         setShareSuccess('Invite shared.');
         return;
@@ -396,7 +397,7 @@ export function ProfilePage({ peerId, displayName, avatarUrl, bio, shareEnsDispl
                   mb: 3
                 }}
               >
-                <QRCodeSVG value={peerId} size={280} includeMargin={true} />
+                <QRCodeSVG value={profileLink} size={280} includeMargin={true} />
               </Box>
               <Typography variant="body1" color="text.secondary" fontWeight={500}>
                 Scan to connect with me

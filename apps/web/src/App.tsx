@@ -92,6 +92,73 @@ function decodeBase64ToUtf8(value: string): string | null {
   }
 }
 
+function safeDecodeUriComponent(value: string): string {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return value;
+  }
+}
+
+function extractPeerIdFromChatTarget(value: string | undefined): string | undefined {
+  if (typeof value !== 'string') {
+    return undefined;
+  }
+
+  const decoded = safeDecodeUriComponent(value).trim();
+  if (!decoded) {
+    return undefined;
+  }
+
+  if (decoded.startsWith('/chats/')) {
+    const peerFromPath = safeDecodeUriComponent(decoded.slice('/chats/'.length).split('/')[0] ?? '').trim();
+    return peerFromPath || undefined;
+  }
+
+  if (decoded.startsWith('web+skypierchat:')) {
+    const protocolPayload = decoded.slice('web+skypierchat:'.length).replace(/^\/+/, '');
+    return extractPeerIdFromChatTarget(protocolPayload);
+  }
+
+  try {
+    const parsed = new URL(decoded);
+    if (parsed.pathname.startsWith('/chats/')) {
+      const peerFromPath = safeDecodeUriComponent(parsed.pathname.slice('/chats/'.length).split('/')[0] ?? '').trim();
+      return peerFromPath || undefined;
+    }
+
+    const peerFromQuery = parsed.searchParams.get('peer');
+    if (peerFromQuery) {
+      return extractPeerIdFromChatTarget(peerFromQuery);
+    }
+  } catch {
+    // Not a URL, continue with raw value.
+  }
+
+  return decoded;
+}
+
+function isLikelyPeerId(value: string): boolean {
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return false;
+  }
+
+  if (trimmed.startsWith('conv-') || trimmed.startsWith('group-')) {
+    return false;
+  }
+
+  if (/[/?#]/.test(trimmed)) {
+    return false;
+  }
+
+  if (/^(12D3KooW|Qm|bafz)/.test(trimmed)) {
+    return true;
+  }
+
+  return /^[1-9A-HJ-NP-Za-km-z]{32,}$/.test(trimmed);
+}
+
 function previewFromInboundPayload(payload: string): string {
   if (payload.startsWith(SKYPIER_MEDIA_PREFIX)) {
     return '📷 Photo';
@@ -295,6 +362,7 @@ export function App() {
   const [showRetryDetails, setShowRetryDetails] = useState(false);
   const [isCallDrawerMinimized, setIsCallDrawerMinimized] = useState(false);
   const deepLinkBaseInjectedRef = useRef(false);
+  const deepLinkConversationCreatingRef = useRef<string | null>(null);
   const audioCallSignalHandlerRef = useRef<((payload: { fromPeerId: string; signal: AudioCallSignal }) => void) | undefined>(undefined);
   const audioCallChunkHandlerRef = useRef<((payload: { fromPeerId: string; chunk: AudioCallChunk }) => void) | undefined>(undefined);
   const loggedCallAttemptsRef = useRef<Set<string>>(new Set());
@@ -316,10 +384,26 @@ export function App() {
 
   const chatContactMatch = matchPath('/chats/:conversationId/contact', location.pathname);
   const chatMatch = matchPath('/chats/:conversationId', location.pathname);
-  const routeConversationId = chatContactMatch?.params.conversationId
-    ?? (location.pathname.startsWith('/chats/') ? chatMatch?.params.conversationId : undefined);
+  const routeChatToken = extractPeerIdFromChatTarget(
+    chatContactMatch?.params.conversationId
+      ?? (location.pathname.startsWith('/chats/') ? chatMatch?.params.conversationId : undefined),
+  ) ?? '';
+  const matchedRouteConversation = routeChatToken
+    ? conversations.find((conversation) => conversation.id === routeChatToken)
+    : undefined;
+  const routePeerId = !matchedRouteConversation && routeChatToken && isLikelyPeerId(routeChatToken)
+    ? routeChatToken
+    : undefined;
+  const matchedRoutePeerConversation = routePeerId
+    ? conversations.find((conversation) =>
+      (conversation.kind ?? 'direct') === 'direct'
+      && conversation.participants.some((participant) => participant.peerId === routePeerId)
+      && conversation.participants.length === 2,
+    )
+    : undefined;
+  const routeConversationId = matchedRouteConversation?.id ?? matchedRoutePeerConversation?.id ?? '';
   const isChatContactRoute = chatContactMatch != null;
-  const isChatRoute = location.pathname === '/chats' || routeConversationId != null;
+  const isChatRoute = location.pathname === '/chats' || routeChatToken.length > 0;
   const isAccountConfigured = Boolean(account.displayName && identityProtobuf);
 
   const networkLog = useNetworkLog();
@@ -816,6 +900,47 @@ export function App() {
   }, [showOfflineAlert]);
 
   useEffect(() => {
+    if (location.pathname !== '/chats') {
+      return;
+    }
+
+    const queryPeer = new URLSearchParams(location.search).get('peer');
+    const parsedPeerId = extractPeerIdFromChatTarget(queryPeer ?? undefined);
+    if (!parsedPeerId || !isLikelyPeerId(parsedPeerId)) {
+      return;
+    }
+
+    navigate(`/chats/${encodeURIComponent(parsedPeerId)}`, { replace: true });
+  }, [location.pathname, location.search, navigate]);
+
+  useEffect(() => {
+    if (!routePeerId || routeConversationId || !isLoaded || !isAccountConfigured) {
+      return;
+    }
+
+    if (deepLinkConversationCreatingRef.current === routePeerId) {
+      return;
+    }
+
+    deepLinkConversationCreatingRef.current = routePeerId;
+    let disposed = false;
+
+    void createConversationWithPeer(routePeerId).catch((error) => {
+      if (!disposed) {
+        console.warn('[skypier:app] failed to open deep-link peer conversation:', error instanceof Error ? error.message : error);
+      }
+    }).finally(() => {
+      if (!disposed && deepLinkConversationCreatingRef.current === routePeerId) {
+        deepLinkConversationCreatingRef.current = null;
+      }
+    });
+
+    return () => {
+      disposed = true;
+    };
+  }, [createConversationWithPeer, isAccountConfigured, isLoaded, routeConversationId, routePeerId]);
+
+  useEffect(() => {
     const nextId = routeConversationId ?? '';
     if (selectedConversationId !== nextId) {
       setSelectedConversationId(nextId);
@@ -878,7 +1003,7 @@ export function App() {
   ]);
 
   useEffect(() => {
-    if (!routeConversationId || deepLinkBaseInjectedRef.current) {
+    if (!routeChatToken || deepLinkBaseInjectedRef.current) {
       return;
     }
 
@@ -947,11 +1072,16 @@ export function App() {
   }, []);
 
   const handleCreateChat = useCallback(async (peerId: string, displayName?: string) => {
-    const conversationId = await createConversationWithPeer(peerId, displayName);
-    navigate(`/chats/${conversationId}`);
+    const normalizedPeerId = extractPeerIdFromChatTarget(peerId)?.trim();
+    if (!normalizedPeerId || !isLikelyPeerId(normalizedPeerId)) {
+      throw new Error('Enter a valid peer ID or Skypier chat link.');
+    }
+
+    await createConversationWithPeer(normalizedPeerId, displayName);
+    navigate(`/chats/${encodeURIComponent(normalizedPeerId)}`);
 
     if (liveState.status !== 'running') {
-      await updateConversationConnection(peerId, {
+      await updateConversationConnection(normalizedPeerId, {
         reachability: 'unknown',
         lastMessagePreview: 'Chat created. Start live session to connect.',
       });
@@ -960,18 +1090,18 @@ export function App() {
 
     try {
       setDialError(undefined);
-      await updateConversationConnection(peerId, {
+      await updateConversationConnection(normalizedPeerId, {
         reachability: 'unknown',
         lastMessagePreview: 'Connecting securely…',
       });
 
-      await dialPeerById(peerId);
-      await updateConversationConnection(peerId, {
+      await dialPeerById(normalizedPeerId);
+      await updateConversationConnection(normalizedPeerId, {
         reachability: 'direct',
         lastMessagePreview: 'Secure channel established.',
       });
     } catch (error) {
-      await updateConversationConnection(peerId, {
+      await updateConversationConnection(normalizedPeerId, {
         reachability: 'offline',
         lastMessagePreview: 'Connection failed. Retry from Settings.',
       });
@@ -1394,8 +1524,8 @@ export function App() {
           onSaveContact={saveContact}
           onDeleteContact={deleteContact}
           onStartChat={async (peerId, displayName) => {
-            const convId = await createConversationWithPeer(peerId, displayName);
-            navigate(`/chats/${convId}`);
+            await createConversationWithPeer(peerId, displayName);
+            navigate(`/chats/${encodeURIComponent(peerId)}`);
           }}
           onStartGroupChat={async (peerIds, title) => {
             const convId = await createConversationWithPeers(peerIds, { title });
@@ -1460,7 +1590,17 @@ export function App() {
       );
     }
 
-    if (routeConversationId && !selectedConversation) {
+    if (routeChatToken && !selectedConversation) {
+      if (routePeerId && deepLinkConversationCreatingRef.current === routePeerId) {
+        return (
+          <MuiBox sx={{ height: '100%', display: 'grid', placeItems: 'center', px: 3 }}>
+            <MuiBox sx={{ textAlign: 'center', maxWidth: 420 }}>
+              <Alert severity="info" sx={{ mb: 2 }}>Opening secure chat…</Alert>
+            </MuiBox>
+          </MuiBox>
+        );
+      }
+
       return (
         <MuiBox sx={{ height: '100%', display: 'grid', placeItems: 'center', px: 3 }}>
           <MuiBox sx={{ textAlign: 'center', maxWidth: 420 }}>
