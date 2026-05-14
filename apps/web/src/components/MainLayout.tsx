@@ -214,7 +214,17 @@ export function MainLayout(props: MainLayoutProps) {
       }}
     >
       {isMobile && <Toolbar sx={{ pt: 'env(safe-area-inset-top)' }} />}
-      <Box sx={{ p: 2, display: 'flex', alignItems: 'center', gap: 2 }}>
+      <Box 
+        sx={{ 
+          p: 2, 
+          display: 'flex', 
+          alignItems: 'center', 
+          gap: 2,
+          cursor: 'pointer',
+          '&:hover': { bgcolor: 'action.hover' }
+        }}
+        onClick={() => { setActiveView('profile'); if(isMobile) setMobileOpen(false); }}
+      >
         <UserAvatar seed={peerId} size={40} src={localAvatarUrl ?? ensAvatar} />
         <Box sx={{ flexGrow: 1, minWidth: 0 }}>
           <Typography variant="subtitle1" noWrap sx={{ fontWeight: 'bold' }}>
@@ -234,7 +244,12 @@ export function MainLayout(props: MainLayoutProps) {
             {localPeerStatusLabel}
           </Typography>
         </Box>
-        <IconButton onClick={toggleColorMode}>
+        <IconButton 
+          onClick={(e) => { 
+            e.stopPropagation(); 
+            toggleColorMode(); 
+          }}
+        >
           {mode === 'dark' ? <LightModeIcon /> : <DarkModeIcon />}
         </IconButton>
       </Box>
@@ -252,16 +267,6 @@ export function MainLayout(props: MainLayoutProps) {
             </ListItemButton>
           </ListItem>
         )}
-        <ListItem disablePadding>
-          <ListItemButton 
-            selected={activeView === 'profile'} 
-            onClick={() => { setActiveView('profile'); if(isMobile) setMobileOpen(false); }}
-            sx={{ borderRadius: 2 }}
-          >
-            <ListItemIcon><AccountCircleIcon color={activeView === 'profile' ? 'primary' : 'inherit'} /></ListItemIcon>
-            <ListItemText primary="My Profile" />
-          </ListItemButton>
-        </ListItem>
         <ListItem disablePadding>
           <ListItemButton 
             selected={activeView === 'contacts'} 

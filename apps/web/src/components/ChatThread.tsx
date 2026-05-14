@@ -336,7 +336,7 @@ export function ChatThread(props: ChatThreadProps) {
           // On mobile, extend scroll area behind the glass AppBar
           pt: isMobile ? 'calc(env(safe-area-inset-top) + 80px)' : 2,
           display: 'flex',
-          flexDirection: 'column',
+          flexDirection: 'column-reverse',
           gap: 0.25,
           bgcolor: (theme) => (theme.palette.mode === 'light' ? '#e2e2e2' : '#090611'),
           backgroundImage: (theme) =>
@@ -347,28 +347,19 @@ export function ChatThread(props: ChatThreadProps) {
           backgroundBlendMode: (theme) => (theme.palette.mode === 'dark' ? 'soft-light' : 'normal')
         }}
       >
-        <Box sx={{ flexGrow: 1 }} /> {/* Push messages to bottom */}
-        {messages.map((msg, index) => {
-          const showDate = index === 0 ||
-            new Date(msg.createdAt).toDateString() !== new Date(messages[index - 1].createdAt).toDateString();
+        {messages.slice().reverse().map((msg, reversedIndex) => {
+          const originalIndex = messages.length - 1 - reversedIndex;
+          const showDate = originalIndex === 0 ||
+            new Date(msg.createdAt).toDateString() !== new Date(messages[originalIndex - 1].createdAt).toDateString();
 
           return (
             <Box
               key={msg.id}
               sx={{
-                contentVisibility: 'auto',
-                containIntrinsicSize: '220px 120px',
+                display: 'flex',
+                flexDirection: 'column-reverse',
               }}
             >
-              {showDate && (
-                <Box sx={{ display: 'flex', justifyContent: 'center', my: 2 }}>
-                  <Paper sx={{ px: 2, py: 0.5, borderRadius: 4, bgcolor: 'rgba(0,0,0,0.2)', color: 'white' }}>
-                    <Typography variant="caption" sx={{ fontWeight: 'bold' }}>
-                      {new Date(msg.createdAt).toLocaleDateString([], { month: 'long', day: 'numeric' })}
-                    </Typography>
-                  </Paper>
-                </Box>
-              )}
               {msg.systemEvent ? (
                 <Box sx={{ display: 'flex', justifyContent: 'center', my: 1.25 }}>
                   <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 0.5 }}>
@@ -401,6 +392,15 @@ export function ChatThread(props: ChatThreadProps) {
                   onToggleReaction={onToggleReaction}
                   onRetryMessage={onRetryMessage}
                 />
+              )}
+              {showDate && (
+                <Box sx={{ display: 'flex', justifyContent: 'center', my: 2 }}>
+                  <Paper sx={{ px: 2, py: 0.5, borderRadius: 4, bgcolor: 'rgba(0,0,0,0.2)', color: 'white' }}>
+                    <Typography variant="caption" sx={{ fontWeight: 'bold' }}>
+                      {new Date(msg.createdAt).toLocaleDateString([], { month: 'long', day: 'numeric' })}
+                    </Typography>
+                  </Paper>
+                </Box>
               )}
             </Box>
           );
