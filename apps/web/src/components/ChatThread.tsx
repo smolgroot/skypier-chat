@@ -1,7 +1,9 @@
-import { Box, Typography, TextField, IconButton, Paper, Stack, useTheme, useMediaQuery, Popover, Badge, Chip, Dialog, DialogTitle, DialogContent, DialogActions, Button, Avatar, AvatarGroup } from '@mui/material';
+import { Box, Typography, TextField, IconButton, Paper, Stack, useTheme, useMediaQuery, Popover, Badge, Chip, Dialog, DialogTitle, DialogContent, DialogActions, Button, Avatar, AvatarGroup, Drawer } from '@mui/material';
 import SendIcon from '@mui/icons-material/Send';
 import EmojiEmotionsIcon from '@mui/icons-material/EmojiEmotions';
 import AttachFileIcon from '@mui/icons-material/AttachFile';
+import CameraAltIcon from '@mui/icons-material/CameraAlt';
+import PhotoLibraryIcon from '@mui/icons-material/PhotoLibrary';
 import CloseIcon from '@mui/icons-material/Close';
 import AutorenewIcon from '@mui/icons-material/Autorenew';
 import CallIcon from '@mui/icons-material/Call';
@@ -13,6 +15,7 @@ import type { ChatMessage, Conversation } from '@skypier/protocol';
 import { reachabilityLabel, reachabilityColor } from '@skypier/network';
 import { ChatBubble } from './ChatBubble';
 import { UserAvatar } from './UserAvatar';
+import { CameraCaptureDrawer } from './CameraCaptureDrawer';
 import { useVibration } from '../hooks/useVibration';
 
 function formatDuration(durationMs: number): string {
@@ -140,6 +143,8 @@ export function ChatThread(props: ChatThreadProps) {
   const showEmojiPicker = Boolean(emojiAnchorEl);
   const [renameDialogOpen, setRenameDialogOpen] = useState(false);
   const [renameValue, setRenameValue] = useState('');
+  const [attachSheetOpen, setAttachSheetOpen] = useState(false);
+  const [cameraDrawerOpen, setCameraDrawerOpen] = useState(false);
 
   const isGroupAdmin = Boolean(conversation.adminPeerId && conversation.adminPeerId === localPeerId);
 
@@ -169,36 +174,40 @@ export function ChatThread(props: ChatThreadProps) {
     setEmojiAnchorEl(null);
   };
 
+  const handleOpenAttachSheet = () => {
+    setAttachSheetOpen(true);
+  };
+
+  const handleCloseAttachSheet = () => {
+    setAttachSheetOpen(false);
+  };
+
+  const handleChooseGallery = () => {
+    setAttachSheetOpen(false);
+    // Delay click until the sheet close transition starts, avoiding overlap.
+    window.setTimeout(() => {
+      fileInputRef.current?.click();
+    }, 80);
+  };
+
+  const handleChooseCamera = () => {
+    setAttachSheetOpen(false);
+    setCameraDrawerOpen(true);
+  };
+
   const onEmojiSelect = (emojiData: any) => {
     onComposerChange(composerValue + emojiData.emoji);
   };
 
+  // We no longer need to force scroll to bottom on every message 
+  // because flex-direction: column-reverse inherently pins to the bottom.
+  // The Date separators and messages are naturally flow from bottom-up.
   useEffect(() => {
-    if (scrollRef.current) {
-      // requestAnimationFrame ensures the browser has rendered the newly added DOM nodes
-      // before we measure scrollHeight and update scrollTop.
-      requestAnimationFrame(() => {
-        // Double rAF ensures we are waiting for the next paint frame
-        requestAnimationFrame(() => {
-          if (scrollRef.current) {
-            scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-          }
-        });
-      });
-    }
+    // Left empty since column-reverse handles it
   }, [messages]);
 
-  // Jump to the bottom immediately when switching to a different conversation.
   useEffect(() => {
-    if (scrollRef.current) {
-      requestAnimationFrame(() => {
-        requestAnimationFrame(() => {
-          if (scrollRef.current) {
-            scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-          }
-        });
-      });
-    }
+    // Left empty since column-reverse handles it
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [conversation.id]);
 
@@ -510,7 +519,7 @@ export function ChatThread(props: ChatThreadProps) {
               lazyLoadEmojis
             />
           </Popover>
-          <IconButton size="small" onClick={() => fileInputRef.current?.click()} disabled={!onSendImage}>
+          <IconButton size="small" onClick={handleOpenAttachSheet} disabled={!onSendImage} aria-label="Attach media">
             <AttachFileIcon color="action" />
           </IconButton>
           <input
@@ -585,6 +594,81 @@ export function ChatThread(props: ChatThreadProps) {
           </Button>
         </DialogActions>
       </Dialog>
+
+      <Drawer
+        anchor="bottom"
+        open={attachSheetOpen}
+        onClose={handleCloseAttachSheet}
+        PaperProps={{
+          sx: {
+            width: '100%',
+            maxWidth: 560,
+            mx: 'auto',
+            left: 0,
+            right: 0,
+            borderTopLeftRadius: 24,
+            borderTopRightRadius: 24,
+            bgcolor: (currentTheme) =>
+              currentTheme.palette.mode === 'dark'
+                ? 'rgba(10, 5, 20, 0.6)'
+                : 'rgba(255,255,255,0.88)',
+            backdropFilter: (currentTheme) => `blur(22px) saturate(180%) url(#liquid-glass-refraction-${currentTheme.palette.mode})`,
+            WebkitBackdropFilter: (currentTheme) => `blur(22px) saturate(180%) url(#liquid-glass-refraction-${currentTheme.palette.mode})`,
+            filter: (currentTheme) => `url(#liquid-glass-gloss-${currentTheme.palette.mode})`,
+            borderTop: (currentTheme) => currentTheme.palette.mode === 'dark'
+              ? '1px solid rgba(171, 110, 255, 0.2)'
+              : '1px solid rgba(0,0,0,0.08)',
+            pb: 'env(safe-area-inset-bottom, 0px)',
+          },
+        }}
+      >
+        <Box sx={{ pt: 1.25, display: 'flex', justifyContent: 'center' }}>
+          <Box sx={{ width: 40, height: 4, borderRadius: 2, bgcolor: 'rgba(128,128,128,0.35)' }} />
+        </Box>
+
+        <Box sx={{ px: 2.5, pt: 1.25, pb: 2.5 }}>
+          <Typography variant="subtitle1" sx={{ fontWeight: 700, mb: 1.25 }}>
+            Add photo
+          </Typography>
+
+          <Stack spacing={1}>
+            <Button
+              fullWidth
+              variant="outlined"
+              startIcon={<CameraAltIcon />}
+              onClick={handleChooseCamera}
+              sx={{ justifyContent: 'flex-start', py: 1.1, borderRadius: 2.25 }}
+            >
+              Take photo
+            </Button>
+            <Button
+              fullWidth
+              variant="outlined"
+              startIcon={<PhotoLibraryIcon />}
+              onClick={handleChooseGallery}
+              sx={{ justifyContent: 'flex-start', py: 1.1, borderRadius: 2.25 }}
+            >
+              Choose from gallery
+            </Button>
+            <Button fullWidth color="inherit" onClick={handleCloseAttachSheet} sx={{ py: 1 }}>
+              Cancel
+            </Button>
+          </Stack>
+        </Box>
+      </Drawer>
+
+      <CameraCaptureDrawer
+        open={cameraDrawerOpen}
+        onClose={() => setCameraDrawerOpen(false)}
+        onSendImage={(file) => {
+          if (!onSendImage) {
+            return;
+          }
+
+          vibrate(patterns.messageSent);
+          onSendImage(file);
+        }}
+      />
     </Box>
   );
 }

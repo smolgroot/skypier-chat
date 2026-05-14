@@ -367,7 +367,15 @@ function applyReceivedPreKeyBundle(
 }
 
 // ─── Image compression ────────────────────────────────────────────────────────
-const MAX_IMAGE_BYTES = 2 * 1024 * 1024; // 2 MB hard cap post-compression
+const MAX_IMAGE_BYTES = 3 * 1024 * 1024; // 3 MB hard cap post-compression
+const IMAGE_MAX_EDGE = 1600;
+const IMAGE_MIN_EDGE = 720;
+const IMAGE_INITIAL_QUALITY = 0.88;
+const IMAGE_MIN_QUALITY = 0.62;
+const IMAGE_QUALITY_STEP = 0.06;
+const IMAGE_DOWNSCALE_STEP = 0.88;
+const IMAGE_PREVIEW_MAX_EDGE = 480;
+const IMAGE_PREVIEW_QUALITY = 0.68;
 const MAX_MESSAGES_PER_CONVERSATION = (() => {
   const raw = Number(import.meta.env.VITE_MAX_MESSAGES_PER_CONVERSATION ?? '300');
   if (!Number.isFinite(raw)) return 300;
@@ -391,43 +399,92 @@ async function compressImage(file: File): Promise<{
   mimeType: string;
 }> {
   return new Promise((resolve, reject) => {
+    const estimateBytes = (uri: string): number => {
+      const base64 = uri.split(',')[1] ?? '';
+      return Math.ceil(base64.length * 0.75);
+    };
+
     const img = new Image();
     const url = URL.createObjectURL(file);
     img.onload = () => {
       URL.revokeObjectURL(url);
-      const MAX_EDGE = 960;
       let { naturalWidth: width, naturalHeight: height } = img;
-      if (width > MAX_EDGE || height > MAX_EDGE) {
-        const ratio = Math.min(MAX_EDGE / width, MAX_EDGE / height);
+
+      if (width > IMAGE_MAX_EDGE || height > IMAGE_MAX_EDGE) {
+        const ratio = Math.min(IMAGE_MAX_EDGE / width, IMAGE_MAX_EDGE / height);
         width = Math.round(width * ratio);
         height = Math.round(height * ratio);
       }
+
       const canvas = document.createElement('canvas');
       canvas.width = width;
       canvas.height = height;
-      canvas.getContext('2d')!.drawImage(img, 0, 0, width, height);
-      const dataUri = canvas.toDataURL('image/jpeg', 0.65);
-      const previewScale = Math.min(1, 320 / Math.max(width, height));
+
+      const context = canvas.getContext('2d');
+      if (!context) {
+        reject(new Error('Could not prepare image canvas.'));
+        return;
+      }
+
+      let quality = IMAGE_INITIAL_QUALITY;
+      let dataUri = '';
+      let approxBytes = Number.POSITIVE_INFINITY;
+
+      for (let attempt = 0; attempt < 20; attempt += 1) {
+        context.clearRect(0, 0, width, height);
+        context.drawImage(img, 0, 0, width, height);
+        dataUri = canvas.toDataURL('image/jpeg', quality);
+        approxBytes = estimateBytes(dataUri);
+
+        if (approxBytes <= MAX_IMAGE_BYTES) {
+          break;
+        }
+
+        if (quality > IMAGE_MIN_QUALITY) {
+          quality = Math.max(IMAGE_MIN_QUALITY, quality - IMAGE_QUALITY_STEP);
+          continue;
+        }
+
+        const nextWidth = Math.max(1, Math.round(width * IMAGE_DOWNSCALE_STEP));
+        const nextHeight = Math.max(1, Math.round(height * IMAGE_DOWNSCALE_STEP));
+        if (Math.max(nextWidth, nextHeight) < IMAGE_MIN_EDGE) {
+          break;
+        }
+
+        width = nextWidth;
+        height = nextHeight;
+        canvas.width = width;
+        canvas.height = height;
+        quality = IMAGE_INITIAL_QUALITY;
+      }
+
+      if (!Number.isFinite(approxBytes) || approxBytes > MAX_IMAGE_BYTES) {
+        reject(new Error(
+          `Image is ${(approxBytes / 1024 / 1024).toFixed(1)} MB after compression. Maximum allowed is ${(MAX_IMAGE_BYTES / 1024 / 1024).toFixed(0)} MB.`
+        ));
+        return;
+      }
+
+      const previewScale = Math.min(1, IMAGE_PREVIEW_MAX_EDGE / Math.max(width, height));
       const previewWidth = Math.max(1, Math.round(width * previewScale));
       const previewHeight = Math.max(1, Math.round(height * previewScale));
       const previewCanvas = document.createElement('canvas');
       previewCanvas.width = previewWidth;
       previewCanvas.height = previewHeight;
-      previewCanvas.getContext('2d')!.drawImage(img, 0, 0, previewWidth, previewHeight);
-      const previewDataUri = previewCanvas.toDataURL('image/jpeg', 0.5);
+      const previewContext = previewCanvas.getContext('2d');
+      if (!previewContext) {
+        reject(new Error('Could not prepare image preview canvas.'));
+        return;
+      }
+      previewContext.drawImage(img, 0, 0, previewWidth, previewHeight);
+      const previewDataUri = previewCanvas.toDataURL('image/jpeg', IMAGE_PREVIEW_QUALITY);
       previewCanvas.width = 0;
       previewCanvas.height = 0;
+
       // Release GPU/canvas backing store memory as soon as we're done encoding.
       canvas.width = 0;
       canvas.height = 0;
       const base64 = dataUri.split(',')[1] ?? '';
-      const approxBytes = Math.ceil(base64.length * 0.75);
-      if (approxBytes > MAX_IMAGE_BYTES) {
-        reject(new Error(
-          `Image is ${(approxBytes / 1024 / 1024).toFixed(1)} MB after compression. Maximum allowed is 2 MB.`
-        ));
-        return;
-      }
       const binary = atob(base64);
       const bytes = new Uint8Array(binary.length);
       for (let i = 0; i < binary.length; i += 1) {
@@ -884,7 +941,7 @@ export function useChatController() {
   const sendImageMessage = useCallback(async (file: File): Promise<ChatMessage | undefined> => {
     if (!selectedConversation) return undefined;
 
-    const { blob, previewDataUri, width, height, size, mimeType } = await compressImage(file);
+    const { blob, dataUri, width, height, size, mimeType } = await compressImage(file);
     const attachmentId = `att-${Math.random().toString(36).slice(2, 10)}`;
     const attachmentStorageKey = `blob-${attachmentId}`;
 
@@ -907,7 +964,7 @@ export function useChatController() {
 
     const messageWithAttachment: ChatMessage = {
       ...baseMessage,
-      attachments: [{ id: attachmentId, mimeType, dataUri: previewDataUri, storageKey: attachmentStorageKey, width, height, size }],
+      attachments: [{ id: attachmentId, mimeType, dataUri, storageKey: attachmentStorageKey, width, height, size }],
     };
 
     const snap = stateRef.current;
