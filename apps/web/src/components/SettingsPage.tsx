@@ -4,6 +4,8 @@ import KeyIcon from '@mui/icons-material/Key';
 import SettingsInputAntennaIcon from '@mui/icons-material/SettingsInputAntenna';
 import BackupIcon from '@mui/icons-material/Backup';
 import AccountBalanceWalletIcon from '@mui/icons-material/AccountBalanceWallet';
+import BadgeIcon from '@mui/icons-material/Badge';
+import { EnsHandlePanel } from './EnsHandlePanel';
 
 interface SettingsPageProps {
   keyCustodyPlan: any;
@@ -26,6 +28,9 @@ interface SettingsPageProps {
   unlinkEthAddress: (address: string) => Promise<void>;
   walletBusy: boolean;
   walletError?: string;
+  localPeerId: string;
+  resolvedEnsName?: string | null;
+  onEnsHandlePublished: (name: string, peerId: string) => Promise<void> | void;
   dialError?: string;
   onBiometricUnlockToggle?: (enabled: boolean) => void;
   enablePushNotifications?: () => Promise<NotificationPermission>;
@@ -56,6 +61,9 @@ export function SettingsPage(props: SettingsPageProps) {
     dialError,
     onBiometricUnlockToggle,
     enablePushNotifications,
+    localPeerId,
+    resolvedEnsName,
+    onEnsHandlePublished,
   } = props;
 
   return (
@@ -220,6 +228,17 @@ export function SettingsPage(props: SettingsPageProps) {
               </Button>
               {walletError && <Typography color="error" variant="caption" sx={{ mt: 1, display: 'block' }}>{walletError}</Typography>}
             </>
+          )},
+          { icon: <BadgeIcon color="primary" />, title: 'ENS handle', content: (
+            <EnsHandlePanel
+              localPeerId={localPeerId}
+              linkedWallets={account.linkedEthAddresses ?? []}
+              suggestedName={resolvedEnsName}
+              publishedEnsName={account.ensHandle}
+              publishedPeerId={account.ensHandlePublishedPeerId}
+              publishedAt={account.ensHandlePublishedAt}
+              onPublished={onEnsHandlePublished}
+            />
           )}
         ].map((section, idx) => (
           <Box 

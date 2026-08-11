@@ -45,11 +45,13 @@ interface ContactsPageProps {
   onDeleteContact: (id: string) => Promise<void>;
   onStartChat: (peerId: string, displayName: string) => Promise<void>;
   onStartGroupChat?: (peerIds: string[], title?: string) => Promise<void>;
+  /** Resolves an ENS name to a peer ID. Throws with user-facing copy on failure. */
+  onResolveEnsHandle?: (input: string) => Promise<{ peerId: string; ensName: string; ethAddress?: string }>;
 }
 
 const emptyForm = { peerId: '', displayName: '', avatarUrl: '' };
 
-export function ContactsPage({ contacts, onSaveContact, onDeleteContact, onStartChat, onStartGroupChat }: ContactsPageProps) {
+export function ContactsPage({ contacts, onSaveContact, onDeleteContact, onStartChat, onStartGroupChat, onResolveEnsHandle }: ContactsPageProps) {
   const theme = useTheme();
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingContact, setEditingContact] = useState<Contact | null>(null);
@@ -91,12 +93,21 @@ export function ContactsPage({ contacts, onSaveContact, onDeleteContact, onStart
   };
 
   const handleSave = async () => {
-    if (!form.peerId.trim()) { setFormError('Peer ID is required'); return; }
+    if (!form.peerId.trim()) { setFormError('Peer ID or ENS name is required'); return; }
     if (!form.displayName.trim()) { setFormError('Nickname is required'); return; }
     setSaving(true);
     try {
-      const id = editingContact?.id ?? form.peerId.trim();
-      await onSaveContact(id, form.peerId.trim(), form.displayName.trim(), form.avatarUrl.trim() || undefined);
+      let peerId = form.peerId.trim();
+      let extras: { ensName?: string; ethAddress?: string } | undefined;
+
+      if (onResolveEnsHandle && peerId.includes('.')) {
+        const resolved = await onResolveEnsHandle(peerId);
+        peerId = resolved.peerId;
+        extras = { ensName: resolved.ensName, ethAddress: resolved.ethAddress };
+      }
+
+      const id = editingContact?.id ?? peerId;
+      await onSaveContact(id, peerId, form.displayName.trim(), form.avatarUrl.trim() || undefined, extras);
       setDialogOpen(false);
     } catch (e) {
       setFormError(e instanceof Error ? e.message : 'Failed to save contact');
@@ -316,8 +327,15 @@ export function ContactsPage({ contacts, onSaveContact, onDeleteContact, onStart
                           <Chip label="Bot" size="small" color="info" variant="outlined" />
                         ) : null}
                         {contact.ensName ? (
-                          <Typography variant="caption" color="primary.main" sx={{ fontWeight: 600 }}>
-                            {contact.ensName}
+                          <Typography
+                            variant="caption"
+                            color={contact.ensNameVerified ? 'primary.main' : 'text.secondary'}
+                            sx={{ fontWeight: 600 }}
+                            title={contact.ensNameVerified
+                              ? 'This peer confirmed this ENS name in their own profile.'
+                              : 'Claimed via ENS but not yet confirmed by this peer.'}
+                          >
+                            {contact.ensName}{contact.ensNameVerified ? ' ✓' : ''}
                           </Typography>
                         ) : null}
                       </Box>
@@ -389,9 +407,20 @@ export function ContactsPage({ contacts, onSaveContact, onDeleteContact, onStart
               {selectedContact.isBot ? <Chip label="Bot" size="small" color="info" variant="outlined" /> : null}
             </Box>
             {selectedContact.ensName ? (
-              <Typography variant="body2" color="primary.main" sx={{ fontWeight: 600, mb: 1 }}>
-                {selectedContact.ensName}
-              </Typography>
+              <>
+                <Typography
+                  variant="body2"
+                  color={selectedContact.ensNameVerified ? 'primary.main' : 'text.secondary'}
+                  sx={{ fontWeight: 600, mb: 0.25 }}
+                >
+                  {selectedContact.ensName}{selectedContact.ensNameVerified ? ' ✓' : ''}
+                </Typography>
+                <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1 }}>
+                  {selectedContact.ensNameVerified
+                    ? 'Confirmed by this peer'
+                    : 'Claimed via ENS · unconfirmed'}
+                </Typography>
+              </>
             ) : null}
             {selectedContact.bio ? (
               <Typography variant="body2" color="text.secondary" sx={{ maxWidth: 420, mx: 'auto', mb: 1.5 }}>
@@ -682,13 +711,15 @@ export function ContactsPage({ contacts, onSaveContact, onDeleteContact, onStart
           )}
 
           <TextField
-            label="Peer ID"
+            label="Peer ID or ENS name"
             value={form.peerId}
             onChange={(e) => { setForm(f => ({ ...f, peerId: e.target.value })); setFormError(''); }}
             fullWidth
             disabled={!!editingContact}
-            helperText={editingContact ? 'Peer ID cannot be changed after creation' : 'Paste the full libp2p peer ID (12D3Koo…)'}
-            placeholder="12D3KooW…"
+            helperText={editingContact
+              ? 'Peer ID cannot be changed after creation'
+              : 'Paste a libp2p peer ID (12D3Koo…) or an ENS name (vitalik.eth)'}
+            placeholder="vitalik.eth or 12D3KooW…"
             InputProps={{ sx: { fontFamily: 'monospace', fontSize: '0.85rem' } }}
           />
 

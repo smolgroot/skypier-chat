@@ -7,6 +7,8 @@ import { useChatController } from './useChatController';
 import { useLiveChatSession } from './useLiveChatSession';
 import { useNetworkLog } from './useNetworkLog';
 import { connectAndLinkEthWallet } from './walletLinking';
+import { extractPeerIdFromChatTarget, isLikelyPeerId, looksLikeEnsHandle, safeDecodeUriComponent } from './peerIds';
+import { describeEnsLookup, lookupEnsHandle } from './ens/ensHandles';
 import { theme } from './theme';
 import { MainLayout } from './components/MainLayout';
 import { ChatThread } from './components/ChatThread';
@@ -92,73 +94,6 @@ function decodeBase64ToUtf8(value: string): string | null {
   }
 }
 
-function safeDecodeUriComponent(value: string): string {
-  try {
-    return decodeURIComponent(value);
-  } catch {
-    return value;
-  }
-}
-
-function extractPeerIdFromChatTarget(value: string | undefined): string | undefined {
-  if (typeof value !== 'string') {
-    return undefined;
-  }
-
-  const decoded = safeDecodeUriComponent(value).trim();
-  if (!decoded) {
-    return undefined;
-  }
-
-  if (decoded.startsWith('/chats/')) {
-    const peerFromPath = safeDecodeUriComponent(decoded.slice('/chats/'.length).split('/')[0] ?? '').trim();
-    return peerFromPath || undefined;
-  }
-
-  if (decoded.startsWith('web+skypierchat:')) {
-    const protocolPayload = decoded.slice('web+skypierchat:'.length).replace(/^\/+/, '');
-    return extractPeerIdFromChatTarget(protocolPayload);
-  }
-
-  try {
-    const parsed = new URL(decoded);
-    if (parsed.pathname.startsWith('/chats/')) {
-      const peerFromPath = safeDecodeUriComponent(parsed.pathname.slice('/chats/'.length).split('/')[0] ?? '').trim();
-      return peerFromPath || undefined;
-    }
-
-    const peerFromQuery = parsed.searchParams.get('peer');
-    if (peerFromQuery) {
-      return extractPeerIdFromChatTarget(peerFromQuery);
-    }
-  } catch {
-    // Not a URL, continue with raw value.
-  }
-
-  return decoded;
-}
-
-function isLikelyPeerId(value: string): boolean {
-  const trimmed = value.trim();
-  if (!trimmed) {
-    return false;
-  }
-
-  if (trimmed.startsWith('conv-') || trimmed.startsWith('group-')) {
-    return false;
-  }
-
-  if (/[/?#]/.test(trimmed)) {
-    return false;
-  }
-
-  if (/^(12D3KooW|Qm|bafz)/.test(trimmed)) {
-    return true;
-  }
-
-  return /^[1-9A-HJ-NP-Za-km-z]{32,}$/.test(trimmed);
-}
-
 function previewFromInboundPayload(payload: string): string {
   if (payload.startsWith(SKYPIER_MEDIA_PREFIX)) {
     return '📷 Photo';
@@ -240,6 +175,7 @@ function pathForView(view: 'chat' | 'profile' | 'settings' | 'network' | 'contac
 }
 
 function resolveActiveView(pathname: string): 'chat' | 'profile' | 'settings' | 'network' | 'contacts' {
+  if (pathname.startsWith('/u/')) return 'chat';
   if (pathname.startsWith('/profile')) return 'profile';
   if (pathname.startsWith('/settings')) return 'settings';
   if (pathname.startsWith('/network')) return 'network';
@@ -368,6 +304,20 @@ export function App() {
   const loggedCallAttemptsRef = useRef<Set<string>>(new Set());
   const loggedCallEndsRef = useRef<Set<string>>(new Set());
   const profileFetchCooldownUntilRef = useRef<Map<string, number>>(new Map());
+  const handleResolvingRef = useRef<string | null>(null);
+  const handlePersistedRef = useRef<string | null>(null);
+  const contactsRef = useRef<typeof contacts>(contacts);
+  contactsRef.current = contacts;
+  const onboardingCryptoStateRef = useRef<{
+    peerId: string;
+    state: ReturnType<typeof generateDeviceCryptoState>;
+  } | null>(null);
+  const [handleRetryNonce, setHandleRetryNonce] = useState(0);
+  const [handleResolution, setHandleResolution] = useState<
+    | { status: 'idle' }
+    | { status: 'resolving'; handle: string }
+    | { status: 'error'; handle: string; message: string; retryable: boolean }
+  >({ status: 'idle' });
 
   const getCallDurationMs = useCallback((startedAt?: string): number | undefined => {
     if (!startedAt) {
@@ -403,15 +353,20 @@ export function App() {
     : undefined;
   const routeConversationId = matchedRouteConversation?.id ?? matchedRoutePeerConversation?.id ?? '';
   const isChatContactRoute = chatContactMatch != null;
-  const isChatRoute = location.pathname === '/chats' || routeChatToken.length > 0;
   const isAccountConfigured = Boolean(account.displayName && identityProtobuf);
+
+  // `/u/:handle` is the canonical share link. It accepts an ENS name or a raw peer ID and
+  // redirects to `/chats/<peerId>` once resolved, so the synchronous route-derivation
+  // chain above never has to learn about pending RPC lookups.
+  const userHandleMatch = matchPath('/u/:handle', location.pathname);
+  const routeHandleToken = safeDecodeUriComponent(userHandleMatch?.params.handle ?? '').trim();
 
   const networkLog = useNetworkLog();
   const currentTheme = useMemo(() => theme(colorMode), [colorMode]);
   const { notifyIncomingMessage, notifyIncomingCall, enablePushNotifications } = useNotifications(account.localPeerId);
   const firstLinkedWalletAddress = account.linkedEthAddresses[0]?.address;
   const shouldResolveEns = Boolean(firstLinkedWalletAddress)
-    && (activeView === 'profile' || account.shareEnsDisplayName || account.preferEnsAvatar);
+    && (activeView === 'profile' || activeView === 'settings' || account.shareEnsDisplayName || account.preferEnsAvatar);
   const { name: resolvedEnsName, avatar: resolvedEnsAvatar } = useENS(firstLinkedWalletAddress, { enabled: shouldResolveEns });
 
   const totalUnreadCount = useMemo(
@@ -531,11 +486,15 @@ export function App() {
       displayName: account.displayName,
       avatarUrl: capSharedAvatarDataUri(preferredAvatar),
       bio: account.profileBio,
-      ensName: account.shareEnsDisplayName ? (resolvedEnsName ?? undefined) : undefined,
+      // Prefer the name we actually published a record on: that is the name others will
+      // have resolved us through, and echoing it is what lets them mark it verified.
+      ensName: account.shareEnsDisplayName
+        ? (account.ensHandle ?? resolvedEnsName ?? undefined)
+        : undefined,
       ethAddress: firstWallet?.address,
       updatedAt: new Date().toISOString(),
     };
-  }, [account.displayName, account.linkedEthAddresses, account.localPeerId, account.preferEnsAvatar, account.profileAvatarUrl, account.profileBio, account.shareEnsDisplayName, localPeerId, resolvedEnsAvatar, resolvedEnsName]);
+  }, [account.displayName, account.ensHandle, account.linkedEthAddresses, account.localPeerId, account.preferEnsAvatar, account.profileAvatarUrl, account.profileBio, account.shareEnsDisplayName, localPeerId, resolvedEnsAvatar, resolvedEnsName]);
 
   const handleInboundMessage = useCallback(async ({ fromPeerId, envelope }: { fromPeerId: string; envelope: { kind: 'message' | 'receipt' | 'presence' | 'sync'; conversationId: string; senderPeerId: string; sentAt: string; payload: string } }) => {
     console.log('[skypier:app] \u21d0 inbound message from', fromPeerId, '\u2014 kind:', envelope.kind, 'conv:', envelope.conversationId, 'payload:', envelope.payload.slice(0, 80));
@@ -906,12 +865,101 @@ export function App() {
 
     const queryPeer = new URLSearchParams(location.search).get('peer');
     const parsedPeerId = extractPeerIdFromChatTarget(queryPeer ?? undefined);
-    if (!parsedPeerId || !isLikelyPeerId(parsedPeerId)) {
+    if (!parsedPeerId) {
+      return;
+    }
+
+    // The `web+skypierchat:` protocol handler funnels everything through `?peer=`, so an
+    // ENS name can arrive here too. Hand those to /u/ rather than dropping them.
+    if (looksLikeEnsHandle(parsedPeerId)) {
+      navigate(`/u/${encodeURIComponent(parsedPeerId)}`, { replace: true });
+      return;
+    }
+
+    if (!isLikelyPeerId(parsedPeerId)) {
       return;
     }
 
     navigate(`/chats/${encodeURIComponent(parsedPeerId)}`, { replace: true });
   }, [location.pathname, location.search, navigate]);
+
+  useEffect(() => {
+    // `matchPath('/u/:handle')` requires a non-empty segment, so these would otherwise
+    // land on the "Page not found" alert.
+    if (location.pathname === '/u' || location.pathname === '/u/') {
+      navigate('/chats', { replace: true });
+    }
+  }, [location.pathname, navigate]);
+
+  useEffect(() => {
+    if (!routeHandleToken) {
+      setHandleResolution({ status: 'idle' });
+      return;
+    }
+
+    // Let the splash/onboarding/unlock gate settle first: it carries `/u/...` through as
+    // `returnTo`, so resolving now would burn an RPC that gets discarded — and could try
+    // to create a conversation before an identity exists.
+    if (!isLoaded || !isAccountConfigured) {
+      return;
+    }
+
+    if (handleResolvingRef.current === routeHandleToken) {
+      return;
+    }
+
+    // A raw peer ID pasted into /u/ needs no network round trip.
+    if (!looksLikeEnsHandle(routeHandleToken)) {
+      const direct = extractPeerIdFromChatTarget(routeHandleToken);
+      if (direct && isLikelyPeerId(direct)) {
+        navigate(`/chats/${encodeURIComponent(direct)}`, { replace: true });
+      } else {
+        setHandleResolution({
+          status: 'error',
+          handle: routeHandleToken,
+          message: `"${routeHandleToken}" isn't a valid ENS name or peer ID.`,
+          retryable: false,
+        });
+      }
+      return;
+    }
+
+    handleResolvingRef.current = routeHandleToken;
+    let disposed = false;
+    setHandleResolution({ status: 'resolving', handle: routeHandleToken });
+
+    void lookupEnsHandle(routeHandleToken)
+      .then((result) => {
+        if (disposed) {
+          return;
+        }
+
+        if (result.status === 'resolved') {
+          setHandleResolution({ status: 'idle' });
+          navigate(`/chats/${encodeURIComponent(result.peerId)}`, {
+            replace: true,
+            state: { ensHandle: result.name, ensOwnerAddress: result.ownerAddress },
+          });
+          return;
+        }
+
+        setHandleResolution({
+          status: 'error',
+          handle: routeHandleToken,
+          message: describeEnsLookup(result),
+          retryable: result.status === 'error',
+        });
+      })
+      .finally(() => {
+        if (handleResolvingRef.current === routeHandleToken) {
+          handleResolvingRef.current = null;
+        }
+      });
+
+    return () => {
+      disposed = true;
+    };
+  }, [routeHandleToken, isLoaded, isAccountConfigured, navigate, handleRetryNonce]);
 
   useEffect(() => {
     if (!routePeerId || routeConversationId || !isLoaded || !isAccountConfigured) {
@@ -939,6 +987,33 @@ export function App() {
       disposed = true;
     };
   }, [createConversationWithPeer, isAccountConfigured, isLoaded, routeConversationId, routePeerId]);
+
+  // Carry the handle we resolved through onto the contact, so the UI can keep showing
+  // "vitalik.eth" after the /u/ redirect has swapped the URL for the peer ID.
+  useEffect(() => {
+    const linkState = location.state as { ensHandle?: string; ensOwnerAddress?: string | null } | null;
+    const ensHandle = linkState?.ensHandle;
+    if (!routePeerId || !ensHandle || !isLoaded) {
+      return;
+    }
+
+    const marker = `${routePeerId}:${ensHandle}`;
+    if (handlePersistedRef.current === marker) {
+      return;
+    }
+    handlePersistedRef.current = marker;
+
+    const existing = contacts.find((contact) => contact.id === routePeerId);
+    void saveContact(
+      routePeerId,
+      routePeerId,
+      existing?.displayName ?? ensHandle,
+      existing?.avatarUrl,
+      { ensName: ensHandle, ethAddress: linkState?.ensOwnerAddress ?? undefined },
+    ).catch((error) => {
+      console.warn('[skypier:app] failed to persist ENS handle on contact:', error instanceof Error ? error.message : error);
+    });
+  }, [contacts, isLoaded, location.state, routePeerId, saveContact]);
 
   useEffect(() => {
     const nextId = routeConversationId ?? '';
@@ -1072,12 +1147,40 @@ export function App() {
   }, []);
 
   const handleCreateChat = useCallback(async (peerId: string, displayName?: string) => {
-    const normalizedPeerId = extractPeerIdFromChatTarget(peerId)?.trim();
-    if (!normalizedPeerId || !isLikelyPeerId(normalizedPeerId)) {
-      throw new Error('Enter a valid peer ID or Skypier chat link.');
+    const token = extractPeerIdFromChatTarget(peerId)?.trim();
+    let normalizedPeerId = token;
+    let ensName: string | undefined;
+    let ensOwnerAddress: string | undefined;
+
+    // Resolution lives here rather than in the dialogs, so every caller of onCreateChat
+    // gets ENS support and the components stay presentational.
+    if (token && looksLikeEnsHandle(token)) {
+      const lookup = await lookupEnsHandle(token);
+      if (lookup.status !== 'resolved') {
+        throw new Error(describeEnsLookup(lookup));
+      }
+      normalizedPeerId = lookup.peerId;
+      ensName = lookup.name;
+      ensOwnerAddress = lookup.ownerAddress ?? undefined;
     }
 
-    await createConversationWithPeer(normalizedPeerId, displayName);
+    if (!normalizedPeerId || !isLikelyPeerId(normalizedPeerId)) {
+      throw new Error('Enter a peer ID, an ENS name, or a Skypier chat link.');
+    }
+
+    await createConversationWithPeer(normalizedPeerId, displayName?.trim() || ensName);
+
+    if (ensName) {
+      const existing = contactsRef.current.find((contact) => contact.id === normalizedPeerId);
+      await saveContact(
+        normalizedPeerId,
+        normalizedPeerId,
+        displayName?.trim() || existing?.displayName || ensName,
+        existing?.avatarUrl,
+        { ensName, ethAddress: ensOwnerAddress },
+      );
+    }
+
     navigate(`/chats/${encodeURIComponent(normalizedPeerId)}`);
 
     if (liveState.status !== 'running') {
@@ -1107,7 +1210,7 @@ export function App() {
       });
       setDialError(error instanceof Error ? error.message : 'Unable to dial peer right now.');
     }
-  }, [createConversationWithPeer, dialPeerById, liveState.status, navigate, updateConversationConnection]);
+  }, [createConversationWithPeer, dialPeerById, liveState.status, navigate, saveContact, updateConversationConnection]);
 
   const openSelectedContact = useCallback(() => {
     if (!selectedConversationId) {
@@ -1517,6 +1620,49 @@ export function App() {
   }, [audioCall.call]);
 
   const renderContent = () => {
+    // Must precede every other branch: `/u/...` would otherwise fall through to the
+    // "Page not found" alert at the bottom of this function.
+    if (routeHandleToken) {
+      if (handleResolution.status === 'error') {
+        return (
+          <MuiBox sx={{ height: '100%', display: 'grid', placeItems: 'center', px: 3 }}>
+            <MuiBox sx={{ textAlign: 'center', maxWidth: 460 }}>
+              <Alert severity="warning" sx={{ mb: 2 }}>{handleResolution.message}</Alert>
+              <MuiBox sx={{ display: 'flex', justifyContent: 'center', gap: 1.5 }}>
+                {handleResolution.retryable ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      handleResolvingRef.current = null;
+                      setHandleRetryNonce((nonce) => nonce + 1);
+                    }}
+                    style={{ padding: '8px 14px', borderRadius: 8, border: 'none', cursor: 'pointer' }}
+                  >
+                    Try again
+                  </button>
+                ) : null}
+                <button
+                  type="button"
+                  onClick={() => navigate('/chats')}
+                  style={{ padding: '8px 14px', borderRadius: 8, border: 'none', cursor: 'pointer' }}
+                >
+                  Back to chats
+                </button>
+              </MuiBox>
+            </MuiBox>
+          </MuiBox>
+        );
+      }
+
+      return (
+        <MuiBox sx={{ height: '100%', display: 'grid', placeItems: 'center', px: 3 }}>
+          <MuiBox sx={{ textAlign: 'center', maxWidth: 420 }}>
+            <Alert severity="info" sx={{ mb: 2 }}>Looking up {routeHandleToken} on ENS…</Alert>
+          </MuiBox>
+        </MuiBox>
+      );
+    }
+
     if (location.pathname === '/contacts') {
       return (
         <ContactsPage
@@ -1530,6 +1676,17 @@ export function App() {
           onStartGroupChat={async (peerIds, title) => {
             const convId = await createConversationWithPeers(peerIds, { title });
             navigate(`/chats/${convId}`);
+          }}
+          onResolveEnsHandle={async (input) => {
+            const lookup = await lookupEnsHandle(input);
+            if (lookup.status !== 'resolved') {
+              throw new Error(describeEnsLookup(lookup));
+            }
+            return {
+              peerId: lookup.peerId,
+              ensName: lookup.name,
+              ethAddress: lookup.ownerAddress ?? undefined,
+            };
           }}
         />
       );
@@ -1546,6 +1703,8 @@ export function App() {
           preferEnsAvatar={account.preferEnsAvatar}
           resolvedEnsName={resolvedEnsName}
           resolvedEnsAvatar={resolvedEnsAvatar}
+          ensHandle={account.ensHandle}
+          ensHandlePublishedPeerId={account.ensHandlePublishedPeerId}
           linkedWallets={account.linkedEthAddresses} 
           onSaveProfile={async (updates) => {
             await updateAccount(updates);
@@ -1580,6 +1739,15 @@ export function App() {
           dialError={dialError}
           onBiometricUnlockToggle={handleBiometricUnlockToggle}
           enablePushNotifications={enablePushNotifications}
+          localPeerId={liveState.localPeerId ?? localPeerId ?? getCurrentDevice().peerId}
+          resolvedEnsName={resolvedEnsName}
+          onEnsHandlePublished={async (name, publishedPeerId) => {
+            await updateAccount({
+              ensHandle: name,
+              ensHandlePublishedAt: new Date().toISOString(),
+              ensHandlePublishedPeerId: publishedPeerId,
+            });
+          }}
         />
       );
     }
@@ -1790,22 +1958,27 @@ export function App() {
 
       {isOnboardingRoute ? (
         <OnboardingWizard
-          onComplete={(data) => {
-            void (async () => {
-              const { linkedWallet, ...accountData } = data;
-              await updateAccount({
-                ...accountData,
-                deviceCryptoState: generateDeviceCryptoState({
+          onComplete={async (data) => {
+            const { linkedWallet, ...accountData } = data;
+            // Derived once per identity: re-deriving on a retry would mint fresh
+            // prekeys and race the previous write. Keyed on the peer ID so going
+            // back and importing a different key still gets its own state.
+            if (onboardingCryptoStateRef.current?.peerId !== accountData.localPeerId) {
+              onboardingCryptoStateRef.current = {
+                peerId: accountData.localPeerId,
+                state: generateDeviceCryptoState({
                   deviceId: getCurrentDevice().id,
                   peerId: accountData.localPeerId,
                 }),
-              });
-              if (linkedWallet) {
-                await linkEthAddress(linkedWallet);
-              }
-              const returnTo = sanitizeReturnToPath((location.state as { returnTo?: string } | null)?.returnTo);
-              navigate(returnTo, { replace: true });
-            })();
+              };
+            }
+
+            await updateAccount({ ...accountData, deviceCryptoState: onboardingCryptoStateRef.current.state });
+            if (linkedWallet) {
+              await linkEthAddress(linkedWallet);
+            }
+            const returnTo = sanitizeReturnToPath((location.state as { returnTo?: string } | null)?.returnTo);
+            navigate(returnTo, { replace: true });
           }}
         />
       ) : null}

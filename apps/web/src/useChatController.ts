@@ -788,6 +788,15 @@ export function useChatController() {
                 bio: profile.bio ?? entry.bio,
                 ensName: profile.ensName ?? entry.ensName,
                 ethAddress: profile.ethAddress ?? entry.ethAddress,
+                // If the peer's own profile names the same ENS handle we resolved them
+                // through, both sides agree and we can drop the "unconfirmed" label.
+                // This is not cryptographic proof — the peer's profile is self-asserted
+                // too — but it does defeat the naive attack where someone points their
+                // own ENS name at a third party's peer ID, since the real owner of that
+                // peer ID will never echo the attacker's name back.
+                ensNameVerified: entry.ensName && profile.ensName
+                  ? entry.ensName.toLowerCase() === profile.ensName.toLowerCase()
+                  : entry.ensNameVerified,
               }
             : entry,
         )
@@ -808,6 +817,16 @@ export function useChatController() {
 
     if (!changed && existingContact == null) {
       changed = true;
+    }
+
+    // A contact can exist without any conversation carrying the peer (e.g. added by ENS
+    // lookup before the first message), in which case `changed` is still false above and
+    // the freshly-computed verification flag would be dropped.
+    if (!changed && existingContact) {
+      const nextEntry = nextContacts.find((entry) => entry.peerId === profile.peerId);
+      if (nextEntry && nextEntry.ensNameVerified !== existingContact.ensNameVerified) {
+        changed = true;
+      }
     }
 
     if (!changed) {
@@ -1050,6 +1069,9 @@ export function useChatController() {
     profileBio?: string;
     shareEnsDisplayName?: boolean;
     preferEnsAvatar?: boolean;
+    ensHandle?: string;
+    ensHandlePublishedAt?: string;
+    ensHandlePublishedPeerId?: string;
     identityProtobuf?: string;
     localPeerId?: string;
     deviceCryptoState?: PersistedChatState['account']['deviceCryptoState'];
@@ -1067,6 +1089,9 @@ export function useChatController() {
         profileBio: 'profileBio' in updates ? updates.profileBio : snap.account.profileBio,
         shareEnsDisplayName: 'shareEnsDisplayName' in updates ? updates.shareEnsDisplayName : snap.account.shareEnsDisplayName,
         preferEnsAvatar: 'preferEnsAvatar' in updates ? updates.preferEnsAvatar : snap.account.preferEnsAvatar,
+        ensHandle: 'ensHandle' in updates ? updates.ensHandle : snap.account.ensHandle,
+        ensHandlePublishedAt: 'ensHandlePublishedAt' in updates ? updates.ensHandlePublishedAt : snap.account.ensHandlePublishedAt,
+        ensHandlePublishedPeerId: 'ensHandlePublishedPeerId' in updates ? updates.ensHandlePublishedPeerId : snap.account.ensHandlePublishedPeerId,
         identityProtobuf: 'identityProtobuf' in updates ? updates.identityProtobuf : snap.account.identityProtobuf,
         localPeerId: 'localPeerId' in updates ? updates.localPeerId : snap.account.localPeerId,
         deviceCryptoState: 'deviceCryptoState' in updates ? updates.deviceCryptoState : snap.account.deviceCryptoState,
@@ -1632,23 +1657,28 @@ export function useChatController() {
     peerId: string,
     displayName: string,
     avatarUrl?: string,
-    extras?: { bio?: string; ensName?: string; ethAddress?: string },
+    extras?: { bio?: string; ensName?: string; ethAddress?: string; ensNameVerified?: boolean },
   ) => {
     const snap = stateRef.current;
     const existingContact = (snap.contacts || []).find((contact) => contact.id === contactId);
     const existing = (snap.contacts || []).filter(c => c.id !== contactId);
-    
+
+    // Merge rather than replace: callers such as the contacts dialog only know about the
+    // fields they render, while bio/ensName/ethAddress arrive over the profile protocol.
+    // Rebuilding from `extras` alone silently erased them on every manual edit.
     const nextState: PersistedChatState = {
       ...snap,
       contacts: [...existing, {
+        ...existingContact,
         id: contactId,
         peerId,
         displayName,
         isBot: existingContact?.isBot,
-        avatarUrl,
-        bio: extras?.bio,
-        ensName: extras?.ensName,
-        ethAddress: extras?.ethAddress,
+        avatarUrl: avatarUrl ?? existingContact?.avatarUrl,
+        bio: extras?.bio ?? existingContact?.bio,
+        ensName: extras?.ensName ?? existingContact?.ensName,
+        ethAddress: extras?.ethAddress ?? existingContact?.ethAddress,
+        ensNameVerified: extras?.ensNameVerified ?? existingContact?.ensNameVerified,
         addedAt: existingContact?.addedAt ?? new Date().toISOString()
       }]
     };

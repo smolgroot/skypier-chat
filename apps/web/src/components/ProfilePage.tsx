@@ -20,6 +20,10 @@ interface ProfilePageProps {
   preferEnsAvatar?: boolean;
   resolvedEnsName?: string | null;
   resolvedEnsAvatar?: string | null;
+  /** ENS name this account published a peer-ID record on, if any. */
+  ensHandle?: string;
+  /** Peer ID that record actually contains; a mismatch means it needs republishing. */
+  ensHandlePublishedPeerId?: string;
   linkedWallets: { address: string; chainId: number }[];
   onSaveProfile: (updates: {
     displayName: string;
@@ -113,7 +117,7 @@ function getBlockscoutAddressUrl(chainId: number, address: string): string {
   return `${host}/address/${address}`;
 }
 
-export function ProfilePage({ peerId, displayName, avatarUrl, bio, shareEnsDisplayName = false, preferEnsAvatar = false, resolvedEnsName, resolvedEnsAvatar, linkedWallets, onSaveProfile }: ProfilePageProps) {
+export function ProfilePage({ peerId, displayName, avatarUrl, bio, shareEnsDisplayName = false, preferEnsAvatar = false, resolvedEnsName, resolvedEnsAvatar, ensHandle, ensHandlePublishedPeerId, linkedWallets, onSaveProfile }: ProfilePageProps) {
   const [shareSuccess, setShareSuccess] = useState<string | undefined>();
   const [shareError, setShareError] = useState<string | undefined>();
   const [shareBusy, setShareBusy] = useState(false);
@@ -134,7 +138,17 @@ export function ProfilePage({ peerId, displayName, avatarUrl, bio, shareEnsDispl
     setActiveTab(newValue);
   };
   const appUrl = 'https://skypier.chat';
-  const profileLink = useMemo(() => `${appUrl}/chats/${encodeURIComponent(peerId)}`, [appUrl, peerId]);
+  // `/u/` is the canonical user link and accepts both forms. The ENS variant is less than
+  // half the length, which measurably loosens the QR code.
+  const profileLink = useMemo(
+    () => (ensHandle?.trim()
+      ? `${appUrl}/u/${ensHandle.trim()}`
+      : `${appUrl}/u/${encodeURIComponent(peerId)}`),
+    [appUrl, ensHandle, peerId],
+  );
+  const ensHandleIsStale = Boolean(
+    ensHandle && ensHandlePublishedPeerId && ensHandlePublishedPeerId !== peerId,
+  );
   const effectiveAvatarUrl = preferEnsAvatar && resolvedEnsAvatar ? resolvedEnsAvatar : avatarUrl;
 
   const inviteText = useMemo(() => (
@@ -319,6 +333,16 @@ export function ProfilePage({ peerId, displayName, avatarUrl, bio, shareEnsDispl
             <Stack direction="row" spacing={1} sx={{ mt: 2, flexWrap: 'wrap', gap: 1 }}>
               {shareEnsDisplayName && resolvedEnsName ? <Chip size="small" label="ENS Linked" variant="outlined" /> : null}
               {preferEnsAvatar && resolvedEnsAvatar ? <Chip size="small" label="ENS Avatar" variant="outlined" /> : null}
+              {ensHandle ? (
+                <Chip
+                  size="small"
+                  color={ensHandleIsStale ? 'warning' : 'default'}
+                  variant="outlined"
+                  label={ensHandleIsStale
+                    ? `${ensHandle} · record is stale`
+                    : `Published to ENS · ${ensHandle}`}
+                />
+              ) : null}
             </Stack>
           </Box>
 
@@ -401,6 +425,13 @@ export function ProfilePage({ peerId, displayName, avatarUrl, bio, shareEnsDispl
               </Box>
               <Typography variant="body1" color="text.secondary" fontWeight={500}>
                 Scan to connect with me
+              </Typography>
+              <Typography
+                variant="body2"
+                color="text.secondary"
+                sx={{ mt: 1, wordBreak: 'break-all', fontFamily: ensHandle ? undefined : 'monospace' }}
+              >
+                {profileLink}
               </Typography>
             </Box>
           )}

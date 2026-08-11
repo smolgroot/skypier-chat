@@ -325,6 +325,15 @@ export interface AccountProfile {
   profileBio?: string;
   shareEnsDisplayName?: boolean;
   preferEnsAvatar?: boolean;
+  /** ENS name whose `xyz.skypier.peerid` text record this account published. */
+  ensHandle?: string;
+  /** ISO timestamp of the last confirmed `setText`. */
+  ensHandlePublishedAt?: string;
+  /**
+   * Peer ID actually written into the record. When this drifts from `localPeerId` — e.g.
+   * after an identity reset — the published record is stale and needs republishing.
+   */
+  ensHandlePublishedPeerId?: string;
   localPeerId?: string;
   identityProtobuf?: string; // Base64 encoded PeerID protobuf (includes private key)
   deviceCryptoState?: LocalDeviceCryptoState;

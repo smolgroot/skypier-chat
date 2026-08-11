@@ -1,13 +1,8 @@
 import { useState, useEffect } from 'react';
-import { createPublicClient, http } from 'viem';
-import { mainnet } from 'viem/chains';
+import { getEnsPublicClient } from '../ens/ensClient';
+import { resolveEnsPrimaryName } from '../ens/ensHandles';
 
-const ENS_RPC_URL = import.meta.env.VITE_ENS_RPC_URL ?? 'https://ethereum.publicnode.com';
-
-const publicClient = createPublicClient({
-  chain: mainnet,
-  transport: http(ENS_RPC_URL),
-});
+const publicClient = getEnsPublicClient();
 
 export interface ENSData {
   name: string | null;
@@ -99,7 +94,7 @@ export function useENS(address?: string, options?: UseENSOptions): ENSData {
     const fetchENS = async () => {
       setData(prev => ({ ...prev, loading: true }));
       try {
-        const name = await publicClient.getEnsName({ address: address as `0x${string}` });
+        const name = await resolveEnsPrimaryName(address);
         let avatar: string | null = null;
         
         if (name && isMounted) {

@@ -143,7 +143,7 @@ export function MainLayout(props: MainLayoutProps) {
   const handleCreateChat = async () => {
     try {
       if (!newChatPeerId.trim()) {
-        setNewChatError('Peer ID is required.');
+        setNewChatError('Enter a peer ID or ENS name.');
         return;
       }
 
@@ -363,8 +363,9 @@ export function MainLayout(props: MainLayoutProps) {
         <DialogTitle sx={{ fontWeight: 'bold' }}>Start New Chat</DialogTitle>
         <DialogContent sx={{ pt: '8px !important', display: 'grid', gap: 2 }}>
           <TextField
-            label="Peer ID"
-            placeholder="12D3KooW..."
+            label="Peer ID or ENS name"
+            placeholder="vitalik.eth or 12D3KooW..."
+            helperText="ENS names are looked up on-chain and may take a moment."
             value={newChatPeerId}
             onChange={(event) => setNewChatPeerId(event.target.value)}
             fullWidth

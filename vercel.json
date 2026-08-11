@@ -6,6 +6,10 @@
   "framework": null,
   "rewrites": [
     {
+      "source": "/u/(.*)",
+      "destination": "/index.html"
+    },
+    {
       "source": "/((?!.*\\..*).*)",
       "destination": "/index.html"
     }

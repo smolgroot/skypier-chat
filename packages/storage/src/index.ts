@@ -190,6 +190,12 @@ export interface Contact {
   bio?: string;
   ensName?: string;
   ethAddress?: string;
+  /**
+   * True once the peer's own shared profile echoed back the same `ensName` we resolved
+   * them through. ENS alone only proves the name's owner *claims* this peer ID — anyone
+   * can point their own name at someone else's. This flag records that both sides agree.
+   */
+  ensNameVerified?: boolean;
   addedAt: string;
 }
 
@@ -489,6 +495,9 @@ function normalizePersistedState(raw: PersistedChatState): PersistedChatState {
       profileBio: account.profileBio,
       shareEnsDisplayName: account.shareEnsDisplayName ?? Boolean(legacyAccount.profileEnsName),
       preferEnsAvatar: account.preferEnsAvatar ?? false,
+      ensHandle: account.ensHandle,
+      ensHandlePublishedAt: account.ensHandlePublishedAt,
+      ensHandlePublishedPeerId: account.ensHandlePublishedPeerId,
       linkedEthAddresses: account.linkedEthAddresses ?? [],
       themePreference: account.themePreference ?? 'light',
       biometricUnlockEnabled: account.biometricUnlockEnabled ?? false,

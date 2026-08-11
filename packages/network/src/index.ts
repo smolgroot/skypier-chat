@@ -18,7 +18,13 @@ export {
   serializeE2EEWirePayload,
   serializeTextWirePayload,
 } from './session';
-export { generateNewIdentity, getPeerIdFromProtobuf } from './identity';
+export {
+  InvalidIdentityError,
+  generateNewIdentity,
+  getPeerIdFromProtobuf,
+  resolveIdentityFromProtobuf,
+} from './identity';
+export type { InvalidIdentityReason } from './identity';
 export type { BrowserLiveSession, BrowserLiveSessionEventMap, BrowserLiveSessionState, SessionStatus, PeerReachabilityEvent, DeliveryStatusEvent, DialLogEntry, ConnectionDebugInfo, NetworkDebugSnapshot, SyncMessageEntry } from './session';
 
 export type RuntimeKind = 'browser-pwa' | 'native-node';

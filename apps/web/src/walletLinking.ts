@@ -1,7 +1,7 @@
 import { recoverMessageAddress, stringToHex } from 'viem';
 import type { LinkedEthAddress } from '@skypier/protocol';
 
-interface Eip1193Provider {
+export interface Eip1193Provider {
   request(args: { method: string; params?: unknown[] | Record<string, unknown> }): Promise<unknown>;
 }
 
@@ -65,7 +65,7 @@ export async function connectAndLinkEthWallet(localPeerId: string): Promise<Wall
   };
 }
 
-function getEthereumProvider(): Eip1193Provider {
+export function getEthereumProvider(): Eip1193Provider {
   const scopedWindow = window as BrowserWindowWithEthereum;
   if (!scopedWindow.ethereum) {
     throw new Error('No injected EVM wallet found. Install MetaMask, Rabby, or another EIP-1193 wallet.');

@@ -149,6 +149,8 @@ change to `packages/protocol` surfaces type errors in every consumer.
 - [docs/networking.md](docs/networking.md): libp2p configuration and the
   Go-to-TypeScript mapping
 - [docs/relay-setup.md](docs/relay-setup.md): deploying the relay to a VPS
+- [docs/ens-handles.md](docs/ens-handles.md): finding and DMing people by ENS
+  name, publishing your peer ID, and the trust model
 - [docs/web-push-notifications.md](docs/web-push-notifications.md): VAPID
   setup for background notifications
 - [docs/E2EE-User-Stories.md](docs/E2EE-User-Stories.md): what's done and

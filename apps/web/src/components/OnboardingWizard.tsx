@@ -1,14 +1,17 @@
-import { useEffect, useState } from 'react';
-import { 
-  Box, 
-  Typography, 
-  TextField, 
-  Button, 
-  Paper, 
-  Stepper, 
-  Step, 
+import { useEffect, useMemo, useRef, useState } from 'react';
+import {
+  Alert,
+  Box,
+  Typography,
+  TextField,
+  Button,
+  Paper,
+  Stepper,
+  Step,
   StepLabel,
+  Checkbox,
   CircularProgress,
+  FormControlLabel,
   Stack,
   IconButton,
   Tooltip,
@@ -16,13 +19,16 @@ import {
   type StepIconProps,
 } from '@mui/material';
 import ContentCopyIcon from '@mui/icons-material/ContentCopy';
+import CheckIcon from '@mui/icons-material/Check';
+import DownloadIcon from '@mui/icons-material/Download';
 import RefreshIcon from '@mui/icons-material/Refresh';
 import AccountCircleOutlinedIcon from '@mui/icons-material/AccountCircleOutlined';
 import BadgeOutlinedIcon from '@mui/icons-material/BadgeOutlined';
 import InstallMobileOutlinedIcon from '@mui/icons-material/InstallMobileOutlined';
-import { generateNewIdentity, getPeerIdFromProtobuf } from '@skypier/network';
+import { InvalidIdentityError, generateNewIdentity, resolveIdentityFromProtobuf } from '@skypier/network';
 import type { LinkedEthAddress } from '@skypier/protocol';
 import { connectAndLinkEthWallet } from '../walletLinking';
+import { patternBackgroundSx } from '../backgrounds';
 
 interface BeforeInstallPromptEvent extends Event {
   prompt: () => Promise<void>;
@@ -36,6 +42,8 @@ type BrowserProfile = {
   isSafari: boolean;
   isFirefox: boolean;
 };
+
+type ResolvedIdentity = { peerId: string; protobuf: string };
 
 function detectBrowserProfile(): BrowserProfile {
   if (typeof navigator === 'undefined') {
@@ -114,6 +122,14 @@ const ONBOARDING_STEPS = [
   { label: 'PWA install', Icon: InstallMobileOutlinedIcon },
 ] as const;
 
+const insetPanelSx = {
+  p: 2,
+  borderRadius: 2,
+  bgcolor: 'action.hover',
+  border: '1px solid',
+  borderColor: 'divider',
+} as const;
+
 function WizardStepIcon(props: StepIconProps) {
   const { active, completed, icon } = props;
   const index = Number(icon) - 1;
@@ -127,7 +143,7 @@ function WizardStepIcon(props: StepIconProps) {
         borderRadius: '50%',
         display: 'grid',
         placeItems: 'center',
-        color: 'text.secondary',
+        color: active || completed ? 'primary.main' : 'text.secondary',
         border: '1px solid',
         borderColor: active || completed ? 'primary.main' : 'divider',
         bgcolor: active ? 'action.selected' : 'transparent',
@@ -144,27 +160,35 @@ interface OnboardingWizardProps {
     identityProtobuf: string;
     localPeerId: string;
     linkedWallet?: LinkedEthAddress;
-  }) => void;
+  }) => void | Promise<void>;
 }
 
 export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
   const [activeStep, setActiveStep] = useState(0);
   const [displayName, setDisplayName] = useState('');
-  const [identity, setIdentity] = useState<{ peerId: string; protobuf: string } | null>(null);
+  const [identity, setIdentity] = useState<ResolvedIdentity | null>(null);
   const [loading, setLoading] = useState(false);
   const [importMode, setImportMode] = useState(false);
   const [importedProtobuf, setImportedProtobuf] = useState('');
-  const [resolvedIdentity, setResolvedIdentity] = useState<{ peerId: string; protobuf: string } | null>(null);
+  const [identityError, setIdentityError] = useState<string | null>(null);
+  const [savedKeyAcknowledged, setSavedKeyAcknowledged] = useState(false);
+  const [copiedField, setCopiedField] = useState<'peerId' | 'secret' | null>(null);
+  const [resolvedIdentity, setResolvedIdentity] = useState<ResolvedIdentity | null>(null);
   const [walletBusy, setWalletBusy] = useState(false);
   const [walletError, setWalletError] = useState<string | null>(null);
   const [linkedWalletAddress, setLinkedWalletAddress] = useState<string | null>(null);
   const [linkedWallet, setLinkedWallet] = useState<LinkedEthAddress | undefined>();
   const [deferredInstallPrompt, setDeferredInstallPrompt] = useState<BeforeInstallPromptEvent | null>(null);
   const [installBusy, setInstallBusy] = useState(false);
+  const [installError, setInstallError] = useState<string | null>(null);
   const [installStatus, setInstallStatus] = useState<'idle' | 'installed' | 'dismissed'>(
-    isInstalledAsStandalone() ? 'installed' : 'idle',
+    () => (isInstalledAsStandalone() ? 'installed' : 'idle'),
   );
-  const browserProfile = detectBrowserProfile();
+  const [submitting, setSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
+
+  const copyResetRef = useRef<number | undefined>(undefined);
+  const browserProfile = useMemo(() => detectBrowserProfile(), []);
 
   const steps = ONBOARDING_STEPS.map((step) => step.label);
 
@@ -172,33 +196,80 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
 
   const CurrentStepIcon = ONBOARDING_STEPS[activeStep]?.Icon;
 
+  // The wallet proof is signed over the peer ID, so a different identity
+  // invalidates any link made earlier in the wizard.
+  const applyResolvedIdentity = (next: ResolvedIdentity) => {
+    if (resolvedIdentity && resolvedIdentity.peerId !== next.peerId) {
+      setLinkedWallet(undefined);
+      setLinkedWalletAddress(null);
+    }
+
+    setResolvedIdentity(next);
+    setWalletError(null);
+    setActiveStep(2);
+  };
+
   const handleNext = async () => {
-    if (activeStep === 0 && displayName.trim()) {
-      setActiveStep(1);
-    } else if (activeStep === 1) {
-      if (importMode && importedProtobuf.trim()) {
-        try {
-          const peerId = await getPeerIdFromProtobuf(importedProtobuf.trim());
-          setResolvedIdentity({ peerId: peerId.toString(), protobuf: importedProtobuf.trim() });
-          setWalletError(null);
-          setActiveStep(2);
-        } catch (e) {
-          alert('Invalid identity secret. Please check your backup.');
-        }
-      } else if (identity) {
-        setResolvedIdentity(identity);
-        setWalletError(null);
-        setActiveStep(2);
+    if (activeStep === 0) {
+      if (displayName.trim()) {
+        setActiveStep(1);
       }
-    } else if (activeStep === 2 && resolvedIdentity) {
+      return;
+    }
+
+    if (activeStep === 1) {
+      setIdentityError(null);
+
+      // Import mode is authoritative: never silently fall back to a previously
+      // generated identity just because the paste box is empty.
+      if (importMode) {
+        if (!importedProtobuf.trim()) {
+          setIdentityError('Paste your identity secret, or go back to generation.');
+          return;
+        }
+
+        try {
+          applyResolvedIdentity(await resolveIdentityFromProtobuf(importedProtobuf));
+        } catch (error) {
+          setIdentityError(
+            error instanceof InvalidIdentityError
+              ? error.message
+              : 'Could not read that identity secret. Please check your backup.',
+          );
+        }
+        return;
+      }
+
+      if (identity && savedKeyAcknowledged) {
+        applyResolvedIdentity(identity);
+      }
+      return;
+    }
+
+    if (activeStep === 2 && resolvedIdentity) {
       setActiveStep(3);
-    } else if (activeStep === 3 && resolvedIdentity) {
-      onComplete({
-        displayName,
-        identityProtobuf: resolvedIdentity.protobuf,
-        localPeerId: resolvedIdentity.peerId,
-        linkedWallet,
-      });
+      return;
+    }
+
+    if (activeStep === 3 && resolvedIdentity) {
+      setSubmitting(true);
+      setSubmitError(null);
+      try {
+        await onComplete({
+          displayName: displayName.trim(),
+          identityProtobuf: resolvedIdentity.protobuf,
+          localPeerId: resolvedIdentity.peerId,
+          linkedWallet,
+        });
+      } catch (error) {
+        setSubmitError(
+          error instanceof Error
+            ? `Could not save your profile: ${error.message}`
+            : 'Could not save your profile. Please try again.',
+        );
+      } finally {
+        setSubmitting(false);
+      }
     }
   };
 
@@ -222,16 +293,49 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
 
   const handleGenerate = async () => {
     setLoading(true);
+    setIdentityError(null);
     try {
       const newIdentity = await generateNewIdentity();
       setIdentity(newIdentity);
+      setSavedKeyAcknowledged(false);
+    } catch (error) {
+      setIdentityError(
+        error instanceof Error
+          ? `Could not generate an identity: ${error.message}`
+          : 'Could not generate an identity in this browser.',
+      );
     } finally {
       setLoading(false);
     }
   };
 
-  const copyToClipboard = (text: string) => {
-    navigator.clipboard.writeText(text);
+  const copyToClipboard = async (text: string, field: 'peerId' | 'secret') => {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopiedField(field);
+      window.clearTimeout(copyResetRef.current);
+      copyResetRef.current = window.setTimeout(() => setCopiedField(null), 2000);
+    } catch {
+      setIdentityError('Could not copy to the clipboard. Select the value and copy it manually.');
+    }
+  };
+
+  const handleDownloadKey = () => {
+    if (!identity) {
+      return;
+    }
+
+    // Plain text, secret only, so the file can be pasted straight back into the
+    // import box on a future device.
+    const blob = new Blob([identity.protobuf], { type: 'text/plain' });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = `skypier-identity-${identity.peerId.slice(-8)}.txt`;
+    anchor.click();
+    // Revoking synchronously can cancel the download in some browsers, and
+    // losing this file means losing the account.
+    window.setTimeout(() => URL.revokeObjectURL(url), 10_000);
   };
 
   const handleInstall = async () => {
@@ -241,12 +345,20 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
 
     try {
       setInstallBusy(true);
+      setInstallError(null);
       await deferredInstallPrompt.prompt();
       const choice = await deferredInstallPrompt.userChoice;
       setInstallStatus(choice.outcome === 'accepted' ? 'installed' : 'dismissed');
+      // The event is single-use once it has actually been shown.
+      setDeferredInstallPrompt(null);
+    } catch (error) {
+      // Deliberately keep the deferred prompt so a failed attempt does not
+      // disable the button for the rest of the session.
+      setInstallError(
+        error instanceof Error ? error.message : 'The browser could not show the install prompt.',
+      );
     } finally {
       setInstallBusy(false);
-      setDeferredInstallPrompt(null);
     }
   };
 
@@ -274,48 +386,39 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
     };
   }, []);
 
+  useEffect(() => () => window.clearTimeout(copyResetRef.current), []);
+
+  const nextDisabled = submitting
+    || (activeStep === 0 && !displayName.trim())
+    || (activeStep === 1 && (importMode ? !importedProtobuf.trim() : !identity || !savedKeyAcknowledged))
+    || ((activeStep === 2 || activeStep === 3) && !resolvedIdentity);
+
   return (
     <Box
       sx={{
-        height: '100vh',
-        width: '100vw',
+        minHeight: '100dvh',
+        width: '100%',
         display: 'flex',
-        alignItems: 'center',
         justifyContent: 'center',
-        bgcolor: '#f8f5ff',
-        backgroundImage:
-          'url("data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' viewBox=\'0 0 28 28\' width=\'28\' height=\'28\'%3E%3Ccircle cx=\'2\' cy=\'2\' r=\'1\' fill=\'%23ffffff\' fill-opacity=\'0.42\'/%3E%3Ccircle cx=\'14\' cy=\'14\' r=\'1\' fill=\'%23ffffff\' fill-opacity=\'0.28\'/%3E%3Ccircle cx=\'26\' cy=\'26\' r=\'1\' fill=\'%23ffffff\' fill-opacity=\'0.36\'/%3E%3C/svg%3E"), radial-gradient(circle at 15% 20%, rgba(255, 182, 193, 0.38), transparent 38%), radial-gradient(circle at 85% 18%, rgba(255, 223, 128, 0.35), transparent 36%), radial-gradient(circle at 72% 78%, rgba(173, 216, 230, 0.34), transparent 34%), linear-gradient(135deg, #fff8f2 0%, #f8f5ff 52%, #f2fbff 100%)',
-        backgroundRepeat: 'repeat, no-repeat, no-repeat, no-repeat, no-repeat',
-        backgroundSize: '28px 28px, auto, auto, auto, auto',
-        p: 2
+        overflowY: 'auto',
+        py: 4,
+        px: 2,
+        ...patternBackgroundSx,
       }}
     >
       <Paper
-        elevation={0}
+        variant="outlined"
         sx={{
           width: '100%',
           maxWidth: 500,
-          p: 4,
-          borderRadius: 4,
-          bgcolor: (theme) => 
-            theme.palette.mode === 'dark' 
-              ? 'rgba(14, 8, 28, 0.5)' 
-              : 'rgba(255, 255, 255, 0.25)',
-          backdropFilter: (theme) => `blur(15px) saturate(190%)`,
-          WebkitBackdropFilter: (theme) => `blur(15px) saturate(190%) url(#liquid-glass-refraction-${theme.palette.mode})`,
-          filter: (theme) => `url(#liquid-glass-gloss-${theme.palette.mode})`,
-          border: (theme) => 
-            theme.palette.mode === 'dark' 
-              ? '1px solid rgba(171, 110, 255, 0.25)' 
-              : '1px solid rgba(0, 0, 0, 0.08)',
+          // Centres the card when there is room, without clipping it when there isn't.
+          my: 'auto',
+          p: { xs: 3, sm: 4 },
+          borderRadius: 3,
+          bgcolor: 'background.paper',
           display: 'flex',
           flexDirection: 'column',
           gap: 3,
-          backgroundImage: 'none',
-          boxShadow: (theme) => 
-            theme.palette.mode === 'dark'
-              ? '0 8px 32px 0 rgba(0, 0, 0, 0.4)'
-              : '0 8px 32px 0 rgba(31, 38, 135, 0.07)'
         }}
       >
         <Box sx={{ textAlign: 'center' }}>
@@ -344,20 +447,28 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
           </Stack>
 
           {activeStep === 0 && (
-            <Stack gap={3}>
-              <Typography variant="body2" sx={{ opacity: 0.8 }}>
-                Choose a display name. This will be visible to your peers.
-              </Typography>
-              <TextField
-                autoFocus
-                fullWidth
-                label="Display Name"
-                placeholder="e.g. Alice"
-                value={displayName}
-                onChange={(e) => setDisplayName(e.target.value)}
-                variant="outlined"
-              />
-            </Stack>
+            <form
+              onSubmit={(event) => {
+                event.preventDefault();
+                void handleNext();
+              }}
+            >
+              <Stack gap={3}>
+                <Typography variant="body2" sx={{ opacity: 0.8 }}>
+                  Choose a display name. This will be visible to your peers.
+                </Typography>
+                <TextField
+                  autoFocus
+                  fullWidth
+                  label="Display Name"
+                  placeholder="e.g. Alice"
+                  value={displayName}
+                  onChange={(e) => setDisplayName(e.target.value)}
+                  variant="outlined"
+                />
+                <button type="submit" hidden aria-hidden />
+              </Stack>
+            </form>
           )}
 
           {activeStep === 1 && (
@@ -367,49 +478,92 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
                   <Typography variant="body2" sx={{ opacity: 0.8 }}>
                     Generate a new secure identity. Your Peer ID is derived from this unique key.
                   </Typography>
-                  
+
+                  {identityError ? <Alert severity="error">{identityError}</Alert> : null}
+
                   {identity ? (
-                    <Box sx={{ p: 2, bgcolor: 'rgba(255,255,255,0.05)', borderRadius: 2, border: '1px solid rgba(255,255,255,0.1)' }}>
-                      <Typography variant="caption" display="block" sx={{ mb: 1, opacity: 0.5 }}>
-                        Your Peer ID:
-                      </Typography>
-                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                        <Typography variant="body2" sx={{ fontFamily: 'monospace', wordBreak: 'break-all', fontWeight: 'bold', color: 'primary.main' }}>
-                          {identity.peerId}
+                    <>
+                      <Box sx={insetPanelSx}>
+                        <Typography variant="caption" display="block" sx={{ mb: 1, opacity: 0.65 }}>
+                          Your Peer ID:
                         </Typography>
-                        <Tooltip title="Copy Peer ID">
-                          <IconButton size="small" onClick={() => copyToClipboard(identity.peerId)}>
-                            <ContentCopyIcon fontSize="small" />
-                          </IconButton>
-                        </Tooltip>
-                      </Box>
-                      
-                      <Typography variant="caption" display="block" sx={{ mt: 2, mb: 1, opacity: 0.5 }}>
-                        Identity Backup (Keep this secure!):
-                      </Typography>
-                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                        <Typography variant="caption" noWrap sx={{ fontFamily: 'monospace', maxWidth: 200, opacity: 0.8 }}>
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                          <Typography variant="body2" sx={{ fontFamily: 'monospace', wordBreak: 'break-all', fontWeight: 'bold', color: 'primary.main' }}>
+                            {identity.peerId}
+                          </Typography>
+                          <Tooltip title={copiedField === 'peerId' ? 'Copied' : 'Copy Peer ID'}>
+                            <IconButton size="small" onClick={() => { void copyToClipboard(identity.peerId, 'peerId'); }}>
+                              {copiedField === 'peerId'
+                                ? <CheckIcon fontSize="small" color="success" />
+                                : <ContentCopyIcon fontSize="small" />}
+                            </IconButton>
+                          </Tooltip>
+                        </Box>
+
+                        <Typography variant="caption" display="block" sx={{ mt: 2, mb: 1, opacity: 0.65 }}>
+                          Identity Backup (Keep this secure!):
+                        </Typography>
+                        <Typography
+                          variant="caption"
+                          component="p"
+                          sx={{ fontFamily: 'monospace', wordBreak: 'break-all', opacity: 0.8 }}
+                        >
                           {identity.protobuf}
                         </Typography>
-                        <Tooltip title="Copy Identity Secret">
-                          <IconButton size="small" onClick={() => copyToClipboard(identity.protobuf)}>
-                            <ContentCopyIcon fontSize="small" />
-                          </IconButton>
-                        </Tooltip>
+                        <Stack direction="row" spacing={1} sx={{ mt: 1.5 }}>
+                          <Button
+                            size="small"
+                            variant="outlined"
+                            startIcon={copiedField === 'secret' ? <CheckIcon /> : <ContentCopyIcon />}
+                            onClick={() => { void copyToClipboard(identity.protobuf, 'secret'); }}
+                          >
+                            {copiedField === 'secret' ? 'Copied' : 'Copy'}
+                          </Button>
+                          <Button
+                            size="small"
+                            variant="outlined"
+                            startIcon={<DownloadIcon />}
+                            onClick={handleDownloadKey}
+                          >
+                            Download key file
+                          </Button>
+                        </Stack>
                       </Box>
-                    </Box>
+
+                      <Alert severity="warning" sx={{ py: 0.5 }}>
+                        This key is shown once and cannot be recovered. Without it you lose access to
+                        this account.
+                      </Alert>
+
+                      <FormControlLabel
+                        control={(
+                          <Checkbox
+                            checked={savedKeyAcknowledged}
+                            onChange={(event) => setSavedKeyAcknowledged(event.target.checked)}
+                          />
+                        )}
+                        label={<Typography variant="body2">I have saved my recovery key</Typography>}
+                      />
+                    </>
                   ) : (
-                    <Button 
-                      variant="contained" 
-                      onClick={handleGenerate} 
+                    <Button
+                      variant="contained"
+                      onClick={() => { void handleGenerate(); }}
                       disabled={loading}
                       startIcon={loading ? <CircularProgress size={20} /> : <RefreshIcon />}
                     >
                       Generate New Identity
                     </Button>
                   )}
-                  
-                  <Button variant="text" size="small" onClick={() => setImportMode(true)}>
+
+                  <Button
+                    variant="text"
+                    size="small"
+                    onClick={() => {
+                      setImportMode(true);
+                      setIdentityError(null);
+                    }}
+                  >
                     Already have an identity secret?
                   </Button>
                 </>
@@ -424,9 +578,21 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
                     rows={4}
                     label="Identity Secret"
                     value={importedProtobuf}
-                    onChange={(e) => setImportedProtobuf(e.target.value)}
+                    error={Boolean(identityError)}
+                    helperText={identityError ?? ' '}
+                    onChange={(e) => {
+                      setImportedProtobuf(e.target.value);
+                      setIdentityError(null);
+                    }}
                   />
-                  <Button variant="text" size="small" onClick={() => setImportMode(false)}>
+                  <Button
+                    variant="text"
+                    size="small"
+                    onClick={() => {
+                      setImportMode(false);
+                      setIdentityError(null);
+                    }}
+                  >
                     Go back to Generation
                   </Button>
                 </>
@@ -440,7 +606,7 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
                 Optionally link an EVM wallet to resolve ENS names in chats and profile surfaces.
               </Typography>
 
-              <Box sx={{ p: 2, bgcolor: 'rgba(255,255,255,0.05)', borderRadius: 2, border: '1px solid rgba(255,255,255,0.1)' }}>
+              <Box sx={insetPanelSx}>
                 <Typography variant="caption" display="block" sx={{ mb: 1, opacity: 0.65 }}>
                   This step is optional and can be done later from your profile page.
                 </Typography>
@@ -456,32 +622,30 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
                 )}
               </Box>
 
-              {walletError ? (
-                <Typography variant="caption" color="error.main">
-                  {walletError}
-                </Typography>
-              ) : null}
+              {walletError ? <Alert severity="error">{walletError}</Alert> : null}
 
               <Stack direction="row" spacing={1.5}>
                 <Button
                   variant="outlined"
-                  onClick={handleLinkWallet}
+                  onClick={() => { void handleLinkWallet(); }}
                   disabled={walletBusy || !resolvedIdentity}
                   startIcon={walletBusy ? <CircularProgress size={16} /> : undefined}
                 >
                   {linkedWalletAddress ? 'Re-link Wallet' : 'Link EVM Wallet'}
                 </Button>
-                <Button
-                  variant="text"
-                  onClick={() => {
-                    setLinkedWallet(undefined);
-                    setLinkedWalletAddress(null);
-                    setWalletError(null);
-                  }}
-                  disabled={walletBusy || (!linkedWalletAddress && !walletError)}
-                >
-                  Skip for now
-                </Button>
+                {linkedWalletAddress || walletError ? (
+                  <Button
+                    variant="text"
+                    onClick={() => {
+                      setLinkedWallet(undefined);
+                      setLinkedWalletAddress(null);
+                      setWalletError(null);
+                    }}
+                    disabled={walletBusy}
+                  >
+                    Clear link
+                  </Button>
+                ) : null}
               </Stack>
             </Stack>
           )}
@@ -496,10 +660,14 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
                 Browser detected: {browserProfile.label}
               </Typography>
 
-              <Box sx={{ p: 2, bgcolor: 'rgba(255,255,255,0.05)', borderRadius: 2, border: '1px solid rgba(255,255,255,0.1)' }}>
+              <Box sx={insetPanelSx}>
                 {installStatus === 'installed' ? (
                   <Typography variant="body2" color="success.main">
                     Skypier is already installed on this device.
+                  </Typography>
+                ) : installStatus === 'dismissed' ? (
+                  <Typography variant="body2" color="text.secondary">
+                    Skipped. You can install Skypier later from your browser menu.
                   </Typography>
                 ) : canPromptInstall ? (
                   <Typography variant="body2" color="text.secondary">
@@ -524,10 +692,12 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
                 )}
               </Box>
 
+              {installError ? <Alert severity="error">{installError}</Alert> : null}
+
               <Stack direction="row" spacing={1.5}>
                 <Button
                   variant="outlined"
-                  onClick={handleInstall}
+                  onClick={() => { void handleInstall(); }}
                   disabled={!canPromptInstall || installBusy}
                   startIcon={installBusy ? <CircularProgress size={16} /> : undefined}
                 >
@@ -536,7 +706,7 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
                 <Button
                   variant="text"
                   onClick={() => setInstallStatus('dismissed')}
-                  disabled={installBusy || installStatus === 'installed'}
+                  disabled={installBusy || installStatus !== 'idle'}
                 >
                   Skip for now
                 </Button>
@@ -545,21 +715,20 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
           )}
         </Box>
 
+        {submitError ? <Alert severity="error">{submitError}</Alert> : null}
+
         <Box sx={{ display: 'flex', justifyContent: 'space-between', mt: 2 }}>
-          <Button 
-            disabled={activeStep === 0} 
+          <Button
+            disabled={activeStep === 0 || submitting}
             onClick={() => setActiveStep((prev) => prev - 1)}
           >
             Back
           </Button>
           <Button
             variant="contained"
-            disabled={
-              (activeStep === 0 && !displayName.trim())
-              || (activeStep === 1 && !identity && !importedProtobuf)
-              || ((activeStep === 2 || activeStep === 3) && !resolvedIdentity)
-            }
-            onClick={handleNext}
+            disabled={nextDisabled}
+            onClick={() => { void handleNext(); }}
+            startIcon={submitting ? <CircularProgress size={16} color="inherit" /> : undefined}
           >
             {activeStep === steps.length - 1 ? 'Finish' : 'Next'}
           </Button>

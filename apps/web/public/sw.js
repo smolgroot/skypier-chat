@@ -1,4 +1,4 @@
-const SKYPIER_CACHE = 'skypier-app-v1';
+const SKYPIER_CACHE = 'skypier-app-v2';
 const SKYPIER_CONFIG_CACHE = 'skypier-sw-config-v1';
 const SKYPIER_CONFIG_URL = '/__skypier_sw_config__';
 const SKYPIER_UNREAD_NOTIFICATION_TAG = 'skypier-unread-check';
@@ -281,6 +281,16 @@ self.addEventListener('fetch', (event) => {
         const networkResponse = await fetch(request);
         if (networkResponse && networkResponse.ok) {
           await cache.put('/index.html', networkResponse.clone());
+          return networkResponse;
+        }
+        // A 404 on a navigation means the host has no rewrite for this client-side route.
+        // Serve the cached shell so the SPA router can handle it. Deliberately scoped to
+        // 404 so genuine 5xx/maintenance responses still reach the user.
+        if (networkResponse && networkResponse.status === 404) {
+          const cachedShell = await cache.match('/index.html');
+          if (cachedShell) {
+            return cachedShell;
+          }
         }
         return networkResponse;
       } catch {
