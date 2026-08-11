@@ -4,15 +4,17 @@
   "private": true,
   "packageManager": "pnpm@10.6.1",
   "engines": {
-    "node": "20.x"
+    "node": "24.x"
   },
   "scripts": {
     "dev": "pnpm --filter @skypier/web dev",
+    "bot:random-wiki": "pnpm --filter @skypier/bot-example dev",
+    "bot:random-wiki:smoke": "pnpm --filter @skypier/bot-example smoke",
     "build": "pnpm -r build",
     "typecheck": "pnpm -r typecheck"
   },
   "dependencies": {
-    "@react-spring/web": "^10.0.3",
+    "@react-spring/web": "^10.1.2",
     "@use-gesture/react": "^10.3.1"
   }
 }

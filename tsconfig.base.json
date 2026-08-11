@@ -18,7 +18,11 @@
       "@skypier/crypto": ["packages/crypto/src/index.ts"],
       "@skypier/storage": ["packages/storage/src/index.ts"],
       "@skypier/network": ["packages/network/src/index.ts"],
+      "@skypier/network/node": ["packages/network/src/node.ts"],
+      "@skypier/network/browser": ["packages/network/src/browser.ts"],
+      "@skypier/network/protocols": ["packages/network/src/protocols.ts"],
       "@skypier/backup": ["packages/backup/src/index.ts"],
+      "@skypier/bot": ["packages/bot/src/index.ts"],
       "@skypier/ui": ["packages/ui/src/index.ts"]
     }
   }

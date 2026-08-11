@@ -106,6 +106,7 @@ export function ChatList({ conversations, selectedConversationId, onSelectConver
           const avatarSeed = remotePeer?.peerId || conv.id;
           const avatarSrc = remotePeer?.peerId ? avatarByPeerId[remotePeer.peerId] : undefined;
           const isGroupConversation = conv.kind === 'group' || conv.participants.length > 2;
+          const isBotPeer = Boolean(remotePeer?.isBot) && !isGroupConversation;
           const title = isGroupConversation ? `# ${conv.title}` : conv.title;
           const subtitle = isGroupConversation
             ? `${conv.participants.length} members · ${conv.lastMessagePreview}`
@@ -148,7 +149,7 @@ export function ChatList({ conversations, selectedConversationId, onSelectConver
             >
               <ListItemIcon sx={{ minWidth: dense ? 50 : 64 }}>
                 <Box sx={{ position: 'relative', display: 'inline-flex' }}>
-                  <UserAvatar seed={avatarSeed} size={dense ? 42 : 48} src={avatarSrc} />
+                  <UserAvatar seed={avatarSeed} size={dense ? 42 : 48} src={avatarSrc} isBot={isBotPeer} />
                   {reachabilityColor(conv.reachability) != null && (
                     <Box
                       sx={{
@@ -168,9 +169,15 @@ export function ChatList({ conversations, selectedConversationId, onSelectConver
                 </Box>
               </ListItemIcon>
               <ListItemText 
-                primary={title} 
+                primary={
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
+                    <Typography variant="subtitle2" noWrap sx={{ fontWeight: 'bold', lineHeight: dense ? 1.25 : 1.35 }}>
+                      {title}
+                    </Typography>
+                    {isBotPeer ? <Typography variant="caption" color="info.main" sx={{ fontWeight: 700 }}>BOT</Typography> : null}
+                  </Box>
+                }
                 secondary={subtitle}
-                primaryTypographyProps={{ variant: 'subtitle2', noWrap: true, fontWeight: 'bold', lineHeight: dense ? 1.25 : 1.35 }}
                 secondaryTypographyProps={{ variant: 'caption', noWrap: true, sx: { opacity: 0.7, lineHeight: dense ? 1.25 : 1.3 } }}
               />
               <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', ml: dense ? 0.5 : 1 }}>

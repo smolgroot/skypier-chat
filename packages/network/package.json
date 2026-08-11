@@ -6,7 +6,8 @@
   "exports": {
     ".": "./src/index.ts",
     "./browser": "./src/browser.ts",
-    "./node": "./src/node.ts"
+    "./node": "./src/node.ts",
+    "./protocols": "./src/protocols.ts"
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",

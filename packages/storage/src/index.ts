@@ -185,6 +185,7 @@ export interface Contact {
   id: string; // usually the peerId
   peerId: string;
   displayName: string;
+  isBot?: boolean;
   avatarUrl?: string;
   bio?: string;
   ensName?: string;

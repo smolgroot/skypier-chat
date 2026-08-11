@@ -79,6 +79,7 @@ export interface Participant {
   id: string;
   displayName: string;
   peerId: string;
+  isBot?: boolean;
   devices: DeviceIdentity[];
 }
 
@@ -238,6 +239,7 @@ export interface ChatMessage {
   conversationId: string;
   senderId: string;
   senderDisplayName: string;
+  senderIsBot?: boolean;
   senderDeviceId: string;
   createdAt: string;
   previewText: string;
@@ -275,6 +277,7 @@ export interface PresenceSnapshot {
 export interface SharedPeerProfileMetadata {
   peerId: string;
   displayName: string;
+  isBot?: boolean;
   avatarUrl?: string;
   bio?: string;
   ethAddress?: string;

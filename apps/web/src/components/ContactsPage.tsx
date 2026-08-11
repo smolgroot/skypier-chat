@@ -304,7 +304,7 @@ export function ContactsPage({ contacts, onSaveContact, onDeleteContact, onStart
                   }}
                 >
                   <ListItemAvatar>
-                    <UserAvatar seed={contact.peerId} size={48} src={contact.avatarUrl ?? undefined} />
+                    <UserAvatar seed={contact.peerId} size={48} src={contact.avatarUrl ?? undefined} isBot={contact.isBot} />
                   </ListItemAvatar>
                   <ListItemText
                     primary={
@@ -312,6 +312,9 @@ export function ContactsPage({ contacts, onSaveContact, onDeleteContact, onStart
                         <Typography fontWeight={600} variant="body1">
                           {contact.displayName}
                         </Typography>
+                        {contact.isBot ? (
+                          <Chip label="Bot" size="small" color="info" variant="outlined" />
+                        ) : null}
                         {contact.ensName ? (
                           <Typography variant="caption" color="primary.main" sx={{ fontWeight: 600 }}>
                             {contact.ensName}
@@ -377,11 +380,14 @@ export function ContactsPage({ contacts, onSaveContact, onDeleteContact, onStart
             }}
           >
             <Box sx={{ display: 'flex', justifyContent: 'center', mb: 2 }}>
-              <UserAvatar seed={selectedContact.peerId} size={96} src={selectedContact.avatarUrl ?? undefined} />
+              <UserAvatar seed={selectedContact.peerId} size={96} src={selectedContact.avatarUrl ?? undefined} isBot={selectedContact.isBot} />
             </Box>
-            <Typography variant="h5" fontWeight={700} gutterBottom>
-              {selectedContact.displayName}
-            </Typography>
+            <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: 1, mb: 0.5 }}>
+              <Typography variant="h5" fontWeight={700}>
+                {selectedContact.displayName}
+              </Typography>
+              {selectedContact.isBot ? <Chip label="Bot" size="small" color="info" variant="outlined" /> : null}
+            </Box>
             {selectedContact.ensName ? (
               <Typography variant="body2" color="primary.main" sx={{ fontWeight: 600, mb: 1 }}>
                 {selectedContact.ensName}

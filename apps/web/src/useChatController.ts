@@ -153,11 +153,12 @@ function inferConversationKind(conversationId: string): 'direct' | 'group' {
   return conversationId.startsWith('group-') ? 'group' : 'direct';
 }
 
-function createSyntheticRemoteParticipant(peerId: string, displayName: string) {
+function createSyntheticRemoteParticipant(peerId: string, displayName: string, isBot?: boolean) {
   return {
     id: peerId,
     displayName,
     peerId,
+    isBot,
     devices: [
       {
         id: `device-${peerId}`,
@@ -609,11 +610,15 @@ export function useChatController() {
 
     const currentDevice = buildCurrentDeviceIdentity(snap);
     const localPeerId = resolveLocalPeerId(snap);
+    const contactByPeerId = new Map((snap.contacts ?? []).map((contact) => [contact.peerId, contact]));
     const conversationId = isGroupConversation
       ? `group-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`
       : `conv-${uniquePeerIds[0].slice(-8)}-${Math.random().toString(36).slice(2, 6)}`;
 
-    const participantDisplayNames = uniquePeerIds.map((peerId) => `Peer ${peerId.slice(0, 10)}…`);
+    const participantDisplayNames = uniquePeerIds.map((peerId) => {
+      const knownContact = contactByPeerId.get(peerId);
+      return knownContact?.displayName ?? `Peer ${peerId.slice(0, 10)}…`;
+    });
     const defaultTitle = isGroupConversation
       ? `Group (${uniquePeerIds.length + 1})`
       : participantDisplayNames[0];
@@ -634,6 +639,7 @@ export function useChatController() {
           id: peerId,
           displayName: participantDisplayNames[index],
           peerId,
+          isBot: contactByPeerId.get(peerId)?.isBot,
           devices: [
             {
               id: `device-${peerId}`,
@@ -758,7 +764,7 @@ export function useChatController() {
       changed = true;
       const nextParticipants = conversation.participants.map((participant) =>
         participant.peerId === profile.peerId
-          ? { ...participant, displayName: profile.displayName }
+          ? { ...participant, displayName: profile.displayName, isBot: profile.isBot ?? participant.isBot }
           : participant,
       );
 
@@ -777,6 +783,7 @@ export function useChatController() {
             ? {
                 ...entry,
                 displayName: profile.displayName,
+                isBot: profile.isBot ?? entry.isBot,
                 avatarUrl: profile.avatarUrl ?? entry.avatarUrl,
                 bio: profile.bio ?? entry.bio,
                 ensName: profile.ensName ?? entry.ensName,
@@ -790,6 +797,7 @@ export function useChatController() {
             id: profile.peerId,
             peerId: profile.peerId,
             displayName: profile.displayName,
+            isBot: profile.isBot,
             avatarUrl: profile.avatarUrl,
             bio: profile.bio,
             ensName: profile.ensName,
@@ -853,7 +861,7 @@ export function useChatController() {
         participants: remoteContact
           ? conversation.participants.map((participant) =>
               participant.peerId === remoteContact.peerId
-                ? { ...participant, displayName: remoteContact.displayName }
+                ? { ...participant, displayName: remoteContact.displayName, isBot: remoteContact.isBot ?? participant.isBot }
                 : participant,
             )
           : conversation.participants,
@@ -1253,6 +1261,7 @@ export function useChatController() {
                 : undefined);
             const remoteContact = (snap.contacts ?? []).find((entryContact) => entryContact.peerId === entry.senderPeerId);
             const remoteDisplayName = remoteContact?.displayName ?? `Peer ${entry.senderPeerId.slice(0, 10)}…`;
+            const senderParticipant = existingConversation?.participants.find((participant) => participant.peerId === entry.senderPeerId);
 
             const conversation = existingConversation ?? {
               id: entry.conversationId,
@@ -1267,6 +1276,7 @@ export function useChatController() {
                   id: entry.senderPeerId,
                   displayName: remoteDisplayName,
                   peerId: entry.senderPeerId,
+                  isBot: remoteContact?.isBot,
                   devices: [{ id: `device-${entry.senderPeerId}`, label: 'Remote device', peerId: entry.senderPeerId, platform: 'web' as const, trustLevel: 'software' as const }],
                 },
               ],
@@ -1289,6 +1299,7 @@ export function useChatController() {
               conversationId: conversation.id,
               senderId: entry.senderPeerId,
               senderDisplayName,
+              senderIsBot: senderParticipant?.isBot ?? remoteContact?.isBot,
               senderDeviceId: `device-${entry.senderPeerId}`,
               createdAt: entry.sentAt,
               previewText: payloadPreviewText,
@@ -1415,6 +1426,7 @@ export function useChatController() {
 
     const remoteContact = (snap.contacts ?? []).find((entry) => entry.peerId === fromPeerId);
     const remoteDisplayName = remoteContact?.displayName ?? `Peer ${fromPeerId.slice(0, 10)}…`;
+    const senderParticipant = existingConversation?.participants.find((participant) => participant.peerId === fromPeerId);
 
     const conversation = existingConversation ?? {
       id: envelope.conversationId,
@@ -1434,6 +1446,7 @@ export function useChatController() {
           id: fromPeerId,
           displayName: remoteDisplayName,
           peerId: fromPeerId,
+          isBot: remoteContact?.isBot,
           devices: [
             {
               id: `device-${fromPeerId}`,
@@ -1464,6 +1477,7 @@ export function useChatController() {
       conversationId: resolvedConversation.id,
       senderId: fromPeerId,
       senderDisplayName,
+      senderIsBot: senderParticipant?.isBot ?? remoteContact?.isBot,
       senderDeviceId: `device-${fromPeerId}`,
       createdAt: envelope.sentAt,
       previewText: payloadPreviewText,
@@ -1621,6 +1635,7 @@ export function useChatController() {
     extras?: { bio?: string; ensName?: string; ethAddress?: string },
   ) => {
     const snap = stateRef.current;
+    const existingContact = (snap.contacts || []).find((contact) => contact.id === contactId);
     const existing = (snap.contacts || []).filter(c => c.id !== contactId);
     
     const nextState: PersistedChatState = {
@@ -1629,11 +1644,12 @@ export function useChatController() {
         id: contactId,
         peerId,
         displayName,
+        isBot: existingContact?.isBot,
         avatarUrl,
         bio: extras?.bio,
         ensName: extras?.ensName,
         ethAddress: extras?.ethAddress,
-        addedAt: new Date().toISOString()
+        addedAt: existingContact?.addedAt ?? new Date().toISOString()
       }]
     };
     await persistState(nextState);

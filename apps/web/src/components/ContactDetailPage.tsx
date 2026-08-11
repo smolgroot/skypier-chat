@@ -87,10 +87,17 @@ export function ContactDetailPage(props: ContactDetailPageProps) {
       }} />
 
       <Stack spacing={3} alignItems="center" sx={{ width: '100%' }}>
-        <UserAvatar seed={remoteParticipant.peerId} size={100} src={remoteAvatarSrc} sx={{ boxShadow: (theme: import('@mui/material').Theme) => `0 8px 32px ${theme.palette.primary.main}44` }} />
+          <UserAvatar seed={remoteParticipant.peerId} size={100} src={remoteAvatarSrc} isBot={remoteParticipant.isBot} sx={{ boxShadow: (theme: import('@mui/material').Theme) => `0 8px 32px ${theme.palette.primary.main}44` }} />
         
         <Box sx={{ textAlign: 'center' }}>
-          <Typography variant="h4" sx={{ fontWeight: 'bold' }}>{remoteParticipant.displayName}</Typography>
+            <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 1 }}>
+              <Typography variant="h4" sx={{ fontWeight: 'bold' }}>{remoteParticipant.displayName}</Typography>
+              {remoteParticipant.isBot ? (
+                <Typography variant="caption" color="info.main" sx={{ fontWeight: 700, letterSpacing: '0.05em' }}>
+                  BOT
+                </Typography>
+              ) : null}
+            </Box>
           <Typography variant="body2" color="primary" sx={{ fontWeight: '500' }}>
             {reachabilityLabel(conversation.reachability)}
           </Typography>
@@ -117,7 +124,8 @@ export function ContactDetailPage(props: ContactDetailPageProps) {
                     key={participant.peerId}
                     seed={participant.peerId}
                     size={34}
-                    src={avatarByPeerId[participant.peerId]}
+                      src={avatarByPeerId[participant.peerId]}
+                      isBot={participant.isBot}
                     sx={{ border: '1px solid rgba(255,255,255,0.2)' }}
                   />
                 ))}
@@ -138,7 +146,8 @@ export function ContactDetailPage(props: ContactDetailPageProps) {
                   <UserAvatar
                     seed={participant.peerId}
                     size={30}
-                    src={avatarByPeerId[participant.peerId]}
+                      src={avatarByPeerId[participant.peerId]}
+                      isBot={participant.isBot}
                   />
                   <Box sx={{ minWidth: 0, flexGrow: 1 }}>
                     <Typography variant="body2" sx={{ fontWeight: 600 }} noWrap>

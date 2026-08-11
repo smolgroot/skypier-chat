@@ -366,9 +366,30 @@ export function ChatBubble({ message, isSelf, onReplySelect, onToggleReaction, o
           // ── Sticker layout ──────────────────────────────────────────────
           <Box onPointerUp={handleBubblePointerUp}>
             {!isSelf && (
-              <Typography variant="caption" sx={{ fontWeight: 'bold', color: 'secondary.main', mb: 0.25 }}>
-                {message.senderDisplayName}
-              </Typography>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, mb: 0.25 }}>
+                <Typography variant="caption" sx={{ fontWeight: 'bold', color: 'secondary.main' }}>
+                  {message.senderDisplayName}
+                </Typography>
+                {message.senderIsBot ? (
+                  <Box
+                    component="span"
+                    sx={{
+                      px: 0.6,
+                      py: 0.1,
+                      borderRadius: 3,
+                      fontSize: '0.62rem',
+                      lineHeight: 1.4,
+                      fontWeight: 700,
+                      letterSpacing: '0.05em',
+                      textTransform: 'uppercase',
+                      bgcolor: (currentTheme) => currentTheme.palette.mode === 'dark' ? 'rgba(66, 198, 255, 0.18)' : 'rgba(31, 124, 255, 0.12)',
+                      color: 'info.main',
+                    }}
+                  >
+                    Bot
+                  </Box>
+                ) : null}
+              </Box>
             )}
             <Typography
               sx={{
@@ -423,9 +444,30 @@ export function ChatBubble({ message, isSelf, onReplySelect, onToggleReaction, o
           // ── Normal bubble layout ─────────────────────────────────────────
           <StyledBubble isSelf={isSelf} elevation={1} onPointerUp={handleBubblePointerUp}>
             {!isSelf && (
-              <Typography variant="caption" sx={{ fontWeight: 'bold', color: 'secondary.main', display: 'block', mb: 0.5 }}>
-                {message.senderDisplayName}
-              </Typography>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, mb: 0.5 }}>
+                <Typography variant="caption" sx={{ fontWeight: 'bold', color: 'secondary.main', display: 'block' }}>
+                  {message.senderDisplayName}
+                </Typography>
+                {message.senderIsBot ? (
+                  <Box
+                    component="span"
+                    sx={{
+                      px: 0.6,
+                      py: 0.1,
+                      borderRadius: 3,
+                      fontSize: '0.62rem',
+                      lineHeight: 1.4,
+                      fontWeight: 700,
+                      letterSpacing: '0.05em',
+                      textTransform: 'uppercase',
+                      bgcolor: (currentTheme) => currentTheme.palette.mode === 'dark' ? 'rgba(66, 198, 255, 0.18)' : 'rgba(31, 124, 255, 0.12)',
+                      color: 'info.main',
+                    }}
+                  >
+                    Bot
+                  </Box>
+                ) : null}
+              </Box>
             )}
 
             {message.replyTo && (

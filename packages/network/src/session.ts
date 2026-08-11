@@ -405,6 +405,7 @@ function isSharedPeerProfileMetadata(value: unknown): value is SharedPeerProfile
   if (profile.bio != null && typeof profile.bio !== 'string') return false;
   if (profile.ethAddress != null && typeof profile.ethAddress !== 'string') return false;
   if (profile.ensName != null && typeof profile.ensName !== 'string') return false;
+  if (profile.isBot != null && typeof profile.isBot !== 'boolean') return false;
 
   return true;
 }
@@ -440,6 +441,7 @@ function sanitizeSharedProfile(profile: SharedPeerProfileMetadata, enforcedPeerI
     ...profile,
     peerId: enforcedPeerId ?? profile.peerId,
     displayName: clampText(profile.displayName, MAX_SHARED_DISPLAY_NAME_LENGTH) ?? profile.displayName,
+    isBot: profile.isBot === true ? true : undefined,
     bio: clampText(profile.bio, MAX_SHARED_BIO_LENGTH),
     ensName: clampText(profile.ensName, MAX_SHARED_ENS_NAME_LENGTH),
     updatedAt: profile.updatedAt,
